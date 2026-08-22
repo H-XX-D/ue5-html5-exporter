@@ -1,4 +1,9 @@
-import { DiscordSDK, Events, patchUrlMappings } from '@discord/embedded-app-sdk';
+import {
+  DiscordSDK,
+  Events,
+  RPCErrorCodes,
+  patchUrlMappings,
+} from '@discord/embedded-app-sdk';
 import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_CONFIG_URL = '/api/activity';
@@ -14,6 +19,19 @@ export function resolveActivityApiUrl(documentObject = globalThis.document) {
 
 function activityEvent(type, detail) {
   return new CustomEvent(type, { detail });
+}
+
+function optionalText(value) {
+  const text = String(value || '').trim();
+  return text || undefined;
+}
+
+function partySize(value, label) {
+  const number = Number(value || 0);
+  if (!Number.isSafeInteger(number) || number < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
+  return number;
 }
 
 async function responseJson(response) {
@@ -164,6 +182,24 @@ export class DiscordActivityBridge extends EventTarget {
     return responseJson(response);
   }
 
+  async callOptionalCommand(name, args, fallback) {
+    const command = this.discord?.commands?.[name];
+    if (typeof command !== 'function') {
+      this.dispatchEvent(activityEvent('warning', {
+        command: name,
+        error: new Error(`This Discord client does not support ${name}.`),
+      }));
+      return fallback;
+    }
+    try {
+      return await command.call(this.discord.commands, args);
+    } catch (error) {
+      if (Number(error?.code) !== RPCErrorCodes.INVALID_COMMAND) throw error;
+      this.dispatchEvent(activityEvent('warning', { command: name, error }));
+      return fallback;
+    }
+  }
+
   async refreshRealtimeToken() {
     const refreshed = await this.callApi('refresh', { instanceId: this.discord.instanceId });
     this.realtimeToken = refreshed.realtimeToken;
@@ -247,6 +283,71 @@ export class DiscordActivityBridge extends EventTarget {
 
   async encourageHardwareAcceleration() {
     return this.discord.commands.encourageHardwareAcceleration();
+  }
+
+  async setRichPresence({
+    details = '',
+    state = '',
+    currentPartySize = 0,
+    maximumPartySize = 0,
+    largeImage = '',
+    largeText = '',
+  } = {}) {
+    if (!this.config.richPresenceEnabled) {
+      throw new Error('Rich Presence is disabled. Set DISCORD_ENABLE_RICH_PRESENCE=true on the Activity API.');
+    }
+    const current = partySize(currentPartySize, 'Current party size');
+    const maximum = partySize(maximumPartySize, 'Maximum party size');
+    if (maximum && current > maximum) throw new Error('Current party size cannot exceed maximum party size.');
+
+    const activity = {
+      type: 0,
+      instance: true,
+      ...(optionalText(details) ? { details: optionalText(details) } : {}),
+      ...(optionalText(state) ? { state: optionalText(state) } : {}),
+      ...(maximum ? { party: { id: this.discord.instanceId, size: [current, maximum] } } : {}),
+      ...(optionalText(largeImage) || optionalText(largeText) ? {
+        assets: {
+          ...(optionalText(largeImage) ? { large_image: optionalText(largeImage) } : {}),
+          ...(optionalText(largeText) ? { large_text: optionalText(largeText) } : {}),
+        },
+      } : {}),
+    };
+    const result = await this.callOptionalCommand('setActivity', { activity }, { supported: false });
+    return result?.supported === false ? result : { supported: true, activity: result };
+  }
+
+  async clearRichPresence() {
+    if (!this.config.richPresenceEnabled) return { supported: false };
+    const result = await this.callOptionalCommand('setActivity', { activity: null }, { supported: false });
+    return result?.supported === false ? result : { supported: true, activity: result };
+  }
+
+  async shareLink(message, customId = '', linkId = '') {
+    const text = optionalText(message);
+    if (!text) throw new Error('A Discord Activity share message is required.');
+    const result = await this.callOptionalCommand('shareLink', {
+      message: text,
+      ...(optionalText(customId) ? { custom_id: optionalText(customId) } : {}),
+      ...(optionalText(linkId) ? { link_id: optionalText(linkId) } : {}),
+    }, { success: false, didCopyLink: false, didSendMessage: false, supported: false });
+    return result?.supported === false ? result : { ...result, supported: true };
+  }
+
+  async openExternalLink(url) {
+    let target;
+    try { target = new URL(String(url)); }
+    catch { throw new Error('Discord external links must be valid HTTPS URLs.'); }
+    if (target.protocol !== 'https:') throw new Error('Discord external links must use HTTPS.');
+    const result = await this.callOptionalCommand('openExternalLink', { url: target.href }, { opened: false, supported: false });
+    return result?.supported === false ? result : { ...result, supported: true };
+  }
+
+  getLaunchContext() {
+    return {
+      customId: optionalText(this.discord?.customId) || '',
+      hasReferrer: Boolean(optionalText(this.discord?.referrerId)),
+    };
   }
 
   async verifyEntitlements() {

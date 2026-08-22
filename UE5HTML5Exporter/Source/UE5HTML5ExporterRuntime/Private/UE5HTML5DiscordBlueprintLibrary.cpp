@@ -32,6 +32,50 @@ void UUE5HTML5DiscordBlueprintLibrary::DiscordActivityEncourageHardwareAccelerat
     LogNativeFallback(TEXT("DiscordActivityEncourageHardwareAcceleration"));
 }
 
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivitySetRichPresence(
+    const FString& Details,
+    const FString& State,
+    int32 CurrentPartySize,
+    int32 MaximumPartySize,
+    const FString& LargeImage,
+    const FString& LargeText)
+{
+    LogNativeFallback(TEXT("DiscordActivitySetRichPresence"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityClearRichPresence()
+{
+    LogNativeFallback(TEXT("DiscordActivityClearRichPresence"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityShareLink(
+    const FString& Message,
+    const FString& CustomId,
+    const FString& LinkId,
+    FString& OutShareResultJson)
+{
+    OutShareResultJson = TEXT("{\"success\":false,\"supported\":false}");
+    LogNativeFallback(TEXT("DiscordActivityShareLink"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityOpenExternalLink(const FString& Url)
+{
+    LogNativeFallback(TEXT("DiscordActivityOpenExternalLink"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityGetLaunchContext(
+    FString& OutCustomId,
+    bool& bOutHasReferrer)
+{
+    OutCustomId.Reset();
+    bOutHasReferrer = false;
+    return false;
+}
+
 bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityGetParticipants(FString& OutParticipantsJson)
 {
     OutParticipantsJson = TEXT("{\"participants\":[]}");

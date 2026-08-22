@@ -21,6 +21,9 @@ test('runtime module exposes Discord Activity operations as familiar Blueprint n
     'DiscordActivityLoadPlayerState', 'DiscordActivitySavePlayerState',
     'DiscordActivityGetSkus', 'DiscordActivityGetVerifiedEntitlements',
     'DiscordActivityHasEntitlement', 'DiscordActivityStartPurchase',
+    'DiscordActivitySetRichPresence', 'DiscordActivityClearRichPresence',
+    'DiscordActivityShareLink', 'DiscordActivityOpenExternalLink',
+    'DiscordActivityGetLaunchContext',
   ]) {
     assert.match(header, new RegExp(functionName));
   }
@@ -66,7 +69,11 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   const activity = read(`Resources/WebTemplate/runtime/${activityFile}`);
   assert.match(viewer, /discordactivitygetverifiedentitlements/);
   assert.match(viewer, /discordactivitystartpurchase/);
+  assert.match(viewer, /discordactivitysetrichpresence/);
+  assert.match(viewer, /discordactivitysharelink/);
   assert.match(activity, /startPurchase/);
+  assert.match(activity, /setRichPresence/);
+  assert.match(activity, /shareLink/);
 });
 
 test('exporter writes the scene, manifest, and local server helper', () => {

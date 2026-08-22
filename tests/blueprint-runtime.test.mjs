@@ -273,3 +273,52 @@ test('Discord Blueprint monetization nodes list SKUs and use server-verified ent
   assert.deepEqual(calls, ['verify', 'verify', 'verify', { purchase: 'sku-premium' }]);
   adapters.dispose();
 });
+
+test('Discord Blueprint social nodes expose distribution features without raw referrer identity', async () => {
+  const calls = [];
+  const activity = {
+    mode: 'ready',
+    async setRichPresence(options) { calls.push({ presence: options }); return { supported: true }; },
+    async clearRichPresence() { calls.push('clear'); return { supported: true }; },
+    async shareLink(message, customId, linkId) {
+      calls.push({ share: { message, customId, linkId } });
+      return { success: true, supported: true, didSendMessage: true };
+    },
+    async openExternalLink(url) { calls.push({ external: url }); return { opened: true, supported: true }; },
+    getLaunchContext() { return { customId: 'campaign-one', hasReferrer: true }; },
+  };
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, { UE5HTML5: { activity } });
+
+  const presence = await adapters.call('DiscordActivitySetRichPresence', {
+    details: 'Round 3', state: 'In match', currentpartysize: 2, maximumpartysize: 4,
+    largeimage: 'arena', largetext: 'Arena',
+  }).promise;
+  const cleared = await adapters.call('DiscordActivityClearRichPresence', {}).promise;
+  const shared = await adapters.call('DiscordActivityShareLink', {
+    message: 'Join me', customid: 'campaign-one', linkid: '',
+  }).promise;
+  const opened = await adapters.call('DiscordActivityOpenExternalLink', { url: 'https://example.com/help' }).promise;
+  const launch = adapters.call('DiscordActivityGetLaunchContext', {}).value;
+
+  assert.deepEqual(presence, { returnvalue: true });
+  assert.deepEqual(cleared, { returnvalue: true });
+  assert.equal(shared.returnvalue, true);
+  assert.equal(JSON.parse(shared.outshareresultjson).didSendMessage, true);
+  assert.deepEqual(opened, { returnvalue: true });
+  assert.deepEqual(launch, {
+    returnvalue: true,
+    outcustomid: 'campaign-one',
+    bouthasreferrer: true,
+  });
+  assert.equal(JSON.stringify(launch).includes('referrerId'), false);
+  assert.deepEqual(calls, [
+    { presence: {
+      details: 'Round 3', state: 'In match', currentPartySize: 2, maximumPartySize: 4,
+      largeImage: 'arena', largeText: 'Arena',
+    } },
+    'clear',
+    { share: { message: 'Join me', customId: 'campaign-one', linkId: '' } },
+    { external: 'https://example.com/help' },
+  ]);
+  adapters.dispose();
+});

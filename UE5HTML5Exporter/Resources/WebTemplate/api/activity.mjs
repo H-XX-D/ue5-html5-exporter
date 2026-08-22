@@ -54,6 +54,10 @@ function proxyAuthenticationRequired(env) {
   return /^(?:1|true|yes|on)$/i.test(String(env.DISCORD_REQUIRE_PROXY_AUTH || ''));
 }
 
+function richPresenceEnabled(env) {
+  return /^(?:1|true|yes|on)$/i.test(String(env.DISCORD_ENABLE_RICH_PRESENCE || ''));
+}
+
 function validDiscordPublicKey(value) {
   return /^[0-9a-f]{64}$/i.test(String(value || ''));
 }
@@ -443,7 +447,8 @@ export async function handleActivityRequest(request, {
       supabasePublishableKey: env.SUPABASE_PUBLISHABLE_KEY,
       supabaseProxyPrefix: '/supabase',
       supabaseProxyTarget: new URL(env.SUPABASE_URL).host,
-      oauthScopes: ['identify'],
+      oauthScopes: richPresenceEnabled(env) ? ['identify', 'rpc.activities.write'] : ['identify'],
+      richPresenceEnabled: richPresenceEnabled(env),
       proxyAuthenticationRequired: proxyAuthenticationRequired(env),
     });
   }

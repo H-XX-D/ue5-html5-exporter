@@ -15,7 +15,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - `export-manifest.json` plus per-Blueprint/node compatibility warnings
 - Commandlet support for CI or batch export
 - Output that works on any static host
-- Discord Activity Blueprint nodes plus verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
+- Discord Activity Blueprint nodes plus Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 
 ## Build the plugin
@@ -64,7 +64,7 @@ Before handing off a project, use **Tools → HTML5 Export → Check Discord Act
 
 ## Discord nodes in Blueprint
 
-Search the Blueprint palette for **UE5 HTML5 → Discord Activity**. The runtime module supplies nodes for readiness, Broadcast, the native invite dialog, hardware acceleration, connected participants, Discord SKUs/purchases, server-verified entitlements, and atomic world/player load/save. They return safe unavailable/default values during native Unreal play and become asynchronous Discord SDK operations after HTML5 export.
+Search the Blueprint palette for **UE5 HTML5 → Discord Activity**. The runtime module supplies nodes for readiness, Broadcast, the native invite dialog, Rich Presence, Discord share links, HTTPS external links, non-personal launch campaign context, hardware acceleration, connected participants, Discord SKUs/purchases, server-verified entitlements, and atomic world/player load/save. They return safe unavailable/default values during native Unreal play and become asynchronous Discord SDK operations after HTML5 export.
 
 State and Broadcast payloads are JSON strings. Save nodes accept an optional expected revision: leave it at `-1` for unconditional save, or pass the revision from the previous load/save to reject stale concurrent writes.
 
@@ -109,7 +109,7 @@ On Windows, use `UnrealEditor-Cmd.exe`.
 | UMG | Widget trees exported to DOM; common containers, text, buttons, viewport, visibility, and text calls supported |
 | Niagara/Cascade | Spawn/activate/deactivate calls use a portable Three.js particle fallback |
 | User C++ gameplay | Explicit JavaScript replacement registry through `UE5HTML5.registerFunction` |
-| Discord Activity | Blueprint nodes backed by Embedded App SDK authorization, opaque HttpOnly Activity sessions, server-verified membership/entitlements, private Supabase Broadcast/Presence, and atomic cross-device saves |
+| Discord Activity | Blueprint nodes backed by Embedded App SDK authorization, Rich Presence/share links, opaque HttpOnly Activity sessions, server-verified membership/entitlements, private Supabase Broadcast/Presence, and atomic cross-device saves |
 | Other Blueprint nodes/functions | Preserved in IR and reported as unsupported |
 | UE post-processing/custom shaders | Not transferred or approximated by PBR conversion |
 

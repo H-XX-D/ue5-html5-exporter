@@ -27,6 +27,31 @@ public:
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
     static void DiscordActivityEncourageHardwareAcceleration();
 
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social", meta = (AdvancedDisplay = "CurrentPartySize,MaximumPartySize,LargeImage,LargeText"))
+    static bool DiscordActivitySetRichPresence(
+        const FString& Details,
+        const FString& State,
+        int32 CurrentPartySize,
+        int32 MaximumPartySize,
+        const FString& LargeImage,
+        const FString& LargeText);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social")
+    static bool DiscordActivityClearRichPresence();
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social", meta = (AdvancedDisplay = "CustomId,LinkId"))
+    static bool DiscordActivityShareLink(
+        const FString& Message,
+        const FString& CustomId,
+        const FString& LinkId,
+        FString& OutShareResultJson);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social")
+    static bool DiscordActivityOpenExternalLink(const FString& Url);
+
+    UFUNCTION(BlueprintPure, Category = "UE5 HTML5|Discord Activity|Social")
+    static bool DiscordActivityGetLaunchContext(FString& OutCustomId, bool& bOutHasReferrer);
+
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
     static bool DiscordActivityGetParticipants(FString& OutParticipantsJson);
 

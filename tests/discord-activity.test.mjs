@@ -74,7 +74,18 @@ test('public Activity config never returns server secrets', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.enabled, true);
   assert.equal(payload.supabaseProxyTarget, 'project.supabase.co');
+  assert.equal(payload.richPresenceEnabled, false);
+  assert.deepEqual(payload.oauthScopes, ['identify']);
   assert.doesNotMatch(JSON.stringify(payload), /discord-secret|bot-secret|sb_secret_private/);
+});
+
+test('Rich Presence scope is enabled only by explicit server configuration', async () => {
+  const env = await testEnvironment();
+  env.DISCORD_ENABLE_RICH_PRESENCE = 'true';
+  const response = await handleActivityRequest(new Request('https://game.test/api/activity'), { env });
+  const payload = await response.json();
+  assert.equal(payload.richPresenceEnabled, true);
+  assert.deepEqual(payload.oauthScopes, ['identify', 'rpc.activities.write']);
 });
 
 test('public Activity config fails closed when any server setting is absent', async () => {
@@ -288,6 +299,7 @@ test('Activity sessions reject tampering and cannot cross Activity instances', a
 
 test('bridge completes Discord auth, clears the OAuth token, and joins private Realtime', async () => {
   const calls = [];
+  const socialCommands = [];
   const config = {
     enabled: true,
     discordClientId: '123',
@@ -295,7 +307,8 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
     supabasePublishableKey: 'sb_publishable_public',
     supabaseProxyPrefix: '/supabase',
     supabaseProxyTarget: 'project.supabase.co',
-    oauthScopes: ['identify'],
+    oauthScopes: ['identify', 'rpc.activities.write'],
+    richPresenceEnabled: true,
   };
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url, init });
@@ -332,10 +345,15 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
     async removeChannel() {},
   };
   class MockDiscordSDK {
-    constructor(clientId) { assert.equal(clientId, '123'); this.instanceId = 'i-test'; }
+    constructor(clientId) {
+      assert.equal(clientId, '123');
+      this.instanceId = 'i-test';
+      this.customId = 'campaign-summer';
+      this.referrerId = '99';
+    }
     async ready() {}
     commands = {
-      authorize: async (args) => { assert.deepEqual(args.scope, ['identify']); return { code: 'discord-code' }; },
+      authorize: async (args) => { assert.deepEqual(args.scope, ['identify', 'rpc.activities.write']); return { code: 'discord-code' }; },
       authenticate: async ({ access_token }) => { assert.equal(access_token, 'discord-access-token'); return { user: { id: '42', username: 'player', global_name: 'Player' } }; },
       getInstanceConnectedParticipants: async () => ({ participants: [{ id: '42' }] }),
       openInviteDialog: async () => ({ opened: true }),
@@ -343,6 +361,9 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
       getSkus: async () => ({ skus: [{ id: 'sku-premium' }] }),
       getEntitlements: async () => ({ entitlements: [{ sku_id: 'client-only' }] }),
       startPurchase: async ({ sku_id }) => ({ sku_id, opened: true }),
+      setActivity: async (args) => { socialCommands.push({ setActivity: args }); return args.activity; },
+      shareLink: async (args) => { socialCommands.push({ shareLink: args }); return { success: true, didCopyLink: false, didSendMessage: true }; },
+      openExternalLink: async (args) => { socialCommands.push({ openExternalLink: args }); return { opened: true }; },
     };
     subscribe() {}
     unsubscribe() {}
@@ -388,5 +409,38 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
     purchase: { sku_id: 'sku-premium', opened: true },
     entitlements: [{ skuId: 'sku-premium', consumed: false }],
   });
+  assert.equal((await bridge.setRichPresence({
+    details: 'Round 2', state: 'In match', currentPartySize: 2, maximumPartySize: 4,
+    largeImage: 'arena', largeText: 'Arena',
+  })).supported, true);
+  assert.equal((await bridge.clearRichPresence()).supported, true);
+  assert.equal((await bridge.shareLink('Join my match', 'campaign-summer')).success, true);
+  assert.equal((await bridge.openExternalLink('https://example.com/help')).opened, true);
+  assert.deepEqual(bridge.getLaunchContext(), {
+    customId: 'campaign-summer', hasReferrer: true,
+  });
+  assert.deepEqual(socialCommands[0].setActivity.activity.party, { id: 'i-test', size: [2, 4] });
+  assert.equal(socialCommands[1].setActivity.activity, null);
+  assert.deepEqual(socialCommands[2].shareLink, { message: 'Join my match', custom_id: 'campaign-summer' });
+  assert.deepEqual(socialCommands[3].openExternalLink, { url: 'https://example.com/help' });
+  await assert.rejects(() => bridge.openExternalLink('javascript:alert(1)'), /must use HTTPS/);
   await bridge.dispose();
+});
+
+test('new social commands fail soft on older Discord clients', async () => {
+  const bridge = new DiscordActivityBridge();
+  bridge.discord = {
+    commands: {
+      shareLink: async () => { throw Object.assign(new Error('old client'), { code: 4002 }); },
+    },
+  };
+  bridge.config = { richPresenceEnabled: true };
+  const warnings = [];
+  bridge.addEventListener('warning', ({ detail }) => warnings.push(detail.command));
+
+  assert.deepEqual(await bridge.shareLink('Join me'), {
+    success: false, didCopyLink: false, didSendMessage: false, supported: false,
+  });
+  assert.deepEqual(await bridge.clearRichPresence(), { supported: false });
+  assert.deepEqual(warnings, ['shareLink', 'setActivity']);
 });

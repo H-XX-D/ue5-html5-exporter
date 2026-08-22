@@ -69,6 +69,7 @@ Set these in the Vercel project for Preview and Production. Mark every value und
 DISCORD_CLIENT_ID
 SUPABASE_URL
 SUPABASE_PUBLISHABLE_KEY
+DISCORD_ENABLE_RICH_PRESENCE
 DISCORD_REQUIRE_PROXY_AUTH
 DISCORD_PUBLIC_KEY
 
@@ -84,6 +85,8 @@ SUPABASE_JWT_KEY_ID
 ```
 
 Set `DISCORD_REQUIRE_PROXY_AUTH=false` for ordinary browser previews. Before a public release, enable proxy authentication for the Discord application, copy its 64-character Ed25519 public key into `DISCORD_PUBLIC_KEY`, set `DISCORD_REQUIRE_PROXY_AUTH=true`, redeploy, and run the online preflight. The preflight then verifies that the key matches Discord's application record. Do not turn the requirement on before Discord is sending the three proxy headers or every privileged request will correctly fail with HTTP 401.
+
+Set `DISCORD_ENABLE_RICH_PRESENCE=true` when the game uses the Rich Presence Blueprint nodes. The public configuration then requests Discord's `rpc.activities.write` scope in addition to `identify`; the scope is not requested when the feature is disabled.
 
 The export pins Node.js 22 or later and includes:
 
@@ -129,6 +132,10 @@ In UE5, search the Blueprint palette for **UE5 HTML5 → Discord Activity**. Ava
 - `Discord Activity Broadcast`
 - `Discord Activity Open Invite Dialog`
 - `Discord Activity Encourage Hardware Acceleration`
+- `Discord Activity Set/Clear Rich Presence`
+- `Discord Activity Share Link`
+- `Discord Activity Open External Link`
+- `Discord Activity Get Launch Context`
 - `Discord Activity Get Participants`
 - `Discord Activity Get Skus`
 - `Discord Activity Get Verified Entitlements`
@@ -138,6 +145,8 @@ In UE5, search the Blueprint palette for **UE5 HTML5 → Discord Activity**. Ava
 - `Discord Activity Load/Save Player State`
 
 The nodes return safe unavailable/default values during native Unreal play. After export, async operations pause that Blueprint execution path until the Discord/Supabase operation completes. JSON payload pins accept JSON strings. Save nodes default `Expected Revision` to `-1` for an unconditional write; pass a prior revision to enable stale-write rejection.
+
+`Get Launch Context` returns campaign `custom_id` and a Boolean saying whether a referrer exists. It deliberately does not expose the raw referrer's Discord user ID to Blueprint. `link_id` remains an optional input when sharing a Developer Portal custom link. Newer social commands return a safe unsupported result when an older Discord client reports `INVALID_COMMAND`; other errors remain visible instead of being silently swallowed.
 
 The same bridge is available to custom browser code at `window.UE5HTML5.activity`:
 
@@ -151,6 +160,14 @@ activity.addEventListener('broadcast', ({ detail }) => {
 await activity.broadcast('player-input', { x: 1, y: 0 });
 const { participants } = await activity.getParticipants();
 await activity.openInviteDialog();
+await activity.setRichPresence({
+  details: 'Round 3',
+  state: 'In match',
+  currentPartySize: 2,
+  maximumPartySize: 4,
+});
+await activity.shareLink('Join my match', 'campaign-summer');
+const launch = activity.getLaunchContext();
 
 const { skus } = await activity.getSkus();
 const purchase = await activity.startPurchase(skus[0].id);
@@ -168,6 +185,8 @@ Use Broadcast/Presence for input, lobby state, and other short-lived messages. D
 ## Discovery and monetization release gates
 
 Because the app is already verified, complete **Discovery → Discovery Status**, upload the required Discovery metadata/assets, and opt in. Discord says listing propagation can take up to 24 hours.
+
+Use Rich Presence and `Share Link` for Discord-native discovery without making Unreal developers learn the Embedded App SDK. Use non-personal `custom_id` values for campaign or deep-link routing. The bridge exposes only whether a referrer is present; it does not expose or store the raw referrer ID.
 
 For monetization, use Discord-native SKUs and `startPurchase()`. `Get Skus` is intended for storefront display. `Get Verified Entitlements` and `Has Entitlement` call the Vercel backend, which rechecks both Activity membership and Discord's Entitlements HTTP API; use those nodes before granting premium value. Client entitlement events remain immediate UI signals, not authority.
 
@@ -191,6 +210,8 @@ Before public release, also verify:
 - [Discord: Multiplayer Experience and Activity Instance API](https://docs.discord.com/developers/activities/development-guides/multiplayer-experience)
 - [Discord: Production readiness](https://docs.discord.com/developers/activities/development-guides/production-readiness)
 - [Discord: Mobile safe areas](https://docs.discord.com/developers/activities/development-guides/mobile)
+- [Discord: Rich Presence for Activities](https://docs.discord.com/developers/rich-presence/using-with-the-embedded-app-sdk)
+- [Discord: Growth and referrals](https://docs.discord.com/developers/activities/development-guides/growth-and-referrals)
 - [Discord: Enabling Discovery](https://docs.discord.com/developers/discovery/enabling-discovery)
 - [Discord: In-app purchases for Activities](https://docs.discord.com/developers/monetization/implementing-iap-for-activities)
 - [Supabase: JWT Signing Keys](https://supabase.com/docs/guides/auth/signing-keys)

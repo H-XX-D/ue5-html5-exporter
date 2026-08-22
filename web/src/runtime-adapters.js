@@ -415,6 +415,42 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     if (name === 'discordactivityencouragehardwareacceleration') {
       return { handled: true, promise: activity.encourageHardwareAcceleration().then(() => true) };
     }
+    if (name === 'discordactivitysetrichpresence') {
+      return { handled: true, promise: activity.setRichPresence({
+        details: String(args.details || ''),
+        state: String(args.state || ''),
+        currentPartySize: Number(args.currentpartysize || 0),
+        maximumPartySize: Number(args.maximumpartysize || 0),
+        largeImage: String(args.largeimage || ''),
+        largeText: String(args.largetext || ''),
+      }).then((result) => ({ returnvalue: result?.supported !== false })) };
+    }
+    if (name === 'discordactivityclearrichpresence') {
+      return { handled: true, promise: activity.clearRichPresence()
+        .then((result) => ({ returnvalue: result?.supported !== false })) };
+    }
+    if (name === 'discordactivitysharelink') {
+      return { handled: true, promise: activity.shareLink(
+        String(args.message || ''),
+        String(args.customid || ''),
+        String(args.linkid || ''),
+      ).then((result) => ({
+        returnvalue: Boolean(result?.success),
+        outshareresultjson: JSON.stringify(result),
+      })) };
+    }
+    if (name === 'discordactivityopenexternallink') {
+      return { handled: true, promise: activity.openExternalLink(String(args.url || ''))
+        .then((result) => ({ returnvalue: result?.supported !== false && result?.opened !== false })) };
+    }
+    if (name === 'discordactivitygetlaunchcontext') {
+      const context = activity.getLaunchContext();
+      return { handled: true, value: {
+        returnvalue: true,
+        outcustomid: String(context.customId || ''),
+        bouthasreferrer: Boolean(context.hasReferrer),
+      } };
+    }
     if (name === 'discordactivitygetparticipants') {
       return { handled: true, promise: activity.getParticipants().then((result) => ({
         returnvalue: true,
