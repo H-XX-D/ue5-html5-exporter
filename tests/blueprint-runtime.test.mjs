@@ -439,12 +439,67 @@ test('Discord display nodes and mobile lifecycle events map directly to Blueprin
   activity.dispatchEvent(new CustomEvent('layoutmode', {
     detail: { layoutMode: 2, layoutModeName: 'Grid' },
   }));
-  assert.deepEqual(eventCalls, [
+  assert.deepEqual(eventCalls.filter(([name]) => name !== 'DiscordActivityPresenceChanged'), [
     ['DiscordActivityThermalStateChanged', null, { thermalState: 3, thermalStateName: 'Critical' }],
     ['DiscordActivityOrientationChanged', null, { orientation: 0, orientationName: 'Portrait' }],
     ['DiscordActivityLayoutModeChanged', null, { layoutMode: 2, layoutModeName: 'Grid' }],
   ]);
   adapters.dispose();
   activity.dispatchEvent(new CustomEvent('layoutmode', { detail: { layoutMode: 0 } }));
-  assert.equal(eventCalls.length, 3);
+  assert.equal(eventCalls.filter(([name]) => name === 'DiscordActivityLayoutModeChanged').length, 1);
+});
+
+test('authenticated inbound Activity updates become transient Blueprint events', async () => {
+  const activity = new EventTarget();
+  activity.mode = 'ready';
+  activity.entitlements = [{ skuId: 'premium', consumed: false }];
+  activity.getPresenceState = () => ({ 'opaque-connection': [{ connected: true }] });
+  activity.getParticipants = async () => ({ participants: [{ id: '42', username: 'player' }] });
+  const eventCalls = [];
+  const eventTarget = new EventTarget();
+  eventTarget.UE5HTML5 = { activity, activityReady: Promise.resolve(activity) };
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, eventTarget);
+  adapters.attachRuntime({ call: (...args) => eventCalls.push(args) });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  activity.dispatchEvent(new CustomEvent('broadcast', { detail: {
+    type: 'broadcast', event: 'player-input', payload: { x: 1 }, meta: { replayed: true },
+  } }));
+  activity.dispatchEvent(new CustomEvent('presence', {
+    detail: { 'opaque-connection': [{ connected: false }] },
+  }));
+  activity.dispatchEvent(new CustomEvent('participants', {
+    detail: { participants: [{ id: '42' }, { id: '77' }] },
+  }));
+  activity.dispatchEvent(new CustomEvent('entitlements', {
+    detail: [{ skuId: 'premium' }, { skuId: 'season-pass' }],
+  }));
+
+  assert.deepEqual(eventCalls, [
+    ['DiscordActivityPresenceChanged', null, {
+      presenceJson: '{"opaque-connection":[{"connected":true}]}',
+    }],
+    ['DiscordActivityVerifiedEntitlementsChanged', null, {
+      entitlementsJson: '[{"skuId":"premium","consumed":false}]', entitlementCount: 1,
+    }],
+    ['DiscordActivityParticipantsChanged', null, {
+      participantsJson: '{"participants":[{"id":"42","username":"player"}]}', participantCount: 1,
+    }],
+    ['DiscordActivityBroadcastReceived', null, {
+      event: 'player-input', jsonPayload: '{"x":1}', bReplayed: true,
+    }],
+    ['DiscordActivityPresenceChanged', null, {
+      presenceJson: '{"opaque-connection":[{"connected":false}]}',
+    }],
+    ['DiscordActivityParticipantsChanged', null, {
+      participantsJson: '{"participants":[{"id":"42"},{"id":"77"}]}', participantCount: 2,
+    }],
+    ['DiscordActivityVerifiedEntitlementsChanged', null, {
+      entitlementsJson: '[{"skuId":"premium"},{"skuId":"season-pass"}]', entitlementCount: 2,
+    }],
+  ]);
+  adapters.dispose();
+  activity.dispatchEvent(new CustomEvent('broadcast', { detail: { event: 'late', payload: {} } }));
+  assert.equal(eventCalls.length, 7);
 });

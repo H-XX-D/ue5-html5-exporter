@@ -18,6 +18,15 @@ function discordOrientationLock(value) {
   return -1;
 }
 
+function blueprintJson(value) {
+  try {
+    const serialized = JSON.stringify(value ?? null);
+    return serialized === undefined ? 'null' : serialized;
+  } catch {
+    return 'null';
+  }
+}
+
 const STANDARD_GAMEPAD_BUTTONS = Object.freeze({
   gamepadfacebuttonbottom: 0,
   gamepadfacebuttonright: 1,
@@ -548,13 +557,46 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
         ['thermalstate', ({ detail = {} }) => this.runtime?.call('DiscordActivityThermalStateChanged', null, detail)],
         ['orientation', ({ detail = {} }) => this.runtime?.call('DiscordActivityOrientationChanged', null, detail)],
         ['layoutmode', ({ detail = {} }) => this.runtime?.call('DiscordActivityLayoutModeChanged', null, detail)],
+        ['broadcast', ({ detail = {} }) => this.runtime?.call('DiscordActivityBroadcastReceived', null, {
+          event: String(detail.event || 'message'),
+          jsonPayload: blueprintJson(detail.payload),
+          bReplayed: Boolean(detail.meta?.replayed),
+        })],
+        ['presence', ({ detail = {} }) => this.runtime?.call('DiscordActivityPresenceChanged', null, {
+          presenceJson: blueprintJson(detail),
+        })],
+        ['participants', ({ detail = {} }) => this.emitDiscordParticipants(detail)],
+        ['entitlements', ({ detail = [] }) => this.emitDiscordEntitlements(detail)],
       ];
       this.discordEventSource = activity;
       for (const [type, handler] of this.discordEventHandlers) activity.addEventListener?.(type, handler);
+      if (activity.mode === 'ready') {
+        this.runtime?.call('DiscordActivityPresenceChanged', null, {
+          presenceJson: blueprintJson(activity.getPresenceState?.() || {}),
+        });
+        if (Array.isArray(activity.entitlements)) this.emitDiscordEntitlements(activity.entitlements);
+        Promise.resolve(activity.getParticipants?.()).then((participants) => {
+          if (participants && attachment === this.discordAttachment) this.emitDiscordParticipants(participants);
+        }).catch(() => {});
+      }
     };
     attach(this.discordActivity());
     const ready = this.eventTarget?.UE5HTML5?.activityReady;
     if (ready?.then) ready.then(attach).catch(() => {});
+  }
+  emitDiscordParticipants(participants = {}) {
+    const list = Array.isArray(participants) ? participants : participants.participants || [];
+    this.runtime?.call('DiscordActivityParticipantsChanged', null, {
+      participantsJson: blueprintJson({ participants: list }),
+      participantCount: list.length,
+    });
+  }
+  emitDiscordEntitlements(entitlements = []) {
+    const list = Array.isArray(entitlements) ? entitlements : entitlements.entitlements || [];
+    this.runtime?.call('DiscordActivityVerifiedEntitlementsChanged', null, {
+      entitlementsJson: blueprintJson(list),
+      entitlementCount: list.length,
+    });
   }
   callDiscordActivity(name, args) {
     const activity = this.discordActivity();

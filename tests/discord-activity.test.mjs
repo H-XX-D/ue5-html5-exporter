@@ -304,6 +304,7 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
   const displayCommands = [];
   const subscriptions = new Map();
   const unsubscribed = [];
+  const inboundEvents = [];
   const config = {
     enabled: true,
     discordClientId: '123',
@@ -336,7 +337,7 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
     on(type, filter, callback) { this.handlers.push({ type, filter, callback }); return this; },
     subscribe(callback) { callback('SUBSCRIBED'); return this; },
     async track() {},
-    presenceState() { return {}; },
+    presenceState() { return { 'connection-a': [{ connected: true }] }; },
     async send(payload) { return payload; },
   };
   const supabase = {
@@ -394,6 +395,9 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
       search: '',
     },
   });
+  for (const type of ['broadcast', 'presence', 'participants', 'entitlements']) {
+    bridge.addEventListener(type, ({ detail }) => inboundEvents.push([type, detail]));
+  }
 
   await bridge.start();
   assert.equal(bridge.mode, 'ready');
@@ -407,6 +411,14 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
   assert.equal(calls[2].init.credentials, 'include');
   assert.deepEqual(await bridge.broadcast('input', { x: 1 }), {
     type: 'broadcast', event: 'input', payload: { x: 1 },
+  });
+  assert.deepEqual(bridge.getPresenceState(), { 'connection-a': [{ connected: true }] });
+  channel.handlers.find(({ type }) => type === 'broadcast').callback({
+    type: 'broadcast', event: 'movement', payload: { x: 2 },
+  });
+  channel.handlers.find(({ type }) => type === 'presence').callback();
+  subscriptions.get(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE)({
+    participants: [{ id: '42', username: 'player' }],
   });
   assert.deepEqual(await bridge.getParticipants(), { participants: [{ id: '42' }] });
   assert.deepEqual(await bridge.openInviteDialog(), { opened: true });
@@ -448,6 +460,12 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
     ['thermalstate', { thermalState: 2, thermalStateName: 'Serious' }],
     ['orientation', { orientation: 1, orientationName: 'Landscape' }],
     ['layoutmode', { layoutMode: 1, layoutModeName: 'PictureInPicture' }],
+  ]);
+  assert.deepEqual(inboundEvents, [
+    ['broadcast', { type: 'broadcast', event: 'movement', payload: { x: 2 } }],
+    ['presence', { 'connection-a': [{ connected: true }] }],
+    ['participants', { participants: [{ id: '42', username: 'player' }] }],
+    ['entitlements', [{ skuId: 'sku-premium', consumed: false }]],
   ]);
   assert.deepEqual(socialCommands[0].setActivity.activity.party, { id: 'i-test', size: [2, 4] });
   assert.equal(socialCommands[1].setActivity.activity, null);

@@ -188,11 +188,17 @@ The nodes return safe unavailable/default values during native Unreal play. Afte
 
 For automatic client display events, open **Class Settings → Implemented Interfaces**, add **UE5 HTML5 Discord Activity Listener**, and implement any of these interface events:
 
+- `Discord Activity Broadcast Received` — authenticated game event name, JSON payload, and replay flag
+- `Discord Activity Presence Changed` — complete opaque connection-state JSON
+- `Discord Activity Participants Changed` — current Discord participant JSON and count
+- `Discord Activity Verified Entitlements Changed` — server-rechecked entitlement JSON and count
 - `Discord Activity Thermal State Changed` — `Nominal`, `Fair`, `Serious`, or `Critical`
 - `Discord Activity Orientation Changed` — `Portrait` or `Landscape`
 - `Discord Activity Layout Mode Changed` — `Focused`, `PictureInPicture`, or `Grid`
 
-Each event exposes both the exact Discord SDK integer and a readable name. Use thermal state to reduce particles, shadows, or tick frequency; use layout mode to simplify the HUD in picture-in-picture or grid; and use orientation to rearrange mobile controls. `Set Orientation Lock` accepts friendly enum values and optional picture-in-picture/grid overrides. These subscriptions and newer commands fail softly when an older Discord client does not expose them.
+The first four events remove the need to register JavaScript callbacks for normal multiplayer and storefront UI. Initial Presence, participants, and verified entitlements are delivered after the Blueprint runtime attaches, then updated automatically. Presence contains the exporter's random per-connection key and `{ connected: true }`; it does not contain a game-owned user profile. Participant data comes transiently from Discord's Embedded App SDK and is not stored by the exporter. Do not copy raw participant identifiers into saved game state unless the game has a separately documented need and privacy policy.
+
+Display events expose both the exact Discord SDK integer and a readable name. Use thermal state to reduce particles, shadows, or tick frequency; use layout mode to simplify the HUD in picture-in-picture or grid; and use orientation to rearrange mobile controls. `Set Orientation Lock` accepts friendly enum values and optional picture-in-picture/grid overrides. These subscriptions and newer commands fail softly when an older Discord client does not expose them.
 
 `Get Launch Context` returns campaign `custom_id` and a Boolean saying whether a referrer exists. It deliberately does not expose the raw referrer's Discord user ID to Blueprint. `link_id` remains an optional input when sharing a Developer Portal custom link. Newer social commands return a safe unsupported result when an older Discord client reports `INVALID_COMMAND`; other errors remain visible instead of being silently swallowed.
 
@@ -234,6 +240,8 @@ const saved = await activity.savePlayerState(
 
 Use Broadcast/Presence for input, lobby state, and other short-lived messages. Do not send authoritative rewards, purchases, or anti-cheat decisions through Realtime. Each world or player state document can contain at most 512 KiB. Passing the revision returned by a load/save enables atomic compare-and-swap; a stale write returns HTTP 409 and the current revision.
 
+Supabase Broadcast is the fast event path; Presence is for slow-changing connection state and should not be updated every frame. The Blueprint bridge accepts JSON Broadcast payloads. Supabase binary Broadcast payloads remain available to custom JavaScript but are intentionally outside the Blueprint JSON contract.
+
 ## Discovery and monetization release gates
 
 Because the app is already verified, complete **Discovery → Discovery Status**, upload the required Discovery metadata/assets, and opt in. Discord says listing propagation can take up to 24 hours.
@@ -268,6 +276,8 @@ Before public release, also verify:
 - [Discord: In-app purchases for Activities](https://docs.discord.com/developers/monetization/implementing-iap-for-activities)
 - [Supabase: JWT Signing Keys](https://supabase.com/docs/guides/auth/signing-keys)
 - [Supabase: Realtime Authorization](https://supabase.com/docs/guides/realtime/authorization)
+- [Supabase: Broadcast](https://supabase.com/docs/guides/realtime/broadcast)
+- [Supabase: Presence](https://supabase.com/docs/guides/realtime/presence)
 - [Supabase: API keys](https://supabase.com/docs/guides/getting-started/api-keys)
 - [Vercel: Functions](https://vercel.com/docs/functions)
 - [Vercel: Deploying from the CLI](https://vercel.com/docs/cli/deploying-from-cli)

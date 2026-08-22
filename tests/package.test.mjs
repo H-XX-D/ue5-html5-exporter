@@ -34,7 +34,9 @@ test('runtime module exposes Discord Activity operations as familiar Blueprint n
   const listener = read('Source/UE5HTML5ExporterRuntime/Public/UE5HTML5DiscordActivityListener.h');
   for (const eventName of [
     'DiscordActivityThermalStateChanged', 'DiscordActivityOrientationChanged',
-    'DiscordActivityLayoutModeChanged',
+    'DiscordActivityLayoutModeChanged', 'DiscordActivityBroadcastReceived',
+    'DiscordActivityPresenceChanged', 'DiscordActivityParticipantsChanged',
+    'DiscordActivityVerifiedEntitlementsChanged',
   ]) assert.match(listener, new RegExp(eventName));
 });
 
@@ -191,6 +193,7 @@ test('browser adapters cover gameplay integration families', () => {
   assert.match(source, /callDiscordActivity/);
   assert.match(source, /shouldUseTouchControls/);
   assert.match(source, /DiscordActivityThermalStateChanged/);
+  assert.match(source, /DiscordActivityBroadcastReceived/);
 });
 
 test('first-person controller converts Unreal coordinates and consumes exported movement defaults', async () => {

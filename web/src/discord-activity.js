@@ -308,6 +308,10 @@ export class DiscordActivityBridge extends EventTarget {
     return this.channel.send({ type: 'broadcast', event, payload });
   }
 
+  getPresenceState() {
+    return this.channel?.presenceState?.() || {};
+  }
+
   async getSkus() {
     return this.discord.commands.getSkus();
   }

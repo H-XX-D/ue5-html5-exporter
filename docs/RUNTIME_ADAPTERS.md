@@ -28,6 +28,14 @@ Blueprints implementing `UE5 HTML5 Discord Activity Listener` receive Discord's 
 
 The `Set Orientation Lock`, `Set Interactive PiP`, `Get Platform Behaviors`, and `Get Locale` Blueprint nodes call the Embedded App SDK after export and return safe unavailable values during native Unreal play. Optional SDK commands and event subscriptions emit a warning and remain non-fatal on older Discord clients.
 
+## Discord multiplayer events
+
+The same `UE5 HTML5 Discord Activity Listener` interface receives `Broadcast Received`, `Presence Changed`, `Participants Changed`, and `Verified Entitlements Changed`. Initial Presence, participants, and entitlements are emitted when the authenticated Activity attaches, followed by live updates. Broadcast includes the event name, JSON payload, and Supabase replay flag. Participant and entitlement events include JSON plus a count for simple Blueprint branches.
+
+Broadcast uses the authenticated private Activity topic and is appropriate for game input, lobby state, and transient notifications. Presence uses an opaque random connection key with only `{ connected: true }` and is intended for slow online/offline state, not per-frame position updates. Entitlement events contain the Vercel API's reduced, server-verified SKU view rather than trusting Discord's client event as authority.
+
+These event payloads are transient. The runtime does not write participant identity, Presence, Broadcast messages, or entitlements to local storage or Supabase. A project can explicitly save game-created state through the separate world/player save nodes.
+
 ## Replication and RPCs
 
 Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synchronized between tabs with `BroadcastChannel`. Add this optional field to the exported IR to use a server transport:
