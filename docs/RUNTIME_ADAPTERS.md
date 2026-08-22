@@ -16,6 +16,8 @@ When the exported game mode resolves to a Character with a Camera component, the
 
 Touch-capable devices automatically receive a virtual movement stick, drag-to-look surface, Jump button, and Fire button. The controls respect Discord and browser safe-area insets, use Pointer Events so they work across current mobile browsers, and do not request pointer lock. Exported Blueprint calls to `ShouldUseTouchControls` use the same coarse-pointer/touch-capability decision as the generated controller.
 
+The controller first dispatches the stock UE5 First Person events `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` into the exported Blueprint VM, including `Axis`, `Axis_X`, and `Axis_Y` values. When a project implements one of those events, its Blueprint branch owns the behavior. When it does not, the controller uses its built-in portable fallback. This prevents the Blueprint and fallback paths from applying movement or look input twice.
+
 This automatic layer makes the standard UE5 first-person template playable without authoring a second web UI. Project-specific gestures, remappable mobile layouts, gamepad UI, haptics, and complex Enhanced Input trigger semantics still require a project adapter.
 
 ## Replication and RPCs

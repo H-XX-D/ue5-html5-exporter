@@ -138,6 +138,10 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /switchString/);
   assert.match(source, /Function = GraphName/);
   assert.match(source, /discordactivity/);
+  for (const eventName of ['primarythumbstick', 'secondarythumbstick', 'touchjumpstart', 'touchjumpend']) {
+    assert.match(source, new RegExp(eventName));
+  }
+  assert.match(source, /browser-touch-controls/);
 });
 
 test('Enhanced Input metadata is read from enhanced mappings', () => {
@@ -265,6 +269,8 @@ test('mobile first-person controls provide move, look, jump, and fire without po
   canvas.requestPointerLock = () => { requestedPointerLock = true; };
   let shots = 0;
   let jumps = 0;
+  let blueprintTouchHandled = false;
+  const touchEvents = [];
   const controller = new FirstPersonController(
     new THREE.PerspectiveCamera(),
     canvas,
@@ -273,6 +279,10 @@ test('mobile first-person controls provide move, look, jump, and fire without po
     {
       shoot: () => { shots += 1; },
       jump: ({ jumped }) => { if (jumped) jumps += 1; },
+      primaryThumbstick: (args) => { touchEvents.push(['primary', args]); return blueprintTouchHandled; },
+      secondaryThumbstick: (args) => { touchEvents.push(['secondary', args]); return blueprintTouchHandled; },
+      touchJumpStart: () => { touchEvents.push(['jump-start']); return blueprintTouchHandled; },
+      touchJumpEnd: () => { touchEvents.push(['jump-end']); return blueprintTouchHandled; },
     },
     eventTarget,
   );
@@ -294,17 +304,46 @@ test('mobile first-person controls provide move, look, jump, and fire without po
   move.dispatchEvent(pointer('pointermove', { clientX: 77, clientY: 73 }));
   assert.ok(controller.touchMovement.x > 0);
   assert.ok(controller.touchMovement.y > 0);
+  controller.update(1 / 60);
+  assert.equal(touchEvents.some(([name]) => name === 'primary'), true);
   const yawBefore = controller.yaw;
   look.dispatchEvent(pointer('pointerdown', { pointerId: 2, clientX: 200, clientY: 100 }));
   look.dispatchEvent(pointer('pointermove', { pointerId: 2, clientX: 230, clientY: 115 }));
   assert.ok(controller.yaw > yawBefore);
+  assert.equal(touchEvents.some(([name]) => name === 'secondary'), true);
+  look.dispatchEvent(pointer('pointerup', { pointerId: 2 }));
   controller.groundGrace = 0.1;
   jump.dispatchEvent(pointer('pointerdown', { pointerId: 3 }));
+  jump.dispatchEvent(pointer('pointerup', { pointerId: 3 }));
   shoot.dispatchEvent(pointer('pointerdown', { pointerId: 4 }));
   assert.equal(jumps, 1);
   assert.equal(shots, 1);
+  assert.equal(touchEvents.some(([name]) => name === 'jump-start'), true);
+  assert.equal(touchEvents.some(([name]) => name === 'jump-end'), true);
   move.dispatchEvent(pointer('pointerup'));
   assert.deepEqual(controller.touchMovement.toArray(), [0, 0]);
+
+  blueprintTouchHandled = true;
+  move.dispatchEvent(pointer('pointerdown', { pointerId: 5, clientX: 50, clientY: 100 }));
+  move.dispatchEvent(pointer('pointermove', { pointerId: 5, clientX: 77, clientY: 73 }));
+  controller.velocity.set(0, 0, 0);
+  controller.update(1 / 60);
+  assert.equal(controller.velocity.x, 0);
+  assert.equal(controller.velocity.z, 0);
+  move.dispatchEvent(pointer('pointerup', { pointerId: 5 }));
+
+  const blueprintYawBefore = controller.yaw;
+  look.dispatchEvent(pointer('pointerdown', { pointerId: 6, clientX: 200, clientY: 100 }));
+  look.dispatchEvent(pointer('pointermove', { pointerId: 6, clientX: 230, clientY: 115 }));
+  assert.equal(controller.yaw, blueprintYawBefore);
+  look.dispatchEvent(pointer('pointerup', { pointerId: 6 }));
+
+  controller.velocity.y = 0;
+  controller.groundGrace = 0.1;
+  jump.dispatchEvent(pointer('pointerdown', { pointerId: 7 }));
+  assert.equal(controller.velocity.y, 0);
+  assert.equal(jumps, 1);
+  jump.dispatchEvent(pointer('pointerup', { pointerId: 7 }));
   controller.dispose();
   assert.equal(controls.hidden, true);
 });

@@ -113,17 +113,21 @@ export class BlueprintRuntime {
 
   call(eventName, actorName, args = {}) {
     const actorKey = normalized(actorName);
+    let handledAny = false;
     for (const instance of this.instances) {
       if (!actorName || [instance.actor.objectName, instance.actor.label, instance.actor.path].some((value) => normalized(value) === actorKey)) {
         const name = normalized(eventName);
         const handled = this.emit(instance, [name], args);
+        handledAny ||= handled;
         const entry = instance.functionEntries.get(name);
         if (!handled && entry) {
           instance.eventArgs.set(entry.id, Object.fromEntries(Object.entries(args).map(([key, value]) => [normalized(key), value])));
           this.runOutputWithContext(instance, entry, ['then'], { steps: 0 });
+          handledAny = true;
         }
       }
     }
+    return handledAny;
   }
 
   bindInput() {

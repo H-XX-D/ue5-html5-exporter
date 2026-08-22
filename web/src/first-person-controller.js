@@ -33,6 +33,7 @@ export class FirstPersonController {
     this.touchEnabled = this.enabled && shouldUseTouchControls(eventTarget, eventTarget?.navigator);
     this.keys = new Set();
     this.touchMovement = new THREE.Vector2();
+    this.touchMovementActive = false;
     this.velocity = new THREE.Vector3();
     this.pendingMovement = new THREE.Vector3();
     this.worldOctree = new Octree();
@@ -126,9 +127,12 @@ export class FirstPersonController {
     };
     const resetMovement = (event) => {
       if (event && event.pointerId !== movementPointer) return;
+      const wasActive = movementPointer !== null;
       movementPointer = null;
       movementOrigin = null;
       this.touchMovement.set(0, 0);
+      this.touchMovementActive = false;
+      if (wasActive) this.hooks.primaryThumbstick?.(this.touchAxisArgs());
       if (movementKnob) movementKnob.style.transform = 'translate(-50%, -50%)';
     };
     add(movementSurface, 'pointerdown', (event) => {
@@ -136,6 +140,7 @@ export class FirstPersonController {
       stop(event);
       movementPointer = event.pointerId;
       movementOrigin = { x: event.clientX, y: event.clientY };
+      this.touchMovementActive = true;
       try { movementSurface.setPointerCapture?.(event.pointerId); } catch { /* synthetic or already-ended pointer */ }
     });
     add(movementSurface, 'pointermove', (event) => {
@@ -174,17 +179,33 @@ export class FirstPersonController {
       const dx = Number(event.clientX) - lookPosition.x;
       const dy = Number(event.clientY) - lookPosition.y;
       lookPosition = { x: event.clientX, y: event.clientY };
-      this.addLookInput(dx, -dy);
+      const handled = this.hooks.secondaryThumbstick?.(this.touchAxisArgs(dx, -dy));
+      if (!handled) this.addLookInput(dx, -dy);
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       add(lookSurface, type, resetLook);
     }
 
+    let jumpPointer = null;
     add(jumpButton, 'pointerdown', (event) => {
+      if (jumpPointer !== null) return;
       stop(event);
-      const jumped = this.jump();
-      this.hooks.jump?.({ jumped });
+      jumpPointer = event.pointerId;
+      try { jumpButton.setPointerCapture?.(event.pointerId); } catch { /* synthetic or already-ended pointer */ }
+      const handled = this.hooks.touchJumpStart?.({});
+      if (!handled) {
+        const jumped = this.jump();
+        this.hooks.jump?.({ jumped });
+      }
     });
+    const endJump = (event) => {
+      if (event && event.pointerId !== jumpPointer) return;
+      if (jumpPointer === null) return;
+      stop(event);
+      jumpPointer = null;
+      if (!this.hooks.touchJumpEnd?.({})) this.stopJumping();
+    };
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) add(jumpButton, type, endJump);
     add(shootButton, 'pointerdown', (event) => {
       stop(event);
       this.shoot();
@@ -233,11 +254,20 @@ export class FirstPersonController {
     this.pitch = THREE.MathUtils.clamp(this.pitch + Number(pitch || 0) * sensitivity, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
   }
 
+  touchAxisArgs(x = this.touchMovement.x, y = this.touchMovement.y) {
+    return { Axis: { x, y }, Axis_X: x, Axis_Y: y };
+  }
+
   jump() {
     if (!this.onFloor && this.groundGrace <= 0) return false;
     this.velocity.y = this.jumpVelocity;
     this.onFloor = false;
     this.groundGrace = 0;
+    return true;
+  }
+
+  stopJumping() {
+    if (this.velocity.y > 0) this.velocity.y = 0;
     return true;
   }
 
@@ -276,12 +306,14 @@ export class FirstPersonController {
   update(delta) {
     if (!this.enabled) return;
     this.groundGrace = Math.max(0, this.groundGrace - delta);
+    const blueprintTouchMovement = this.touchMovementActive
+      && Boolean(this.hooks.primaryThumbstick?.(this.touchAxisArgs()));
     const forwardAxis = Number(this.keys.has('KeyW') || this.keys.has('ArrowUp'))
       - Number(this.keys.has('KeyS') || this.keys.has('ArrowDown'))
-      + this.touchMovement.y;
+      + (blueprintTouchMovement ? 0 : this.touchMovement.y);
     const rightAxis = Number(this.keys.has('KeyD') || this.keys.has('ArrowRight'))
       - Number(this.keys.has('KeyA') || this.keys.has('ArrowLeft'))
-      + this.touchMovement.x;
+      + (blueprintTouchMovement ? 0 : this.touchMovement.x);
     const movement = this.forward().multiplyScalar(forwardAxis).addScaledVector(this.right(), rightAxis).add(this.pendingMovement);
     this.pendingMovement.set(0, 0, 0);
     if (movement.lengthSq()) {
@@ -309,6 +341,7 @@ export class FirstPersonController {
     this.handlers = [];
     this.keys.clear();
     this.touchMovement.set(0, 0);
+    this.touchMovementActive = false;
     if (this.touchControls) this.touchControls.hidden = true;
     this.document?.documentElement?.classList?.remove('touch-gameplay');
     this.touchControls = null;

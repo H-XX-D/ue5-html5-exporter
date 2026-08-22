@@ -521,7 +521,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
       return { handled: true };
     }
     if (name === 'jump' && this.gameplayController) return { handled: true, value: this.gameplayController.jump() };
-    if (name === 'stopjumping' && this.gameplayController) return { handled: true };
+    if (name === 'stopjumping' && this.gameplayController) return { handled: true, value: this.gameplayController.stopJumping() };
     if (name === 'addcontrolleryawinput' && this.gameplayController) { this.gameplayController.addLookInput(args.val ?? args.value); return { handled: true }; }
     if (name === 'addcontrollerpitchinput' && this.gameplayController) { this.gameplayController.addLookInput(0, args.val ?? args.value); return { handled: true }; }
     if (name === 'getactorforwardvector' && this.gameplayController) {

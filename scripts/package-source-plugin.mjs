@@ -60,9 +60,12 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
   requireFile(join(plugin, 'UE5HTML5Exporter.uplugin'), 'Plugin descriptor');
   requireFile(join(plugin, 'Resources', 'WebTemplate', 'index.html'), 'Built web runtime');
 
-  const duplicates = findNumberedDuplicates(plugin, { skipNames: ['Binaries', 'Intermediate', '.DS_Store'] });
+  const duplicates = findNumberedDuplicates(plugin, {
+    includeDirectories: true,
+    skipNames: ['Binaries', 'Intermediate', '.DS_Store'],
+  });
   if (duplicates.length) {
-    throw new Error(`Refusing to package numbered duplicate files: ${duplicates.join(', ')}`);
+    throw new Error(`Refusing to package numbered duplicate files or directories: ${duplicates.join(', ')}`);
   }
 
   let backup = null;

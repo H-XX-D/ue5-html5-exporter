@@ -67,8 +67,30 @@ test('routes a custom event through a branch', () => {
   ];
   const runtime = new BlueprintRuntime(program(nodes, { Enabled: { value: 'false', category: 'bool' } }));
   runtime.start();
-  runtime.call('EnableActor', 'Test Actor');
+  assert.equal(runtime.call('EnableActor', 'Test Actor'), true);
+  assert.equal(runtime.call('MissingEvent', 'Test Actor'), false);
   assert.equal(runtime.instances[0].state.Enabled, true);
+});
+
+test('routes stock First Person touch axes through event output pins', () => {
+  const nodes = [
+    { id: 'touch', kind: 'event', event: 'Primary Thumbstick', eventAdapter: 'browser-touch-controls', pins: [
+      pin('then', 'output', 'exec', { links: [link('set', 'execute')] }),
+      pin('Axis', 'output', 'struct'), pin('Axis_X', 'output', 'real'), pin('Axis_Y', 'output', 'real'),
+    ] },
+    { id: 'set', kind: 'variableSet', variable: 'Horizontal', pins: [
+      pin('execute', 'input', 'exec'),
+      pin('Horizontal', 'input', 'real', { links: [link('touch', 'Axis_X')] }),
+      pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, { Horizontal: { value: '0', category: 'real' } }));
+  runtime.start();
+
+  assert.equal(runtime.call('Primary Thumbstick', null, {
+    Axis: { x: 0.75, y: -0.25 }, Axis_X: 0.75, Axis_Y: -0.25,
+  }), true);
+  assert.equal(runtime.instances[0].state.Horizontal, 0.75);
 });
 
 test('routes Switch on String cases with Unreal case-sensitivity semantics', () => {

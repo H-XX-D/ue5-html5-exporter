@@ -147,6 +147,17 @@ namespace
         return false;
     }
 
+    bool IsSupportedBrowserInputEvent(const FString& EventName)
+    {
+        static const TSet<FString> Events = {
+            TEXT("primarythumbstick"),
+            TEXT("secondarythumbstick"),
+            TEXT("touchjumpstart"),
+            TEXT("touchjumpend")
+        };
+        return Events.Contains(Normalize(EventName));
+    }
+
     bool IsSupportedEvent(const UEdGraphNode* Node, const FString& EventName)
     {
         if (Node->GetClass()->GetName().Contains(TEXT("InputKey"))) return true;
@@ -155,6 +166,7 @@ namespace
             || Name.Contains(TEXT("actorbeginoverlap")) || Name.Contains(TEXT("actorendoverlap"))
             || Name.Contains(TEXT("componentbeginoverlap")) || Name.Contains(TEXT("componentendoverlap"))
             || Name.Contains(TEXT("hit"))
+            || IsSupportedBrowserInputEvent(EventName)
             || Node->GetClass()->GetName() == TEXT("K2Node_CustomEvent");
     }
 
@@ -277,6 +289,7 @@ namespace
         Json->SetNumberField(TEXT("x"), Node->NodePosX);
         Json->SetNumberField(TEXT("y"), Node->NodePosY);
         if (!Event.IsEmpty()) Json->SetStringField(TEXT("event"), Event);
+        if (IsSupportedBrowserInputEvent(Event)) Json->SetStringField(TEXT("eventAdapter"), TEXT("browser-touch-controls"));
         if (!Function.IsEmpty()) Json->SetStringField(TEXT("function"), Function);
         const FString Variable = VariableName(Node);
         if (!Variable.IsEmpty()) Json->SetStringField(TEXT("variable"), Variable);

@@ -18,7 +18,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Discord Activity Blueprint nodes plus Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
 - A dry-run-first cross-platform release command that links the explicitly selected Supabase/Vercel projects, migrates, verifies, and deploys without printing server secrets
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
-- Automatic mobile FPS movement/look/jump/fire controls with the same `ShouldUseTouchControls` decision exposed to exported Blueprints
+- Automatic mobile FPS movement/look/jump/fire controls that execute the stock `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` Blueprint branches before using a browser fallback
 - A hosted readiness probe that rejects Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing Discord URL mappings
 
 ## Build the plugin
@@ -110,7 +110,7 @@ On Windows, use `UnrealEditor-Cmd.exe`.
 | Keyboard input nodes | Converted |
 | Delay and Print String/Text | Converted |
 | Actor location, offset, rotation, scale, visibility, destroy | Converted |
-| Enhanced Input actions/mapping contexts | Exported; keyboard mappings and context activation run in-browser |
+| Enhanced Input actions/mapping contexts | Exported; keyboard mappings, context activation, and stock First Person touch/thumbstick events run in-browser |
 | Replicated properties and RPC-style calls | Browser transport adapter using BroadcastChannel or a configured WebSocket |
 | Interfaces and delegates | Routed through the browser runtime/event bus |
 | Timers, async asset/JSON fetch, Move Component To | Converted to browser async operations |

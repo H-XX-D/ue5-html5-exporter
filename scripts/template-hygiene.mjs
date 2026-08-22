@@ -14,7 +14,7 @@ const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_TEMPLATE = join(REPOSITORY_ROOT, 'UE5HTML5Exporter', 'Resources', 'WebTemplate');
 const NUMBERED_DUPLICATE = / \d+(?=\.[^.]+$|$)/;
 
-export function findNumberedDuplicates(directory, { skipNames = [] } = {}) {
+export function findNumberedDuplicates(directory, { includeDirectories = false, skipNames = [] } = {}) {
   const root = resolve(directory);
   const skipped = new Set(skipNames);
   const matches = [];
@@ -22,7 +22,10 @@ export function findNumberedDuplicates(directory, { skipNames = [] } = {}) {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       if (skipped.has(entry.name)) continue;
       const path = join(current, entry.name);
-      if (entry.isDirectory()) visit(path);
+      if (entry.isDirectory()) {
+        if (includeDirectories && NUMBERED_DUPLICATE.test(entry.name)) matches.push(path);
+        else visit(path);
+      }
       else if (NUMBERED_DUPLICATE.test(entry.name)) matches.push(path);
     }
   };

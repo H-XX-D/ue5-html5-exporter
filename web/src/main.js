@@ -195,6 +195,10 @@ async function configureBlueprintLogic() {
         blueprintRuntime?.call('IA_Jump', null, args);
         blueprintRuntime?.call('InputAction_IA_Jump', null, args);
       },
+      primaryThumbstick: (args) => Boolean(blueprintRuntime?.call('Primary Thumbstick', null, args)),
+      secondaryThumbstick: (args) => Boolean(blueprintRuntime?.call('Secondary Thumbstick', null, args)),
+      touchJumpStart: (args) => Boolean(blueprintRuntime?.call('Touch Jump Start', null, args)),
+      touchJumpEnd: (args) => Boolean(blueprintRuntime?.call('Touch Jump End', null, args)),
       shoot: (hit) => {
         const args = { value: true, actionValue: true, triggerEvent: 'Started', hit };
         blueprintRuntime?.call('IA_Shoot', null, args);

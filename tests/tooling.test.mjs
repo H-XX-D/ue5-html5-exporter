@@ -126,7 +126,19 @@ test('source packager refuses Finder-style numbered duplicate files', () => {
   writeFileSync(join(source, 'Resources', 'WebTemplate', 'index 2.html'), '<html></html>');
   assert.throws(
     () => packageSourcePlugin({ plugin: source, output: join(root, 'Bundle'), replace: false }),
-    /numbered duplicate files/,
+    /numbered duplicate files or directories/,
+  );
+});
+
+test('source packager refuses Finder-style numbered duplicate directories', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-html5-source-duplicate-directory-'));
+  const source = join(root, 'Plugin');
+  mkdirSync(join(source, 'Resources', 'WebTemplate', 'supabase', 'migrations 2'), { recursive: true });
+  writeFileSync(join(source, 'UE5HTML5Exporter.uplugin'), '{}');
+  writeFileSync(join(source, 'Resources', 'WebTemplate', 'index.html'), '<html></html>');
+  assert.throws(
+    () => packageSourcePlugin({ plugin: source, output: join(root, 'Bundle'), replace: false }),
+    /numbered duplicate files or directories/,
   );
 });
 
