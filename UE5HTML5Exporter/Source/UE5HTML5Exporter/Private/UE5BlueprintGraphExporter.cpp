@@ -184,6 +184,64 @@ namespace
         return FString();
     }
 
+    void SetReflectedNumberField(
+        const TSharedRef<FJsonObject>& Json,
+        const UObject* Object,
+        const TCHAR* Field,
+        const TArray<FName>& PropertyNames)
+    {
+        const FString Value = ReflectedPropertyText(Object, PropertyNames);
+        if (!Value.IsEmpty())
+        {
+            Json->SetNumberField(Field, FCString::Atod(*Value));
+        }
+    }
+
+    void SetReflectedBoolField(
+        const TSharedRef<FJsonObject>& Json,
+        const UObject* Object,
+        const TCHAR* Field,
+        const TArray<FName>& PropertyNames)
+    {
+        const FString Value = ReflectedPropertyText(Object, PropertyNames);
+        if (!Value.IsEmpty())
+        {
+            Json->SetBoolField(Field, Value.Equals(TEXT("True"), ESearchCase::IgnoreCase) || Value == TEXT("1"));
+        }
+    }
+
+    void AppendInputModifier(
+        const UInputModifier* Modifier,
+        TArray<TSharedPtr<FJsonValue>>& ModifierNames)
+    {
+        if (Modifier)
+        {
+            ModifierNames.Add(MakeShared<FJsonValueString>(Modifier->GetClass()->GetName()));
+        }
+    }
+
+    void AppendInputTrigger(
+        const UInputTrigger* Trigger,
+        TArray<TSharedPtr<FJsonValue>>& TriggerNames,
+        TArray<TSharedPtr<FJsonValue>>& TriggerDetails)
+    {
+        if (!Trigger) return;
+
+        const FString ClassName = Trigger->GetClass()->GetName();
+        TriggerNames.Add(MakeShared<FJsonValueString>(ClassName));
+
+        TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+        Detail->SetStringField(TEXT("class"), ClassName);
+        SetReflectedNumberField(Detail, Trigger, TEXT("actuationThreshold"), { TEXT("ActuationThreshold") });
+        SetReflectedNumberField(Detail, Trigger, TEXT("holdTimeThreshold"), { TEXT("HoldTimeThreshold") });
+        SetReflectedNumberField(Detail, Trigger, TEXT("tapReleaseTimeThreshold"), { TEXT("TapReleaseTimeThreshold") });
+        SetReflectedNumberField(Detail, Trigger, TEXT("interval"), { TEXT("Interval") });
+        SetReflectedNumberField(Detail, Trigger, TEXT("triggerLimit"), { TEXT("TriggerLimit") });
+        SetReflectedBoolField(Detail, Trigger, TEXT("oneShot"), { TEXT("bIsOneShot") });
+        SetReflectedBoolField(Detail, Trigger, TEXT("triggerOnStart"), { TEXT("bTriggerOnStart") });
+        TriggerDetails.Add(MakeShared<FJsonValueObject>(Detail));
+    }
+
     FString InputActionName(const UEdGraphNode* Node)
     {
         FString Value = ReflectedPropertyText(Node, { TEXT("InputAction"), TEXT("InputActionName"), TEXT("ActionName") });
@@ -629,15 +687,25 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, con
             TArray<TSharedPtr<FJsonValue>> Modifiers;
             for (const UInputModifier* Modifier : Mapping.Modifiers)
             {
-                if (Modifier) Modifiers.Add(MakeShared<FJsonValueString>(Modifier->GetClass()->GetName()));
+                AppendInputModifier(Modifier, Modifiers);
+            }
+            for (const UInputModifier* Modifier : Mapping.Action->Modifiers)
+            {
+                AppendInputModifier(Modifier, Modifiers);
             }
             MappingJson->SetArrayField(TEXT("modifiers"), Modifiers);
             TArray<TSharedPtr<FJsonValue>> Triggers;
+            TArray<TSharedPtr<FJsonValue>> TriggerDetails;
             for (const UInputTrigger* Trigger : Mapping.Triggers)
             {
-                if (Trigger) Triggers.Add(MakeShared<FJsonValueString>(Trigger->GetClass()->GetName()));
+                AppendInputTrigger(Trigger, Triggers, TriggerDetails);
+            }
+            for (const UInputTrigger* Trigger : Mapping.Action->Triggers)
+            {
+                AppendInputTrigger(Trigger, Triggers, TriggerDetails);
             }
             MappingJson->SetArrayField(TEXT("triggers"), Triggers);
+            MappingJson->SetArrayField(TEXT("triggerDetails"), TriggerDetails);
             InputMappings.Add(MakeShared<FJsonValueObject>(MappingJson));
         }
     }

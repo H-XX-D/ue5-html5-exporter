@@ -115,7 +115,7 @@ On Windows, use `UnrealEditor-Cmd.exe`.
 | Keyboard input nodes | Converted |
 | Delay and Print String/Text | Converted |
 | Actor location, offset, rotation, scale, visibility, destroy | Converted |
-| Enhanced Input actions/mapping contexts | Exported; keyboard, standard browser gamepad, context activation, and stock First Person touch/thumbstick events run in-browser |
+| Enhanced Input actions/mapping contexts | Exported; keyboard, standard browser gamepad, context activation, Input Action plus mapping-level triggers, common Pressed/Released/Hold/Hold-and-Release/Tap/Pulse timing, and stock First Person touch/thumbstick events run in-browser |
 | Replicated properties and RPC-style calls | Browser transport adapter using BroadcastChannel or a configured WebSocket |
 | Interfaces and delegates | Routed through the browser runtime/event bus |
 | Timers, async asset/JSON fetch, Move Component To | Converted to browser async operations |

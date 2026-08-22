@@ -216,6 +216,7 @@ test('routes Enhanced Input mapping phases through matching exec pins', () => {
   adapters.attachRuntime(runtime);
   runtime.start();
   eventTarget.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  adapters.tick(0);
   assert.equal(runtime.instances[0].state.Jumped, true);
   runtime.stop();
   adapters.dispose();
@@ -267,12 +268,92 @@ test('polls standard browser gamepads for UE Enhanced Input phases and stick axe
   calls.length = 0;
   adapters.input.addContext('/Game/Input/IMC_Player');
   adapters.tick(1 / 60);
-  assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), ['Started', 'Started', 'Started']);
+  assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), [
+    'Started', 'Triggered', 'Started', 'Triggered', 'Started', 'Triggered',
+  ]);
 
   calls.length = 0;
   connected = [];
   adapters.tick(1 / 60);
   assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), ['Completed', 'Completed', 'Completed']);
+  adapters.dispose();
+});
+
+test('evaluates common UE Enhanced Input timed and edge triggers for keyboard mappings', () => {
+  const listeners = new Map();
+  const eventTarget = {
+    addEventListener(type, listener) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(listener); },
+    removeEventListener(type, listener) { listeners.get(type)?.delete(listener); },
+    dispatch(type, event) { for (const listener of listeners.get(type) || []) listener(event); },
+  };
+  const document = {
+    inputMappings: [
+      {
+        action: 'IA_Hold', key: 'SpaceBar', valueType: 0,
+        triggerDetails: [{ class: 'InputTriggerHold', actuationThreshold: 0.5, holdTimeThreshold: 0.5, oneShot: true }],
+      },
+      {
+        action: 'IA_Tap', key: 'KeyT', valueType: 0,
+        triggerDetails: [{ class: 'InputTriggerTap', actuationThreshold: 0.5, tapReleaseTimeThreshold: 0.2 }],
+      },
+      {
+        action: 'IA_Edges', key: 'KeyE', valueType: 0,
+        triggerDetails: [{ class: 'InputTriggerPressed' }, { class: 'InputTriggerReleased' }],
+      },
+      {
+        action: 'IA_Pulse', key: 'KeyP', valueType: 0,
+        triggerDetails: [{ class: 'InputTriggerPulse', interval: 0.2, triggerLimit: 2, triggerOnStart: true }],
+      },
+    ],
+  };
+  const calls = [];
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), document, {}, eventTarget);
+  adapters.attachRuntime({ instances: [], call(action, actor, args) { if (!action.startsWith('InputAction_')) calls.push({ action, args }); } });
+  const phases = (action) => calls.filter((call) => call.action === action).map((call) => call.args.triggerEvent);
+
+  eventTarget.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  adapters.tick(0);
+  adapters.tick(0.3);
+  adapters.tick(0.3);
+  adapters.tick(0.1);
+  eventTarget.dispatch('keyup', { code: 'Space', key: ' ', repeat: false });
+  adapters.tick(0);
+  assert.deepEqual(phases('IA_Hold'), ['Started', 'Ongoing', 'Triggered', 'Completed']);
+  const holdTriggered = calls.find((call) => call.action === 'IA_Hold' && call.args.triggerEvent === 'Triggered');
+  const holdCompleted = calls.find((call) => call.action === 'IA_Hold' && call.args.triggerEvent === 'Completed');
+  assert.ok(holdTriggered.args.elapsedSeconds >= 0.5);
+  assert.ok(holdCompleted.args.triggeredSeconds >= 0.1);
+
+  eventTarget.dispatch('keydown', { code: 'KeyT', key: 't', repeat: false });
+  adapters.tick(0);
+  adapters.tick(0.1);
+  eventTarget.dispatch('keyup', { code: 'KeyT', key: 't', repeat: false });
+  adapters.tick(0);
+  adapters.tick(0);
+  assert.deepEqual(phases('IA_Tap'), ['Started', 'Ongoing', 'Triggered', 'Completed']);
+
+  const tapCount = phases('IA_Tap').length;
+  eventTarget.dispatch('keydown', { code: 'KeyT', key: 't', repeat: false });
+  adapters.tick(0);
+  adapters.tick(0.25);
+  eventTarget.dispatch('keyup', { code: 'KeyT', key: 't', repeat: false });
+  adapters.tick(0);
+  assert.deepEqual(phases('IA_Tap').slice(tapCount), ['Started', 'Ongoing', 'Canceled']);
+
+  eventTarget.dispatch('keydown', { code: 'KeyE', key: 'e', repeat: false });
+  adapters.tick(0);
+  eventTarget.dispatch('keyup', { code: 'KeyE', key: 'e', repeat: false });
+  adapters.tick(0);
+  adapters.tick(0);
+  assert.deepEqual(phases('IA_Edges'), ['Started', 'Triggered', 'Triggered', 'Completed']);
+
+  eventTarget.dispatch('keydown', { code: 'KeyP', key: 'p', repeat: false });
+  adapters.tick(0);
+  adapters.tick(0.21);
+  adapters.tick(0.21);
+  eventTarget.dispatch('keyup', { code: 'KeyP', key: 'p', repeat: false });
+  adapters.tick(0);
+  assert.deepEqual(phases('IA_Pulse'), ['Started', 'Triggered', 'Triggered', 'Completed']);
   adapters.dispose();
 });
 

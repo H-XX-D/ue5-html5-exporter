@@ -191,6 +191,12 @@ test('Enhanced Input metadata is read from enhanced mappings', () => {
     assert.match(enhancedMappingBlock, new RegExp(`Mapping\\.${member}`));
   }
   assert.match(enhancedMappingBlock, /Mapping\.Action->ValueType/);
+  assert.match(enhancedMappingBlock, /Mapping\.Action->Modifiers/);
+  assert.match(enhancedMappingBlock, /Mapping\.Action->Triggers/);
+  assert.match(enhancedMappingBlock, /triggerDetails/);
+  for (const field of ['actuationThreshold', 'holdTimeThreshold', 'tapReleaseTimeThreshold', 'interval', 'triggerLimit', 'oneShot', 'triggerOnStart']) {
+    assert.match(source, new RegExp(field));
+  }
 });
 
 test('viewer exposes errors and animation selection', () => {

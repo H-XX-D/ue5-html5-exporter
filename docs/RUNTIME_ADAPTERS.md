@@ -6,11 +6,13 @@ This is a compatibility runtime, not Unreal Engine running in WebAssembly. A rep
 
 ## Enhanced Input
 
-Legacy project mappings and every `UInputMappingContext` asset are exported. Enhanced mappings retain context, action, key, value type, modifier class names, and trigger class names. The browser emits `Started`, `Triggered`, and `Completed`; Negate modifiers are applied. Blueprint calls to `AddMappingContext` and `RemoveMappingContext` activate or deactivate a context.
+Legacy project mappings and every `UInputMappingContext` asset are exported. Enhanced mappings retain context, action, key, value type, mapping-level modifiers/triggers, and the modifiers/triggers inherited from the `UInputAction` asset. Trigger metadata includes actuation, Hold, Tap, and Pulse thresholds plus one-shot/start/limit settings.
+
+Keyboard and standard gamepad mappings share one frame-driven trigger evaluator. Default/Down, Pressed, Released, Hold, Hold-and-Release, Tap, and Pulse mappings emit the corresponding `Started`, `Ongoing`, `Triggered`, `Canceled`, and `Completed` Blueprint execution phases. The exported action value also includes `Elapsed Seconds` and `Triggered Seconds`. Blueprint calls to `AddMappingContext` and `RemoveMappingContext` activate or deactivate a context and complete any active mapping cleanly.
 
 The runtime polls the browser's standard Gamepad API on every frame. UE face buttons, shoulders, triggers, special buttons, thumbstick clicks, D-pad buttons, `Gamepad_Left2D`, `Gamepad_Right2D`, component axes, and stick-direction keys map to the standard browser layout. Browser-positive-down stick Y is converted to UE-positive-up, disconnected devices emit `Completed`, and exported `InputModifierDeadZone` mappings receive a radial 0.2 dead zone. When several controllers are connected, each mapping uses the controller with the strongest current value.
 
-Custom dead-zone parameters are not present in the current IR, so the browser uses the default 0.2 threshold. Complex chord, hold, combo, custom scalar, and custom trigger semantics need a project adapter.
+Negate, Swizzle, and the default radial Dead Zone are portable. Custom dead-zone/scalar parameters, Chorded Action dependencies, Combo/Repeated Tap, blockers, trigger-priority edge cases, and custom modifier/trigger classes still need a project adapter.
 
 ## Desktop and mobile first-person input
 

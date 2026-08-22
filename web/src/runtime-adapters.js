@@ -115,7 +115,7 @@ const applyDeadZone = (value, threshold = 0.2) => {
   return { x: Number(value?.x || 0) * scale, y: Number(value?.y || 0) * scale };
 };
 
-const inputActionArgs = (value, triggerEvent, context) => {
+const inputActionArgs = (value, triggerEvent, context, timing = {}) => {
   const vector = value && typeof value === 'object' ? value : null;
   return {
     value,
@@ -125,7 +125,21 @@ const inputActionArgs = (value, triggerEvent, context) => {
     actionValue_Z: vector ? Number(vector.z || 0) : 0,
     triggerEvent,
     context,
+    elapsedSeconds: Number(timing.elapsedSeconds || 0),
+    triggeredSeconds: Number(timing.triggeredSeconds || 0),
   };
+};
+
+const triggerName = (trigger) => normalize(typeof trigger === 'string' ? trigger : trigger?.class);
+
+const mappingTriggers = (mapping) => {
+  if (Array.isArray(mapping.triggerDetails) && mapping.triggerDetails.length) return mapping.triggerDetails;
+  return (mapping.triggers || []).map((name) => ({ class: name }));
+};
+
+const triggerNumber = (trigger, field, fallback) => {
+  const value = Number(trigger?.[field]);
+  return Number.isFinite(value) ? value : fallback;
 };
 
 export class RuntimeEventBus {
@@ -211,7 +225,7 @@ class EnhancedInputAdapter {
     this.runtime = null;
     this.down = new Set();
     this.handlers = [];
-    this.gamepadState = new Map();
+    this.mappingState = new Map();
     this.activeContexts = new Set((blueprintIr.inputMappings || []).map((mapping) => normalize(mapping.context)).filter(Boolean));
   }
   attach(runtime) {
@@ -221,18 +235,6 @@ class EnhancedInputAdapter {
       const listener = (event) => {
         const code = normalizeInputKey(event.code || event.key);
         pressed ? this.down.add(code) : this.down.delete(code);
-        for (const mapping of this.blueprintIr.inputMappings || []) {
-          if (mapping.context && !this.activeContexts.has(normalize(mapping.context))) continue;
-          if (normalizeInputKey(mapping.key) !== code) continue;
-          const triggerEvent = pressed && !event.repeat ? 'Started' : pressed ? 'Triggered' : 'Completed';
-          const negated = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('negate'));
-          const scalar = pressed ? Number(mapping.scale ?? 1) * (negated ? -1 : 1) : 0;
-          const swizzled = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('swizzle'));
-          const value = Number(mapping.valueType) === 2 ? { x: swizzled ? 0 : scalar, y: swizzled ? scalar : 0 } : scalar;
-          const args = inputActionArgs(value, triggerEvent, mapping.context);
-          this.runtime.call(mapping.action, null, args);
-          this.runtime.call(`InputAction_${mapping.action}`, null, args);
-        }
       };
       this.eventTarget.addEventListener(type, listener);
       this.handlers.push([type, listener]);
@@ -256,6 +258,18 @@ class EnhancedInputAdapter {
   addContext(context) { this.activeContexts.add(normalize(context?.name || context)); }
   removeContext(context) { this.activeContexts.delete(normalize(context?.name || context)); }
   axis(positive, negative) { return Number(this.down.has(normalize(positive))) - Number(this.down.has(normalize(negative))); }
+  zeroValue(mapping) { return Number(mapping.valueType) === 2 ? { x: 0, y: 0 } : 0; }
+  keyboardValue(mapping) {
+    const key = normalizeInputKey(mapping.key);
+    if (!key || key === 'mouse2d' || key.startsWith('gamepad')) return undefined;
+    const modifiers = (mapping.modifiers || []).map(normalize);
+    const negated = modifiers.some((modifier) => modifier.includes('negate'));
+    const scalar = this.down.has(key) ? Number(mapping.scale ?? 1) * (negated ? -1 : 1) : 0;
+    const swizzled = modifiers.some((modifier) => modifier.includes('swizzle'));
+    return Number(mapping.valueType) === 2
+      ? { x: swizzled ? 0 : scalar, y: swizzled ? scalar : 0 }
+      : scalar;
+  }
   gamepads() {
     const source = this.eventTarget?.navigator || globalThis.navigator;
     if (typeof source?.getGamepads !== 'function') return [];
@@ -297,29 +311,127 @@ class EnhancedInputAdapter {
       ? deadZoned * scale
       : { x: deadZoned.x * scale, y: deadZoned.y * scale };
   }
-  tick() {
+  emitMapping(mapping, value, phases, state) {
+    for (const triggerEvent of phases) {
+      const args = inputActionArgs(value, triggerEvent, mapping.context, {
+        elapsedSeconds: state.elapsed,
+        triggeredSeconds: state.triggeredElapsed,
+      });
+      this.runtime.call(mapping.action, null, args);
+      this.runtime.call(`InputAction_${mapping.action}`, null, args);
+    }
+  }
+  evaluateMapping(index, mapping, value, deltaSeconds) {
+    const triggers = mappingTriggers(mapping);
+    const types = triggers.map(triggerName);
+    const threshold = triggers.reduce(
+      (highest, trigger) => Math.max(highest, triggerNumber(trigger, 'actuationThreshold', 0.5)),
+      triggers.length ? 0 : 0.0001,
+    );
+    const active = inputMagnitude(value) >= threshold;
+    const previous = this.mappingState.get(index) || {
+      active: false, elapsed: 0, triggered: false, triggeredElapsed: 0,
+      holdTriggered: false, pulseCount: 0, pendingCompleted: false,
+    };
+    const state = { ...previous };
+    const phases = [];
+    const addPhase = (phase) => { if (!phases.includes(phase)) phases.push(phase); };
+    const has = (name) => types.some((type) => type.includes(name));
+    const hasTimed = has('hold') || has('tap') || has('pulse') || has('released');
+    const isDefault = triggers.length === 0;
+
+    if (state.pendingCompleted && !active) {
+      addPhase('Completed');
+      state.pendingCompleted = false;
+    }
+
+    if (active && !previous.active) {
+      state.active = true;
+      state.elapsed = 0;
+      state.triggered = false;
+      state.triggeredElapsed = 0;
+      state.holdTriggered = false;
+      state.pulseCount = 0;
+      addPhase('Started');
+      const pulse = triggers.find((trigger) => triggerName(trigger).includes('pulse'));
+      if (isDefault || has('down') || has('pressed') || (pulse && pulse.triggerOnStart !== false)) {
+        addPhase('Triggered');
+      }
+    } else if (active) {
+      state.active = true;
+      state.elapsed = previous.elapsed + Math.max(0, Number(deltaSeconds || 0));
+      if (isDefault || has('down')) addPhase('Triggered');
+      if (has('released') || has('tap') || has('holdandrelease')) addPhase('Ongoing');
+
+      const hold = triggers.find((trigger) => {
+        const type = triggerName(trigger);
+        return type.includes('hold') && !type.includes('holdandrelease');
+      });
+      if (hold) {
+        const thresholdSeconds = Math.max(0, triggerNumber(hold, 'holdTimeThreshold', 1));
+        if (state.elapsed >= thresholdSeconds) {
+          if (!hold.oneShot || !previous.holdTriggered) addPhase('Triggered');
+          state.holdTriggered = true;
+        } else {
+          addPhase('Ongoing');
+        }
+      }
+
+      const pulse = triggers.find((trigger) => triggerName(trigger).includes('pulse'));
+      if (pulse) {
+        const interval = Math.max(0.001, triggerNumber(pulse, 'interval', 1));
+        const triggerLimit = Math.max(0, triggerNumber(pulse, 'triggerLimit', 0));
+        const initialCount = pulse.triggerOnStart === false ? 0 : 1;
+        const targetCount = initialCount + Math.floor(state.elapsed / interval);
+        const allowedCount = triggerLimit > 0 ? Math.min(targetCount, triggerLimit) : targetCount;
+        if (allowedCount > previous.pulseCount) addPhase('Triggered');
+        state.pulseCount = allowedCount;
+      }
+    } else if (previous.active) {
+      state.active = false;
+      state.elapsed = previous.elapsed;
+      const released = triggers.some((trigger) => triggerName(trigger).includes('released'));
+      const tap = triggers.find((trigger) => triggerName(trigger).includes('tap'));
+      const holdAndRelease = triggers.find((trigger) => triggerName(trigger).includes('holdandrelease'));
+      let triggeredOnRelease = released;
+      if (tap) triggeredOnRelease ||= previous.elapsed <= Math.max(0, triggerNumber(tap, 'tapReleaseTimeThreshold', 0.2));
+      if (holdAndRelease) triggeredOnRelease ||= previous.elapsed >= Math.max(0, triggerNumber(holdAndRelease, 'holdTimeThreshold', 0.5));
+      if (triggeredOnRelease) {
+        addPhase('Triggered');
+        state.pendingCompleted = true;
+      } else if (previous.triggered) {
+        addPhase('Completed');
+      } else if (hasTimed) {
+        addPhase('Canceled');
+      }
+    }
+
+    if (active && previous.triggered) {
+      state.triggeredElapsed = previous.triggeredElapsed + Math.max(0, Number(deltaSeconds || 0));
+    }
+    if (phases.includes('Triggered')) {
+      state.triggered = true;
+      if (!previous.triggered) state.triggeredElapsed = 0;
+      if (state.pulseCount === 0 && has('pulse')) state.pulseCount = 1;
+    }
+    this.mappingState.set(index, state);
+    if (phases.length) this.emitMapping(mapping, active ? value : this.zeroValue(mapping), phases, state);
+  }
+  tick(deltaSeconds = 1 / 60) {
     if (!this.runtime) return;
     const gamepads = this.gamepads();
     for (const [index, mapping] of (this.blueprintIr.inputMappings || []).entries()) {
-      const raw = this.rawGamepadValue(mapping, gamepads[0]);
-      if (raw === undefined && !this.gamepadState.has(index)) continue;
+      const gamepad = this.gamepadValue(mapping, gamepads);
+      const keyboard = this.keyboardValue(mapping);
+      if (gamepad === undefined && keyboard === undefined && !this.mappingState.has(index)) continue;
       const contextActive = !mapping.context || this.activeContexts.has(normalize(mapping.context));
-      const value = contextActive ? this.gamepadValue(mapping, gamepads) : undefined;
-      const current = value ?? (Number(mapping.valueType) === 2 ? { x: 0, y: 0 } : 0);
-      const active = inputMagnitude(current) > 0.0001;
-      const previous = this.gamepadState.get(index) || { active: false };
-      const triggerEvent = active ? (previous.active ? 'Triggered' : 'Started') : (previous.active ? 'Completed' : null);
-      if (triggerEvent) {
-        const args = inputActionArgs(current, triggerEvent, mapping.context);
-        this.runtime.call(mapping.action, null, args);
-        this.runtime.call(`InputAction_${mapping.action}`, null, args);
-      }
-      this.gamepadState.set(index, { active });
+      const current = contextActive ? (gamepad ?? keyboard ?? this.zeroValue(mapping)) : this.zeroValue(mapping);
+      this.evaluateMapping(index, mapping, current, deltaSeconds);
     }
   }
   dispose() {
     for (const [type, listener] of this.handlers) this.eventTarget?.removeEventListener(type, listener);
-    this.gamepadState.clear();
+    this.mappingState.clear();
   }
 }
 
@@ -581,7 +693,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
   registerFunction(name, implementation) { this.customFunctions.set(normalize(name), implementation); }
   attachGameplayController(controller) { this.gameplayController = controller; }
   variableChanged(instance, variable, value) { this.replication.changed(instance, variable, value); }
-  tick(delta) { this.input.tick(); this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
+  tick(delta) { this.input.tick(delta); this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
   discordActivity() { return this.eventTarget?.UE5HTML5?.activity || null; }
   attachDiscordActivityEvents() {
     const attachment = ++this.discordAttachment;
