@@ -467,6 +467,9 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   const install = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const verify = readFileSync(new URL('../scripts/Verify-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
+  for (const script of [start, setup, install, pack, verify]) {
+    assert.doesNotMatch(script, /\[string\]\$Plugin\s*=\s*\(Join-Path \$PSScriptRoot/);
+  }
   assert.match(tools, /LauncherInstalled\.dat/);
   assert.match(tools, /Microsoft\.VisualStudio\.Workload\.NativeGame/);
   assert.match(tools, /10\.0\.22621\.0/);

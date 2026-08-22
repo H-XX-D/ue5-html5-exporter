@@ -12,7 +12,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Map,
 
-    [string]$Plugin = (Join-Path $PSScriptRoot '..\UE5HTML5Exporter\UE5HTML5Exporter.uplugin'),
+    [string]$Plugin,
 
     [string]$PackageOutput,
 
@@ -20,6 +20,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Plugin) { $Plugin = Join-Path $PSScriptRoot '..\UE5HTML5Exporter\UE5HTML5Exporter.uplugin' }
 
 $module = Join-Path $PSScriptRoot 'UE5HTML5Tools.psm1'
 if (-not (Test-Path -LiteralPath $module -PathType Leaf)) {

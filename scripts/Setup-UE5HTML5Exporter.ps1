@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Project,
 
-    [string]$Plugin = (Join-Path $PSScriptRoot '..\UE5HTML5Exporter'),
+    [string]$Plugin,
 
     [string]$EngineRoot,
 
@@ -23,6 +23,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Plugin) { $Plugin = Join-Path $PSScriptRoot '..\UE5HTML5Exporter' }
 
 $module = Join-Path $PSScriptRoot 'UE5HTML5Tools.psm1'
 $installer = Join-Path $PSScriptRoot 'Install-UE5HTML5Exporter.ps1'

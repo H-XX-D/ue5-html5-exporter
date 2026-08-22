@@ -7,7 +7,7 @@ param(
     [ValidateSet('Win64', 'Mac', 'Linux')]
     [string[]]$Platform = @('Win64'),
 
-    [string]$Plugin = (Join-Path $PSScriptRoot '..\UE5HTML5Exporter\UE5HTML5Exporter.uplugin'),
+    [string]$Plugin,
 
     [Parameter(Mandatory = $true)]
     [string]$Output,
@@ -16,6 +16,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Plugin) { $Plugin = Join-Path $PSScriptRoot '..\UE5HTML5Exporter\UE5HTML5Exporter.uplugin' }
 
 $module = Join-Path $PSScriptRoot 'UE5HTML5Tools.psm1'
 if (-not (Test-Path -LiteralPath $module -PathType Leaf)) {

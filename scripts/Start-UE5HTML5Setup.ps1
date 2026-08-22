@@ -3,7 +3,7 @@ param(
     [Parameter(Position = 0)]
     [string]$Project,
 
-    [string]$Plugin = (Join-Path $PSScriptRoot '..\UE5HTML5Exporter'),
+    [string]$Plugin,
 
     [string]$EngineRoot,
 
@@ -25,6 +25,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Plugin) { $Plugin = Join-Path $PSScriptRoot '..\UE5HTML5Exporter' }
 
 $windowsFormsLoaded = $false
 function Import-UE5HTML5WindowsForms {

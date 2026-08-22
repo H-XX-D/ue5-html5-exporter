@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Project,
 
-    [string]$Plugin = (Join-Path $PSScriptRoot '..\UE5HTML5Exporter'),
+    [string]$Plugin,
 
     [switch]$SourceOnly,
 
@@ -11,6 +11,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Plugin) { $Plugin = Join-Path $PSScriptRoot '..\UE5HTML5Exporter' }
 
 $projectPath = (Resolve-Path -LiteralPath $Project).Path
 $pluginPath = (Resolve-Path -LiteralPath $Plugin).Path
