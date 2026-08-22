@@ -5,6 +5,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/PlatformProcess.h"
 #include "Interfaces/IMainFrameModule.h"
+#include "ISettingsModule.h"
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
 #include "Selection.h"
@@ -52,11 +53,24 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, true, false)));
 
     Section.AddMenuEntry(
+        "UE5HTML5DiscordActivitySettings",
+        LOCTEXT("DiscordActivitySettings", "Discord Activity Project Settings…"),
+        LOCTEXT("DiscordActivitySettingsTooltip", "Set the non-secret Discord, Vercel, and Supabase project targets shared with every export."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::OpenDiscordActivitySettings)));
+
+    Section.AddMenuEntry(
         "UE5HTML5DiscordActivityReadiness",
         LOCTEXT("DiscordActivityReadiness", "Check Discord Activity Readiness…"),
         LOCTEXT("DiscordActivityReadinessTooltip", "Check the exporter and runtime prerequisites before measuring Blueprint compatibility during export."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive)));
+}
+
+void FUE5HTML5ExporterModule::OpenDiscordActivitySettings()
+{
+    ISettingsModule& SettingsModule = FModuleManager::LoadModuleChecked<ISettingsModule>(TEXT("Settings"));
+    SettingsModule.ShowViewer(TEXT("Project"), TEXT("Plugins"), TEXT("UE5HTML5DiscordActivity"));
 }
 
 void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()

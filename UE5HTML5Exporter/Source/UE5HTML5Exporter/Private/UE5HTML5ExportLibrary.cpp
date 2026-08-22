@@ -1,5 +1,6 @@
 #include "UE5HTML5ExportLibrary.h"
 #include "UE5BlueprintGraphExporter.h"
+#include "UE5HTML5DiscordActivitySettings.h"
 
 #include "Components/ActorComponent.h"
 #include "Dom/JsonObject.h"
@@ -44,7 +45,7 @@ namespace
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v2"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v3"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
         Root->SetStringField(
@@ -63,6 +64,18 @@ namespace
         Activity->SetStringField(TEXT("workflow"), TEXT("DISCORD_ACTIVITY_WORKFLOW.md"));
         Activity->SetStringField(TEXT("releaseTool"), TEXT("scripts/activity-release.mjs"));
         Root->SetObjectField(TEXT("discordActivity"), Activity);
+
+        const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+        TSharedRef<FJsonObject> ProjectTargets = MakeShared<FJsonObject>();
+        ProjectTargets->SetStringField(TEXT("source"), TEXT("Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity"));
+        ProjectTargets->SetBoolField(TEXT("containsSecrets"), false);
+        ProjectTargets->SetBoolField(TEXT("configured"), ProjectSettings->HasAnyTarget());
+        ProjectTargets->SetStringField(TEXT("discordApplicationId"), ProjectSettings->DiscordApplicationId);
+        ProjectTargets->SetStringField(TEXT("discordPublicKey"), ProjectSettings->DiscordPublicKey);
+        ProjectTargets->SetStringField(TEXT("vercelProjectName"), ProjectSettings->VercelProjectName);
+        ProjectTargets->SetStringField(TEXT("supabaseProjectRef"), ProjectSettings->SupabaseProjectRef);
+        ProjectTargets->SetStringField(TEXT("productionUrl"), ProjectSettings->ProductionUrl);
+        Root->SetObjectField(TEXT("projectTargets"), ProjectTargets);
 
         TArray<TSharedPtr<FJsonValue>> RequiredEnvironment;
         for (const FString& Name : {
@@ -90,7 +103,7 @@ namespace
             ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Resolve or replace the unsupported Blueprint nodes listed in logic/blueprints.json, then export again.")));
         }
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
-        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Select a Discord test Activity and a Supabase project; do not reuse an existing production app by accident.")));
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Review the non-secret project targets copied from Unreal Project Settings; the release tool refuses mismatched Discord, Vercel, or Supabase identities.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Re-run the release tool with --apply to migrate Supabase, configure Vercel, verify services, and create a deployment.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Copy the two printed URL mappings into the Discord Developer Portal.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Launch the deployment inside Discord and test with two participants.")));
@@ -244,9 +257,28 @@ FUE5HTML5ReadinessReport FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(U
         }
     }
 
+    const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+    TArray<FString> TargetErrors;
+    ProjectSettings->ValidateTargets(TargetErrors);
+    if (!TargetErrors.IsEmpty())
+    {
+        for (const FString& Error : TargetErrors)
+        {
+            Report.Blockers.Add(FString::Printf(TEXT("Discord Activity Project Settings: %s"), *Error));
+        }
+    }
+    else if (ProjectSettings->HasAnyTarget())
+    {
+        Report.PassedChecks.Add(TEXT("Shared non-secret Discord Activity project targets are valid."));
+    }
+    else
+    {
+        Report.Notes.Add(TEXT("Optional: set public project targets under Project Settings > Plugins > UE5 HTML5 Discord Activity to prevent release to the wrong app."));
+    }
+
     Report.Notes.Add(TEXT("You can build the level and gameplay in Unreal; the export includes the browser runtime and deployment files."));
     Report.Notes.Add(TEXT("This prerequisite check does not certify gameplay; exact Blueprint compatibility is measured and reported during export."));
-    Report.Notes.Add(TEXT("The release operator supplies Discord and Supabase configuration after export; no credentials belong in the Unreal project."));
+    Report.Notes.Add(TEXT("The Unreal project may store only public target identity; credentials remain with the release operator and are never written into the export handoff."));
     Report.Notes.Add(TEXT("Every export includes activity-handoff.json and per-Blueprint compatibility details."));
     Report.bReady = Report.Blockers.IsEmpty();
     return Report;

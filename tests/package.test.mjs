@@ -102,7 +102,8 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
   assert.match(source, /activity-handoff\.json/);
-  assert.match(source, /ue5-discord-activity-handoff\/v2/);
+  assert.match(source, /ue5-discord-activity-handoff\/v3/);
+  assert.match(source, /projectTargets/);
   assert.match(source, /blueprintCompatibility/);
   assert.match(source, /unreal-export-needs-blueprint-adapters/);
   for (const environmentName of [
@@ -122,7 +123,24 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(library, /CheckDiscordActivityReadiness/);
   assert.match(library, /GLTFExporter/);
   assert.match(library, /does not certify gameplay/);
-  assert.match(library, /release operator supplies Discord and Supabase configuration/);
+  assert.match(library, /credentials remain with the release operator/);
+});
+
+test('Unreal Project Settings expose only non-secret Discord Activity targets', () => {
+  const header = read('Source/UE5HTML5Exporter/Public/UE5HTML5DiscordActivitySettings.h');
+  const implementation = read('Source/UE5HTML5Exporter/Private/UE5HTML5DiscordActivitySettings.cpp');
+  const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
+  for (const field of [
+    'DiscordApplicationId', 'DiscordPublicKey', 'VercelProjectName',
+    'SupabaseProjectRef', 'ProductionUrl',
+  ]) assert.match(header, new RegExp(field));
+  for (const forbidden of [
+    'DiscordClientSecret', 'DiscordBotToken', 'SupabaseSecretKey',
+    'SupabaseJwtPrivateKey', 'ActivityStateSecret',
+  ]) assert.doesNotMatch(header, new RegExp(forbidden));
+  assert.match(header, /Config = Game, DefaultConfig/);
+  assert.match(implementation, /ValidateTargets/);
+  assert.match(module, /Discord Activity Project Settings/);
 });
 
 test('Unreal commandlet exposes the same readiness policy for workstation automation', () => {

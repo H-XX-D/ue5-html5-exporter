@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -42,8 +42,18 @@ function exportFixture() {
     },
   }));
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-    schema: 'ue5-discord-activity-handoff/v2',
+    schema: 'ue5-discord-activity-handoff/v3',
     handoffStatus: 'unreal-export-complete',
+    projectTargets: {
+      source: 'Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity',
+      containsSecrets: false,
+      configured: false,
+      discordApplicationId: '',
+      discordPublicKey: '',
+      vercelProjectName: '',
+      supabaseProjectRef: '',
+      productionUrl: '',
+    },
     blueprintCompatibility: {
       status: 'compatible', blueprintCount: 1, nodeCount: 2, supportedNodeCount: 2, unsupportedNodeCount: 0,
     },
@@ -115,8 +125,11 @@ test('Activity package preflight warns on honest partial Blueprint compatibility
       schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
     }));
     writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-      schema: 'ue5-discord-activity-handoff/v2',
+      schema: 'ue5-discord-activity-handoff/v3',
       handoffStatus: 'unreal-export-needs-blueprint-adapters',
+      projectTargets: {
+        source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+      },
       blueprintCompatibility: compatibility,
     }));
     writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
@@ -140,8 +153,11 @@ test('Activity package preflight rejects a falsely complete Blueprint handoff', 
       schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
     }));
     writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-      schema: 'ue5-discord-activity-handoff/v2',
+      schema: 'ue5-discord-activity-handoff/v3',
       handoffStatus: 'unreal-export-complete',
+      projectTargets: {
+        source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+      },
       blueprintCompatibility: compatibility,
     }));
     writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
@@ -149,6 +165,37 @@ test('Activity package preflight rejects a falsely complete Blueprint handoff', 
     }));
     const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
     assert.ok(result.errors.some((error) => error.includes('unreal-export-needs-blueprint-adapters')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight rejects secret fields in Unreal project targets', () => {
+  const root = exportFixture();
+  try {
+    const handoffPath = join(root, 'activity-handoff.json');
+    const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    handoff.projectTargets.discordClientSecret = 'must-never-be-exported';
+    handoff.projectTargets.containsSecrets = true;
+    handoff.projectTargets.configured = true;
+    writeFileSync(handoffPath, JSON.stringify(handoff));
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.ok(result.errors.some((error) => error.includes('forbidden field: discordClientSecret')));
+    assert.ok(result.errors.some((error) => error.includes('containsSecrets must be false')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight rejects a target configuration flag that contradicts its values', () => {
+  const root = exportFixture();
+  try {
+    const handoffPath = join(root, 'activity-handoff.json');
+    const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    handoff.projectTargets.configured = true;
+    writeFileSync(handoffPath, JSON.stringify(handoff));
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.ok(result.errors.some((error) => error.includes('configured must be false')));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

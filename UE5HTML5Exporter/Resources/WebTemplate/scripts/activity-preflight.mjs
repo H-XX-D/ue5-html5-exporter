@@ -40,10 +40,22 @@ const SERVER_SECRET_NAMES = [
   'ACTIVITY_STATE_SECRET',
 ];
 
-const PUBLIC_TEXT_ROOTS = ['index.html', 'runtime', 'logic'];
+const PUBLIC_TEXT_ROOTS = ['index.html', 'runtime', 'logic', 'activity-handoff.json'];
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const ONLINE_TIMEOUT_MS = 10_000;
+const HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v3';
+const PROJECT_TARGET_KEYS = new Set([
+  'source',
+  'containsSecrets',
+  'configured',
+  'discordApplicationId',
+  'discordPublicKey',
+  'vercelProjectName',
+  'supabaseProjectRef',
+  'productionUrl',
+]);
+const SECRET_TARGET_KEY = /(?:secret|token|password|private.?key|bot.?token|service.?role)/i;
 
 function placeholder(value) {
   return !value || /(?:replace[_ -]?me|your[_ -]|\.\.\.)/i.test(value);
@@ -95,6 +107,49 @@ function compatibilityCounts(value, label, errors) {
   return result;
 }
 
+function validateProjectTargets(value, errors) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push('activity-handoff.json.projectTargets must be an object.');
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    if (!PROJECT_TARGET_KEYS.has(key) || (key !== 'containsSecrets' && SECRET_TARGET_KEY.test(key))) {
+      errors.push(`activity-handoff.json.projectTargets contains forbidden field: ${key}.`);
+    }
+  }
+  if (value.containsSecrets !== false) {
+    errors.push('activity-handoff.json.projectTargets.containsSecrets must be false.');
+  }
+  const appId = String(value.discordApplicationId || '');
+  const publicKey = String(value.discordPublicKey || '');
+  const vercelProject = String(value.vercelProjectName || '');
+  const supabaseRef = String(value.supabaseProjectRef || '');
+  const productionUrl = String(value.productionUrl || '');
+  const hasAnyTarget = Boolean(appId || publicKey || vercelProject || supabaseRef || productionUrl);
+  if (typeof value.configured !== 'boolean' || value.configured !== hasAnyTarget) {
+    errors.push(`projectTargets.configured must be ${hasAnyTarget} for the supplied public targets.`);
+  }
+  if (appId && !/^\d{17,20}$/.test(appId)) {
+    errors.push('projectTargets.discordApplicationId must contain 17 to 20 digits.');
+  }
+  if (publicKey && !/^[a-f0-9]{64}$/i.test(publicKey)) {
+    errors.push('projectTargets.discordPublicKey must contain exactly 64 hexadecimal characters.');
+  }
+  if (vercelProject && !/^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/.test(vercelProject)) {
+    errors.push('projectTargets.vercelProjectName has an invalid project name.');
+  }
+  if (supabaseRef && !/^[a-z0-9]{20}$/.test(supabaseRef)) {
+    errors.push('projectTargets.supabaseProjectRef must contain exactly 20 lowercase letters or numbers.');
+  }
+  if (productionUrl) {
+    try {
+      if (new URL(productionUrl).protocol !== 'https:') throw new Error('not HTTPS');
+    } catch {
+      errors.push('projectTargets.productionUrl must be a valid HTTPS URL.');
+    }
+  }
+}
+
 function validateUnrealHandoff(root, errors, warnings) {
   const manifest = readJsonArtifact(root, 'export-manifest.json', errors);
   const handoff = readJsonArtifact(root, 'activity-handoff.json', errors);
@@ -104,9 +159,10 @@ function validateUnrealHandoff(root, errors, warnings) {
   if (manifest.schema !== 'ue5-html5-export/v2') {
     errors.push('export-manifest.json has an unsupported schema.');
   }
-  if (handoff.schema !== 'ue5-discord-activity-handoff/v2') {
-    errors.push('activity-handoff.json must use ue5-discord-activity-handoff/v2. Export again with the current plugin.');
+  if (handoff.schema !== HANDOFF_SCHEMA) {
+    errors.push(`activity-handoff.json must use ${HANDOFF_SCHEMA}. Export again with the current plugin.`);
   }
+  validateProjectTargets(handoff.projectTargets, errors);
   if (logic.schema !== 'ue-blueprint-ir/v1' || !Array.isArray(logic.programs)) {
     errors.push('logic/blueprints.json has an unsupported schema.');
   }

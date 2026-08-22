@@ -2,7 +2,9 @@
 
 ## No-web-development teammate path
 
-The Unreal developer only needs to install the plugin, open the project, and choose **Tools → HTML5 Export → Export Discord Activity…**. That guided command runs the readiness gate, exports the level, reports exact Blueprint compatibility, and offers to open the finished folder. `activity-handoff.json` tells the release operator what remains. It marks the Unreal work complete only when every exported Blueprint node is covered; otherwise it names the handoff `unreal-export-needs-blueprint-adapters` and points to `logic/blueprints.json`. The developer can stay focused on the level and Blueprint gameplay instead of learning the web stack.
+The Unreal developer only needs to install the plugin, open the project, set the public target identity once under **Tools → HTML5 Export → Discord Activity Project Settings…**, and choose **Export Discord Activity…**. That guided command validates the settings, exports the level, reports exact Blueprint compatibility, and offers to open the finished folder. `activity-handoff.json` carries the non-secret target identity and tells the release operator what remains. It marks the Unreal work complete only when every exported Blueprint node is covered; otherwise it names the handoff `unreal-export-needs-blueprint-adapters` and points to `logic/blueprints.json`. The developer can stay focused on the level and Blueprint gameplay instead of learning the web stack.
+
+Project Settings may contain only the Discord Application ID/public key, Vercel project name, Supabase project ref, and public production URL. They are ordinary version-controlled project configuration. Never enter Discord client secrets/bot tokens, Supabase secret/signing keys, or the Activity state secret there; those remain in the release operator's gitignored environment and Vercel.
 
 Create that portable source bundle from the repository with:
 
@@ -15,7 +17,7 @@ Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HT
 
 The intended team workflow keeps Unreal developers inside Unreal. A release operator owns Discord, hosting, and Supabase configuration; level designers and Blueprint developers install the plugin and use familiar UE5 tools and nodes.
 
-The release operator does not need to assemble hosting commands by hand. Every export includes `scripts/activity-release.mjs`; `npm run release:activity` prints a dry-run plan, and an explicit `--apply` performs the selected Supabase/Vercel setup and creates a Preview deployment. Package preflight rejects contradictory or stale handoff data and warns when Blueprint adapters remain. It then verifies that an unauthenticated Discord player can reach the host, that iframe headers permit embedding, that the Unreal manifest is present, and that the Activity API is enabled. The same Node.js 22 command runs on Windows, macOS, and Linux, and secret values are sent to Vercel through stdin rather than command arguments.
+The release operator does not need to assemble hosting commands by hand. Every export includes `scripts/activity-release.mjs`; `npm run release:activity -- --env-file .env.activity.local` reads the public targets from Unreal and prints a dry-run plan. Explicit `--supabase-project-ref` and `--vercel-project` overrides are still accepted only when they match Unreal's targets. An explicit `--apply` performs the selected Supabase/Vercel setup and creates a Preview deployment. Package preflight rejects contradictory, stale, or secret-bearing handoff data and warns when Blueprint adapters remain. It then verifies that an unauthenticated Discord player can reach the host, that iframe headers permit embedding, that the Unreal manifest is present, and that the Activity API is enabled. The same Node.js 22 command runs on Windows, macOS, and Linux, and secret values are sent to Vercel through stdin rather than command arguments.
 
 ## Windows developer install
 

@@ -10,6 +10,7 @@ public:
 
 private:
     void RegisterMenus();
+    void OpenDiscordActivitySettings();
     void CheckDiscordActivityReadinessInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);
 };

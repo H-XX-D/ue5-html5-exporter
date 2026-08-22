@@ -43,17 +43,19 @@ The migration explicitly revokes browser access to both state tables and grants 
 
 ### Guided cross-platform release
 
-The exported folder includes one Node.js 22 release command that runs unchanged in PowerShell, Terminal, or a Linux shell. It is dry-run-only unless `--apply` is present, checks that `SUPABASE_URL` matches the explicitly selected project ref, and refuses to silently switch an existing Vercel link.
+Before exporting, open **Tools → HTML5 Export → Discord Activity Project Settings…** in Unreal. Enter this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The exporter copies only the allowlisted public fields into `activity-handoff.json`.
+
+The exported folder includes one Node.js 22 release command that runs unchanged in PowerShell, Terminal, or a Linux shell. It is dry-run-only unless `--apply` is present, reads the public targets from `activity-handoff.json`, checks that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuses to silently switch an existing Vercel link.
 
 Create a gitignored environment file from `.env.example`, then review the exact project plan:
 
 ```bash
 npm install
 npm run release:activity -- \
-  --env-file .env.activity.local \
-  --supabase-project-ref YOUR_PROJECT_REF \
-  --vercel-project YOUR_VERCEL_PROJECT
+  --env-file .env.activity.local
 ```
+
+If an older export has no configured project targets, supply `--supabase-project-ref YOUR_PROJECT_REF --vercel-project YOUR_VERCEL_PROJECT`. When the handoff does contain targets, explicit arguments must match them exactly.
 
 On Windows PowerShell, enter the same command on one line. `--generate-state-secret` generates `ACTIVITY_STATE_SECRET` in memory when the file omits it. The generated value is sent directly to Vercel as sensitive input and is never printed or written back to the file.
 

@@ -73,9 +73,11 @@ Usage:
   npm run release:activity -- [options]
 
 Required:
+  --env-file <path>             Gitignored environment file (values are never printed)
+
+Project targets (optional when set in Unreal Project Settings):
   --supabase-project-ref <ref>  Exact Supabase project to receive the migration
   --vercel-project <name>       Vercel project to receive server environment
-  --env-file <path>             Gitignored environment file (values are never printed)
 
 Options:
   --environment <target>        preview (default) or production
@@ -86,7 +88,9 @@ Options:
   --apply                       Perform mutations; without this flag only print a plan
   -h, --help                    Show this help
 
-The dry-run plan is the default. --apply links the exact selected projects, runs a
+The dry-run plan is the default. Public project targets are read from
+activity-handoff.json and explicit arguments must match them. --apply links the
+exact selected projects, runs a
 Supabase migration dry-run before db push, writes Vercel values through stdin,
 runs the online identity/security preflight, and creates a Preview deployment.
 Production uses --prod --skip-domain and is never promoted automatically.`;
@@ -116,25 +120,70 @@ export function readVercelLink(directory) {
   }
 }
 
+export function readActivityHandoffTargets(directory) {
+  const path = join(directory, 'activity-handoff.json');
+  if (!existsSync(path)) return {};
+  try {
+    const handoff = JSON.parse(readFileSync(path, 'utf8'));
+    const targets = handoff?.projectTargets;
+    if (!targets || typeof targets !== 'object' || Array.isArray(targets)) return {};
+    return {
+      discordApplicationId: String(targets.discordApplicationId || ''),
+      discordPublicKey: String(targets.discordPublicKey || ''),
+      vercelProjectName: String(targets.vercelProjectName || ''),
+      supabaseProjectRef: String(targets.supabaseProjectRef || ''),
+      productionUrl: String(targets.productionUrl || ''),
+    };
+  } catch {
+    throw new Error(`Activity handoff is invalid JSON: ${path}`);
+  }
+}
+
 function supabaseHostname(projectRef) {
   return `${projectRef}.supabase.co`;
 }
 
-export function validateReleaseSelection(options, environment, vercelLink = readVercelLink(options.directory)) {
+export function validateReleaseSelection(
+  options,
+  environment,
+  vercelLink = readVercelLink(options.directory),
+  handoffTargets = readActivityHandoffTargets(options.directory),
+) {
   const errors = [];
   const warnings = [];
-  if (!/^[a-z0-9]{20}$/.test(String(options.supabaseProjectRef || ''))) {
+  const handoffSupabase = handoffTargets.supabaseProjectRef || '';
+  const handoffVercel = handoffTargets.vercelProjectName || '';
+  if (options.supabaseProjectRef && handoffSupabase && options.supabaseProjectRef !== handoffSupabase) {
+    errors.push(`--supabase-project-ref targets ${options.supabaseProjectRef}, not Unreal project target ${handoffSupabase}.`);
+  }
+  if (options.vercelProject && handoffVercel && options.vercelProject !== handoffVercel) {
+    errors.push(`--vercel-project targets ${options.vercelProject}, not Unreal project target ${handoffVercel}.`);
+  }
+  const selectedSupabaseProjectRef = options.supabaseProjectRef || handoffSupabase;
+  if (!/^[a-z0-9]{20}$/.test(String(selectedSupabaseProjectRef || ''))) {
     errors.push('--supabase-project-ref must be the exact 20-character project ref.');
   }
-  const selectedVercelProject = options.vercelProject || vercelLink?.projectName;
+  const requestedVercelProject = options.vercelProject || handoffVercel;
+  const selectedVercelProject = requestedVercelProject || vercelLink?.projectName;
   if (!selectedVercelProject) errors.push('--vercel-project is required when the export is not already linked.');
-  if (vercelLink && options.vercelProject && vercelLink.projectName !== options.vercelProject) {
-    errors.push(`Export is linked to Vercel project ${vercelLink.projectName}, not ${options.vercelProject}.`);
+  if (vercelLink && requestedVercelProject && vercelLink.projectName !== requestedVercelProject) {
+    errors.push(`Export is linked to Vercel project ${vercelLink.projectName}, not ${requestedVercelProject}.`);
+  }
+  if (handoffTargets.discordApplicationId
+      && environment.DISCORD_CLIENT_ID
+      && handoffTargets.discordApplicationId !== environment.DISCORD_CLIENT_ID) {
+    errors.push(`DISCORD_CLIENT_ID does not match Unreal project target ${handoffTargets.discordApplicationId}.`);
+  }
+  if (handoffTargets.discordPublicKey && !environment.DISCORD_PUBLIC_KEY) {
+    errors.push('DISCORD_PUBLIC_KEY is missing but Unreal defines a public-key target.');
+  } else if (handoffTargets.discordPublicKey
+      && handoffTargets.discordPublicKey.toLowerCase() !== environment.DISCORD_PUBLIC_KEY.toLowerCase()) {
+    errors.push('DISCORD_PUBLIC_KEY does not match the Unreal project target.');
   }
   try {
     const configuredHost = new URL(environment.SUPABASE_URL).hostname;
-    if (options.supabaseProjectRef && configuredHost !== supabaseHostname(options.supabaseProjectRef)) {
-      errors.push(`SUPABASE_URL targets ${configuredHost}, not selected project ${options.supabaseProjectRef}.`);
+    if (selectedSupabaseProjectRef && configuredHost !== supabaseHostname(selectedSupabaseProjectRef)) {
+      errors.push(`SUPABASE_URL targets ${configuredHost}, not selected project ${selectedSupabaseProjectRef}.`);
     }
   } catch {
     // The shared environment validator reports the malformed URL precisely.
@@ -143,7 +192,13 @@ export function validateReleaseSelection(options, environment, vercelLink = read
       && !/^(?:1|true|yes|on)$/i.test(String(environment.DISCORD_REQUIRE_PROXY_AUTH || ''))) {
     warnings.push('Production is selected while Discord proxy authentication is disabled.');
   }
-  return { errors, warnings, selectedVercelProject };
+  return {
+    errors,
+    warnings,
+    selectedVercelProject,
+    selectedSupabaseProjectRef,
+    handoffTargets,
+  };
 }
 
 export function buildActivityReleasePlan(options, environment, vercelLink = readVercelLink(options.directory)) {
@@ -156,7 +211,9 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     directory: options.directory,
     environment: options.environment,
     vercelProject: selection.selectedVercelProject || null,
-    supabaseProjectRef: options.supabaseProjectRef || null,
+    supabaseProjectRef: selection.selectedSupabaseProjectRef || null,
+    discordApplicationId: selection.handoffTargets.discordApplicationId || environment.DISCORD_CLIENT_ID || null,
+    productionUrl: selection.handoffTargets.productionUrl || null,
     packagePreflight: true,
     supabase: options.migrate
       ? ['link exact project', 'migration dry-run', 'apply pending migrations']
@@ -171,7 +228,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       : 'skipped by operator',
     discordUrlMappings: {
       '/': '<deployment-host returned after apply>',
-      '/supabase': options.supabaseProjectRef ? supabaseHostname(options.supabaseProjectRef) : null,
+      '/supabase': selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : null,
     },
     errors: selection.errors,
     warnings: selection.warnings,
@@ -355,7 +412,7 @@ export async function executeActivityRelease(options, environment, {
 
   if (!link) run('vercel', ['link', '--yes', '--project', selection.selectedVercelProject]);
   if (options.migrate) {
-    run('supabase', ['link', '--project-ref', options.supabaseProjectRef]);
+    run('supabase', ['link', '--project-ref', selection.selectedSupabaseProjectRef]);
     run('supabase', ['db', 'push', '--linked', '--dry-run', '--yes']);
     run('supabase', ['db', 'push', '--linked', '--yes']);
   }
@@ -417,7 +474,7 @@ export async function executeActivityRelease(options, environment, {
     deploymentUrl: url,
     discordUrlMappings: {
       '/': url ? new URL(url).host : '<deployment skipped>',
-      '/supabase': supabaseHostname(options.supabaseProjectRef),
+      '/supabase': supabaseHostname(selection.selectedSupabaseProjectRef),
     },
     plan,
   };

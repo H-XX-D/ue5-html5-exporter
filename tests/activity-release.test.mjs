@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -11,6 +11,7 @@ import {
   executeActivityRelease,
   loadReleaseEnvironment,
   parseActivityReleaseArgs,
+  readActivityHandoffTargets,
   runCommand,
   validateReleaseSelection,
   verifyPublicDeployment,
@@ -52,9 +53,19 @@ function exportFixture() {
     schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
   }));
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-    schema: 'ue5-discord-activity-handoff/v2',
+    schema: 'ue5-discord-activity-handoff/v3',
     handoffStatus: 'unreal-export-complete',
     blueprintCompatibility: compatibility,
+    projectTargets: {
+      source: 'Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity',
+      containsSecrets: false,
+      configured: false,
+      discordApplicationId: '',
+      discordPublicKey: '',
+      vercelProjectName: '',
+      supabaseProjectRef: '',
+      productionUrl: '',
+    },
   }));
   writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
     schema: 'ue-blueprint-ir/v1', programs: [{ graphs: [{ nodes: [{}, {}] }], compatibility: { unsupportedCount: 0 } }],
@@ -94,6 +105,72 @@ test('release workflow refuses cross-project Supabase and Vercel configuration',
   const result = validateReleaseSelection(options, env, { projectName: 'different-game' });
   assert.ok(result.errors.some((error) => error.includes('not expected-game')));
   assert.ok(result.errors.some((error) => error.includes('not selected project')));
+});
+
+test('release workflow defaults to Unreal project targets without copying secrets', () => {
+  const root = exportFixture();
+  const targets = {
+    source: 'Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity',
+    containsSecrets: false,
+    configured: true,
+    discordApplicationId: '123456789012345678',
+    discordPublicKey: 'a'.repeat(64),
+    vercelProjectName: 'my-discord-game',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+    productionUrl: 'https://game.example',
+  };
+  const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
+  writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({ ...handoff, projectTargets: targets }));
+
+  assert.deepEqual(readActivityHandoffTargets(root), {
+    discordApplicationId: targets.discordApplicationId,
+    discordPublicKey: targets.discordPublicKey,
+    vercelProjectName: targets.vercelProjectName,
+    supabaseProjectRef: targets.supabaseProjectRef,
+    productionUrl: targets.productionUrl,
+  });
+  const result = validateReleaseSelection(
+    { directory: root, environment: 'preview' },
+    { ...validEnvironment(), DISCORD_PUBLIC_KEY: 'a'.repeat(64) },
+    null,
+  );
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.selectedVercelProject, targets.vercelProjectName);
+  assert.equal(result.selectedSupabaseProjectRef, targets.supabaseProjectRef);
+});
+
+test('release workflow rejects arguments and Discord environment that drift from Unreal targets', () => {
+  const handoffTargets = {
+    discordApplicationId: '123456789012345678',
+    discordPublicKey: 'a'.repeat(64),
+    vercelProjectName: 'expected-game',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+  };
+  const result = validateReleaseSelection({
+    directory: '/export',
+    environment: 'preview',
+    supabaseProjectRef: 'zyxwvutsrqponmlkjihg',
+    vercelProject: 'different-game',
+  }, {
+    ...validEnvironment(),
+    DISCORD_CLIENT_ID: '987654321098765432',
+    DISCORD_PUBLIC_KEY: 'b'.repeat(64),
+  }, null, handoffTargets);
+  assert.ok(result.errors.some((error) => error.includes('not Unreal project target abcdefghijklmnopqrst')));
+  assert.ok(result.errors.some((error) => error.includes('not Unreal project target expected-game')));
+  assert.ok(result.errors.some((error) => error.includes('DISCORD_CLIENT_ID does not match')));
+  assert.ok(result.errors.some((error) => error.includes('DISCORD_PUBLIC_KEY does not match')));
+});
+
+test('release workflow requires a configured Discord public key in the release environment', () => {
+  const result = validateReleaseSelection({
+    directory: '/export', environment: 'preview',
+  }, validEnvironment(), null, {
+    discordPublicKey: 'a'.repeat(64),
+    vercelProjectName: 'expected-game',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+  });
+  assert.ok(result.errors.some((error) => error.includes('DISCORD_PUBLIC_KEY is missing')));
 });
 
 test('dry-run plan names secret inputs without containing their values', () => {
