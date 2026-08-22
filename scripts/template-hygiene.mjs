@@ -54,6 +54,13 @@ export function cleanGeneratedTemplateDuplicates(directory = DEFAULT_TEMPLATE) {
   return removed;
 }
 
+export function cleanGeneratedTemplateLocalState(directory = DEFAULT_TEMPLATE) {
+  const vercelLink = join(resolve(directory), '.vercel');
+  if (!existsSync(vercelLink)) return [];
+  rmSync(vercelLink, { recursive: true, force: true });
+  return [vercelLink];
+}
+
 function isMainModule() {
   return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 }
@@ -64,9 +71,8 @@ if (isMainModule()) {
     const directoryArgument = process.argv.find((argument, index) => index > 1 && argument !== '--clean');
     const directory = resolve(directoryArgument || DEFAULT_TEMPLATE);
     const removed = cleanGeneratedTemplateDuplicates(directory);
-    console.log(removed.length
-      ? `Removed ${removed.length} byte-identical generated duplicate file(s).`
-      : 'Generated template contains no numbered duplicate files.');
+    const localState = cleanGeneratedTemplateLocalState(directory);
+    console.log(`Generated template hygiene passed: removed ${removed.length} duplicate file(s) and ${localState.length} local service-link director${localState.length === 1 ? 'y' : 'ies'}.`);
   } catch (error) {
     console.error(`Template hygiene failed: ${error.message}`);
     process.exit(1);

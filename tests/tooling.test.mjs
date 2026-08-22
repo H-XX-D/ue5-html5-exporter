@@ -23,6 +23,7 @@ import {
 } from '../scripts/package-source-plugin.mjs';
 import {
   cleanGeneratedTemplateDuplicates,
+  cleanGeneratedTemplateLocalState,
   duplicateBasePath,
   findNumberedDuplicates,
 } from '../scripts/template-hygiene.mjs';
@@ -157,4 +158,14 @@ test('template hygiene removes only byte-identical numbered generated files', ()
   writeFileSync(duplicate, 'different output');
   assert.throws(() => cleanGeneratedTemplateDuplicates(root), /differs from its canonical counterpart/);
   assert.equal(existsSync(duplicate), true);
+});
+
+test('template hygiene strips local Vercel links from distributable output', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-html5-template-local-state-'));
+  const link = join(root, '.vercel');
+  mkdirSync(link, { recursive: true });
+  writeFileSync(join(link, 'project.json'), '{"projectName":"private-workstation-link"}');
+  assert.deepEqual(cleanGeneratedTemplateLocalState(root), [link]);
+  assert.equal(existsSync(link), false);
+  assert.deepEqual(cleanGeneratedTemplateLocalState(root), []);
 });

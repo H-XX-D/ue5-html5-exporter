@@ -4,6 +4,8 @@ import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import { parseEnv } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
@@ -35,6 +37,14 @@ const DEFAULT_ENVIRONMENT = {
   DISCORD_REQUIRE_PROXY_AUTH: 'false',
 };
 
+function placeholder(value) {
+  return !value || /replace[_ -]?me|your[_ -]|\.\.\./i.test(String(value));
+}
+
+function generatedStateSecret(random = randomBytes) {
+  return random(32).toString('base64url');
+}
+
 export function parseActivityReleaseArgs(argv) {
   const options = {
     apply: false,
@@ -43,6 +53,7 @@ export function parseActivityReleaseArgs(argv) {
     directory: process.cwd(),
     environment: 'preview',
     generateStateSecret: false,
+    vercelOnlySecrets: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -50,6 +61,7 @@ export function parseActivityReleaseArgs(argv) {
     else if (argument === '--no-deploy') options.deploy = false;
     else if (argument === '--no-migrate') options.migrate = false;
     else if (argument === '--generate-state-secret') options.generateStateSecret = true;
+    else if (argument === '--vercel-only-secrets') options.vercelOnlySecrets = true;
     else if (argument === '--directory') options.directory = argv[++index];
     else if (argument === '--env-file') options.envFile = argv[++index];
     else if (argument === '--supabase-project-ref') options.supabaseProjectRef = argv[++index];
@@ -82,6 +94,7 @@ Project targets (optional when set in Unreal Project Settings):
 Options:
   --environment <target>        preview (default) or production
   --generate-state-secret       Generate ACTIVITY_STATE_SECRET in memory when absent
+  --vercel-only-secrets         Prompt hidden for missing secrets only when applying
   --no-migrate                  Do not link or migrate Supabase
   --no-deploy                   Configure services without deploying Vercel
   --directory <export>          UE5 export directory (default: current directory)
@@ -93,7 +106,9 @@ activity-handoff.json and explicit arguments must match them. --apply links the
 exact selected projects, runs a
 Supabase migration dry-run before db push, writes Vercel values through stdin,
 runs the online identity/security preflight, and creates a Preview deployment.
-Production uses --prod --skip-domain and is never promoted automatically.`;
+Production uses --prod --skip-domain and is never promoted automatically.
+With --vercel-only-secrets, missing server secrets are held only in process
+memory and Vercel; the public env file is never updated.`;
 }
 
 export function loadReleaseEnvironment(options, baseEnvironment = process.env, random = randomBytes) {
@@ -104,9 +119,76 @@ export function loadReleaseEnvironment(options, baseEnvironment = process.env, r
   }
   const environment = { ...DEFAULT_ENVIRONMENT, ...baseEnvironment, ...fileEnvironment };
   if (!environment.ACTIVITY_STATE_SECRET && options.generateStateSecret) {
-    environment.ACTIVITY_STATE_SECRET = random(32).toString('base64url');
+    environment.ACTIVITY_STATE_SECRET = generatedStateSecret(random);
   }
   return environment;
+}
+
+export async function promptHiddenValue(label, {
+  input = process.stdin,
+  output = process.stderr,
+} = {}) {
+  if (!input.isTTY || !output.isTTY) {
+    throw new Error(`${label} requires an interactive terminal. Run the launcher in a terminal or provide the value through a private CI environment.`);
+  }
+  output.write(`${label}: `);
+  const mutedOutput = new Writable({
+    write(_chunk, _encoding, callback) { callback(); },
+  });
+  mutedOutput.isTTY = true;
+  const readline = createInterface({ input, output: mutedOutput, terminal: true });
+  try {
+    const value = await readline.question('');
+    output.write('\n');
+    return value;
+  } finally {
+    readline.close();
+  }
+}
+
+export async function completeVercelOnlySecrets(options, environment, {
+  prompt = promptHiddenValue,
+  random = randomBytes,
+} = {}) {
+  const completed = { ...environment };
+  if (!options.vercelOnlySecrets || !options.apply) return completed;
+
+  for (const name of SENSITIVE_ENVIRONMENT) {
+    if (!placeholder(completed[name])) continue;
+    if (name === 'ACTIVITY_STATE_SECRET') {
+      completed[name] = generatedStateSecret(random);
+    } else {
+      const value = await prompt(`Enter ${name} (hidden; stored only in Vercel)`);
+      if (placeholder(value)) throw new Error(`${name} cannot be empty or a placeholder.`);
+      completed[name] = value;
+    }
+  }
+
+  if (placeholder(completed.SUPABASE_JWT_KEY_ID)) {
+    try {
+      const keyId = JSON.parse(completed.SUPABASE_JWT_PRIVATE_KEY).kid;
+      if (!placeholder(keyId)) completed.SUPABASE_JWT_KEY_ID = String(keyId);
+    } catch {
+      // The shared validator reports malformed JWK input without exposing it.
+    }
+  }
+  return completed;
+}
+
+function dryRunEnvironment(options, environment) {
+  if (!options.vercelOnlySecrets || options.apply) return environment;
+  const preview = { ...environment };
+  if (placeholder(preview.DISCORD_CLIENT_SECRET)) preview.DISCORD_CLIENT_SECRET = 'prompted-discord-client-secret';
+  if (placeholder(preview.DISCORD_BOT_TOKEN)) preview.DISCORD_BOT_TOKEN = 'prompted-discord-bot-token-value';
+  if (placeholder(preview.SUPABASE_SECRET_KEY)) preview.SUPABASE_SECRET_KEY = 'sb_secret_prompted-at-apply';
+  if (placeholder(preview.ACTIVITY_STATE_SECRET)) preview.ACTIVITY_STATE_SECRET = 'generated-at-apply-0123456789abcdef';
+  if (placeholder(preview.SUPABASE_JWT_PRIVATE_KEY)) {
+    preview.SUPABASE_JWT_PRIVATE_KEY = JSON.stringify({
+      kty: 'EC', crv: 'P-256', kid: 'prompted-at-apply', x: 'prompted', y: 'prompted', d: 'prompted',
+    });
+  }
+  if (placeholder(preview.SUPABASE_JWT_KEY_ID)) preview.SUPABASE_JWT_KEY_ID = 'prompted-at-apply';
+  return preview;
 }
 
 export function readVercelLink(directory) {
@@ -204,7 +286,7 @@ export function validateReleaseSelection(
 export function buildActivityReleasePlan(options, environment, vercelLink = readVercelLink(options.directory)) {
   const selection = validateReleaseSelection(options, environment, vercelLink);
   const variableNames = [...PUBLIC_ENVIRONMENT, ...SENSITIVE_ENVIRONMENT]
-    .filter((name) => Boolean(environment[name]));
+    .filter((name) => Boolean(environment[name]) || (options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name)));
   return {
     schema: 'ue5-discord-activity-release-plan/v1',
     mode: options.apply ? 'apply' : 'dry-run',
@@ -221,6 +303,9 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     vercelEnvironment: variableNames.map((name) => ({
       name,
       sensitive: SENSITIVE_ENVIRONMENT.includes(name),
+      source: options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name) && placeholder(environment[name])
+        ? (name === 'ACTIVITY_STATE_SECRET' ? 'generated-at-apply' : 'hidden-prompt-at-apply')
+        : 'environment',
     })),
     onlinePreflight: true,
     deployment: options.deploy
@@ -392,11 +477,15 @@ export async function executeActivityRelease(options, environment, {
   verifyServices = verifyActivityServices,
   verifyDeployment = verifyPublicDeployment,
 } = {}) {
-  const local = validateActivityExport({ directory: options.directory, env: environment });
+  const validationEnvironment = dryRunEnvironment(options, environment);
+  const local = validateActivityExport({ directory: options.directory, env: validationEnvironment });
   const link = readVercelLink(options.directory);
   const selection = validateReleaseSelection(options, environment, link);
   const errors = [...local.errors, ...selection.errors];
   const warnings = [...local.warnings, ...selection.warnings];
+  if (options.vercelOnlySecrets && !options.apply) {
+    warnings.push('Missing server secrets will be requested with hidden input only when --apply is used; they will not be written to the env file.');
+  }
   const plan = buildActivityReleasePlan(options, environment, link);
   if (errors.length) return { ok: false, applied: false, errors, warnings, plan };
   if (!options.apply) return { ok: true, applied: false, errors: [], warnings, plan };
@@ -507,7 +596,8 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
       console.log(activityReleaseHelp());
       process.exit(0);
     }
-    const environment = loadReleaseEnvironment(options);
+    let environment = loadReleaseEnvironment(options);
+    environment = await completeVercelOnlySecrets(options, environment);
     const result = await executeActivityRelease(options, environment);
     process.exitCode = printResult(result);
   } catch (error) {

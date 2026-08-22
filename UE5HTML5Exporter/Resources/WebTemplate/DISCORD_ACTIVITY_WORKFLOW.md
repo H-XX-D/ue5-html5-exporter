@@ -45,7 +45,7 @@ The migration explicitly revokes browser access to both state tables and grants 
 
 Before exporting, open **Tools → HTML5 Export → Discord Activity Project Settings…** in Unreal. Enter this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The exporter copies only the allowlisted public fields into `activity-handoff.json`.
 
-After **Export Discord Activity…**, Unreal offers to start the correct one-command assistant immediately. You can also launch it later by double-clicking `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. The first run creates the gitignored `.env.activity.local` template and stops. After its private server values are filled, the assistant installs pinned Vercel and Supabase CLIs locally and invokes the same release workflow. No global CLI installation or web-project command knowledge is required.
+After **Export Discord Activity…**, Unreal offers to start the correct one-command assistant immediately. You can also launch it later by double-clicking `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. The first run creates the gitignored `.env.activity.local` template and stops so its public values can be filled. Leave all server-secret placeholders unchanged. The assistant installs pinned Vercel and Supabase CLIs locally and invokes the same release workflow. No global CLI installation or web-project command knowledge is required.
 
 The assistant and the underlying Node.js 22 command are dry-run-only unless `--apply` is present. They read public targets from `activity-handoff.json`, check that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuse to silently switch an existing Vercel link.
 
@@ -54,18 +54,19 @@ Create a gitignored environment file from `.env.example`, then review the exact 
 ```bash
 npm install
 npm run release:activity -- \
-  --env-file .env.activity.local
+  --env-file .env.activity.local \
+  --vercel-only-secrets
 ```
 
 That manual command remains useful for CI and custom automation. The workstation launchers perform the install and select `.env.activity.local` automatically. Pass `--apply` to the launcher only after its dry-run plan names the intended Discord, Vercel, and Supabase projects.
 
 If an older export has no configured project targets, supply `--supabase-project-ref YOUR_PROJECT_REF --vercel-project YOUR_VERCEL_PROJECT`. When the handoff does contain targets, explicit arguments must match them exactly.
 
-On Windows PowerShell, enter the same command on one line. `--generate-state-secret` generates `ACTIVITY_STATE_SECRET` in memory when the file omits it. The generated value is sent directly to Vercel as sensitive input and is never printed or written back to the file.
+On Windows PowerShell, enter the same command on one line. `--vercel-only-secrets` does not prompt during dry-run. After `--apply` is added, it requests each missing server secret with hidden terminal input, derives `SUPABASE_JWT_KEY_ID` from the private JWK, and generates `ACTIVITY_STATE_SECRET` in memory. Those values are sent directly to Vercel as sensitive stdin and are never printed or written back to the file. CI may instead inject existing secrets into the process environment.
 
 After reviewing the dry-run, add `--apply`. The tool then:
 
-1. verifies the exported package and complete private configuration;
+1. completes the private configuration in process memory and verifies the exported package;
 2. verifies both CLIs are installed;
 3. links the exact Vercel and Supabase projects;
 4. runs `supabase db push --dry-run` before applying pending migrations;
@@ -86,7 +87,7 @@ npm run preflight:package
 vercel
 ```
 
-The guided `npm run release:activity` command above performs these checks and Vercel/Supabase steps together. The manual commands in this section remain available for troubleshooting and custom hosts.
+The guided `npm run release:activity` command above performs these checks and Vercel/Supabase steps together without pulling Vercel secrets onto the workstation. The manual commands in this section remain available for troubleshooting and custom hosts.
 
 `preflight:package` verifies that Unreal produced every required scene, Blueprint, API, migration, and deployment artifact. It cross-checks Blueprint counts across `export-manifest.json`, `activity-handoff.json`, and `logic/blueprints.json`; a handoff cannot claim `unreal-export-complete` while unsupported nodes remain. Partial compatibility is reported as a warning because an unsupported node may be intentionally unused or replaced by a registered JavaScript function, but it must be reviewed before release. The preflight also scans browser-visible text for any server secret already present in the shell environment. Run the full environment check before deploying by exposing the Vercel values to that one command (or by using a temporary, gitignored environment file):
 

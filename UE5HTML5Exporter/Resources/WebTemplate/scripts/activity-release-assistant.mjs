@@ -50,12 +50,13 @@ macOS:    ./release-discord-activity.command
 Linux:    ./release-discord-activity.sh
 
 The first run creates .env.activity.local from .env.example and stops so you can
-fill the private server configuration. The next run installs pinned Vercel and
-Supabase CLIs locally, then prints the fail-closed dry-run release plan.
+fill only the public project configuration. The next run installs pinned Vercel
+and Supabase CLIs locally, then prints the fail-closed dry-run release plan.
 
 Add --apply only after reviewing that plan. All activity-release options are
-passed through unchanged. Use --skip-install only when dependencies are already
-present in this export folder.`;
+passed through unchanged. Missing server secrets are requested with hidden input
+at apply time and stored only in Vercel. Use --skip-install only when dependencies
+are already present in this export folder.`;
 }
 
 function defaultRunner(command, args, options) {
@@ -114,7 +115,7 @@ export function runReleaseAssistant(argv, {
     }
     copyFile(example, envFile);
     stdout(`Created private release template: ${envFile}`);
-    stdout('Fill its placeholder values, then run this launcher again. The file is gitignored.');
+    stdout('Fill its public project values, then run this launcher again. Leave server-secret placeholders unchanged; the file is gitignored.');
     return 2;
   }
 
@@ -140,7 +141,7 @@ export function runReleaseAssistant(argv, {
   }
 
   const release = runner(npm, [
-    'run', 'release:activity', '--', '--env-file', envFile, ...options.forwarded,
+    'run', 'release:activity', '--', '--env-file', envFile, '--vercel-only-secrets', ...options.forwarded,
   ], { cwd: directory });
   if (release.error) {
     stderr(`Could not start the release workflow: ${release.error.message}`);

@@ -13,6 +13,7 @@ import {
   PUBLIC_ENVIRONMENT,
   SENSITIVE_ENVIRONMENT,
   buildActivityReleasePlan,
+  completeVercelOnlySecrets,
   executeActivityRelease,
   loadReleaseEnvironment,
   parseActivityReleaseArgs,
@@ -75,6 +76,7 @@ test('release assistant installs pinned local tools and preserves dry-run by def
   assert.deepEqual(calls[1].args.slice(0, 5), [
     'run', 'release:activity', '--', '--env-file', join(root, '.env.activity.local'),
   ]);
+  assert.ok(calls[1].args.includes('--vercel-only-secrets'));
   assert.equal(calls[1].args.includes('--apply'), false);
   assert.ok(calls.every((call) => call.cwd === root));
 });
@@ -144,11 +146,13 @@ test('release workflow parses a Windows-safe explicit project plan', () => {
     '--supabase-project-ref', 'abcdefghijklmnopqrst',
     '--vercel-project', 'my-discord-game',
     '--environment', 'production',
+    '--vercel-only-secrets',
     '--apply',
   ]);
   assert.equal(options.supabaseProjectRef, 'abcdefghijklmnopqrst');
   assert.equal(options.vercelProject, 'my-discord-game');
   assert.equal(options.environment, 'production');
+  assert.equal(options.vercelOnlySecrets, true);
   assert.equal(options.apply, true);
 });
 
@@ -255,6 +259,67 @@ test('state secret can be generated in memory without writing an env file', () =
   const env = loadReleaseEnvironment(options, {}, () => Buffer.alloc(32, 7));
   assert.equal(Buffer.from(env.ACTIVITY_STATE_SECRET, 'base64url').length, 32);
   assert.equal(env.DISCORD_REQUIRE_PROXY_AUTH, 'false');
+});
+
+test('Vercel-only mode prompts for missing server secrets and never mutates the file environment', async () => {
+  const options = { apply: true, vercelOnlySecrets: true };
+  const original = {
+    ...validEnvironment(),
+    DISCORD_CLIENT_SECRET: '',
+    DISCORD_BOT_TOKEN: '',
+    SUPABASE_SECRET_KEY: 'sb_secret_REPLACE_ME',
+    SUPABASE_JWT_PRIVATE_KEY: '{"kid":"REPLACE_ME"}',
+    SUPABASE_JWT_KEY_ID: 'REPLACE_ME',
+    ACTIVITY_STATE_SECRET: '',
+  };
+  const answers = {
+    DISCORD_CLIENT_SECRET: 'prompted-discord-client-secret',
+    DISCORD_BOT_TOKEN: 'prompted-discord-bot-token-value',
+    SUPABASE_SECRET_KEY: 'sb_secret_prompted-value',
+    SUPABASE_JWT_PRIVATE_KEY: JSON.stringify({
+      kty: 'EC', crv: 'P-256', kid: 'prompted-key', x: 'x', y: 'y', d: 'd',
+    }),
+  };
+  const labels = [];
+  const completed = await completeVercelOnlySecrets(options, original, {
+    prompt: async (label) => {
+      labels.push(label);
+      const name = Object.keys(answers).find((candidate) => label.includes(candidate));
+      return answers[name];
+    },
+    random: () => Buffer.alloc(32, 9),
+  });
+
+  assert.equal(original.DISCORD_CLIENT_SECRET, '');
+  assert.equal(original.SUPABASE_JWT_KEY_ID, 'REPLACE_ME');
+  assert.equal(completed.DISCORD_CLIENT_SECRET, answers.DISCORD_CLIENT_SECRET);
+  assert.equal(completed.SUPABASE_JWT_KEY_ID, 'prompted-key');
+  assert.equal(Buffer.from(completed.ACTIVITY_STATE_SECRET, 'base64url').length, 32);
+  assert.equal(labels.length, 4);
+});
+
+test('Vercel-only dry-run plans hidden prompts without requiring local secrets', async () => {
+  const root = exportFixture();
+  const environment = validEnvironment();
+  for (const name of SENSITIVE_ENVIRONMENT) environment[name] = '';
+  environment.SUPABASE_JWT_KEY_ID = '';
+  const options = {
+    apply: false,
+    deploy: true,
+    migrate: true,
+    vercelOnlySecrets: true,
+    directory: root,
+    environment: 'preview',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+    vercelProject: 'my-discord-game',
+  };
+  const result = await executeActivityRelease(options, environment);
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, false);
+  assert.ok(result.warnings.some((warning) => warning.includes('hidden input')));
+  const sources = Object.fromEntries(result.plan.vercelEnvironment.map((entry) => [entry.name, entry.source]));
+  assert.equal(sources.DISCORD_CLIENT_SECRET, 'hidden-prompt-at-apply');
+  assert.equal(sources.ACTIVITY_STATE_SECRET, 'generated-at-apply');
 });
 
 test('apply sends secrets only through stdin and stages preview deployment', async () => {
