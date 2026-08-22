@@ -4,6 +4,15 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "UE5HTML5DiscordBlueprintLibrary.generated.h"
 
+UENUM(BlueprintType)
+enum class EUE5HTML5DiscordOrientationLock : uint8
+{
+    Default UMETA(DisplayName = "Use Discord Default"),
+    Unlocked UMETA(DisplayName = "Unlocked"),
+    Portrait UMETA(DisplayName = "Portrait"),
+    Landscape UMETA(DisplayName = "Landscape")
+};
+
 /**
  * Blueprint-facing Discord Activity operations. In native Unreal play these
  * functions safely report unavailable. The HTML5 exporter maps the same nodes
@@ -26,6 +35,21 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
     static void DiscordActivityEncourageHardwareAcceleration();
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Display", meta = (AdvancedDisplay = "PictureInPictureLockState,GridLockState"))
+    static bool DiscordActivitySetOrientationLock(
+        EUE5HTML5DiscordOrientationLock LockState,
+        EUE5HTML5DiscordOrientationLock PictureInPictureLockState = EUE5HTML5DiscordOrientationLock::Default,
+        EUE5HTML5DiscordOrientationLock GridLockState = EUE5HTML5DiscordOrientationLock::Default);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Display", meta = (DisplayName = "Discord Activity Set Interactive PiP"))
+    static bool DiscordActivitySetInteractivePip(bool bEnabled);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Display")
+    static bool DiscordActivityGetPlatformBehaviors(FString& OutPlatformBehaviorsJson);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Display")
+    static bool DiscordActivityGetLocale(FString& OutLocale);
 
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social", meta = (AdvancedDisplay = "CurrentPartySize,MaximumPartySize,LargeImage,LargeText"))
     static bool DiscordActivitySetRichPresence(

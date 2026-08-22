@@ -32,6 +32,35 @@ void UUE5HTML5DiscordBlueprintLibrary::DiscordActivityEncourageHardwareAccelerat
     LogNativeFallback(TEXT("DiscordActivityEncourageHardwareAcceleration"));
 }
 
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivitySetOrientationLock(
+    EUE5HTML5DiscordOrientationLock LockState,
+    EUE5HTML5DiscordOrientationLock PictureInPictureLockState,
+    EUE5HTML5DiscordOrientationLock GridLockState)
+{
+    LogNativeFallback(TEXT("DiscordActivitySetOrientationLock"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivitySetInteractivePip(bool bEnabled)
+{
+    LogNativeFallback(TEXT("DiscordActivitySetInteractivePip"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityGetPlatformBehaviors(FString& OutPlatformBehaviorsJson)
+{
+    OutPlatformBehaviorsJson = TEXT("{}");
+    LogNativeFallback(TEXT("DiscordActivityGetPlatformBehaviors"));
+    return false;
+}
+
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityGetLocale(FString& OutLocale)
+{
+    OutLocale.Reset();
+    LogNativeFallback(TEXT("DiscordActivityGetLocale"));
+    return false;
+}
+
 bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivitySetRichPresence(
     const FString& Details,
     const FString& State,

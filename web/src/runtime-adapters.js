@@ -8,6 +8,16 @@ const normalizeInputKey = (value) => {
   return { spacebar: 'space', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright' }[key] || key;
 };
 
+function discordOrientationLock(value) {
+  const number = Number(value);
+  if (Number.isInteger(number)) return number === 0 ? -1 : number;
+  const name = normalize(value);
+  if (name.endsWith('unlocked')) return 1;
+  if (name.endsWith('portrait')) return 2;
+  if (name.endsWith('landscape')) return 3;
+  return -1;
+}
+
 const STANDARD_GAMEPAD_BUTTONS = Object.freeze({
   gamepadfacebuttonbottom: 0,
   gamepadfacebuttonright: 1,
@@ -513,16 +523,39 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     this.behaviors = new BehaviorTreeAdapter(blueprintIr);
     this.timers = new Map();
     this.gameplayController = null;
+    this.discordEventSource = null;
+    this.discordEventHandlers = [];
+    this.discordAttachment = 0;
   }
   attachRuntime(runtime) {
     this.runtime = runtime;
     for (const adapter of [this.replication, this.input, this.collisions, this.widgets, this.behaviors]) adapter.attach(runtime);
+    this.attachDiscordActivityEvents();
   }
   registerFunction(name, implementation) { this.customFunctions.set(normalize(name), implementation); }
   attachGameplayController(controller) { this.gameplayController = controller; }
   variableChanged(instance, variable, value) { this.replication.changed(instance, variable, value); }
   tick(delta) { this.input.tick(); this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
   discordActivity() { return this.eventTarget?.UE5HTML5?.activity || null; }
+  attachDiscordActivityEvents() {
+    const attachment = ++this.discordAttachment;
+    const attach = (activity) => {
+      if (!activity || attachment !== this.discordAttachment || activity === this.discordEventSource) return;
+      for (const [type, handler] of this.discordEventHandlers) {
+        this.discordEventSource?.removeEventListener?.(type, handler);
+      }
+      this.discordEventHandlers = [
+        ['thermalstate', ({ detail = {} }) => this.runtime?.call('DiscordActivityThermalStateChanged', null, detail)],
+        ['orientation', ({ detail = {} }) => this.runtime?.call('DiscordActivityOrientationChanged', null, detail)],
+        ['layoutmode', ({ detail = {} }) => this.runtime?.call('DiscordActivityLayoutModeChanged', null, detail)],
+      ];
+      this.discordEventSource = activity;
+      for (const [type, handler] of this.discordEventHandlers) activity.addEventListener?.(type, handler);
+    };
+    attach(this.discordActivity());
+    const ready = this.eventTarget?.UE5HTML5?.activityReady;
+    if (ready?.then) ready.then(attach).catch(() => {});
+  }
   callDiscordActivity(name, args) {
     const activity = this.discordActivity();
     if (name === 'isdiscordactivityready') return { handled: true, value: activity?.mode === 'ready' };
@@ -545,6 +578,29 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     }
     if (name === 'discordactivityencouragehardwareacceleration') {
       return { handled: true, promise: activity.encourageHardwareAcceleration().then(() => true) };
+    }
+    if (name === 'discordactivitysetorientationlock') {
+      return { handled: true, promise: activity.setOrientationLock(
+        discordOrientationLock(args.lockstate),
+        discordOrientationLock(args.pictureinpicturelockstate),
+        discordOrientationLock(args.gridlockstate),
+      ).then((result) => ({ returnvalue: result?.supported !== false })) };
+    }
+    if (name === 'discordactivitysetinteractivepip') {
+      return { handled: true, promise: activity.setInteractivePip(Boolean(args.benabled ?? args.enabled))
+        .then((result) => ({ returnvalue: result?.supported !== false })) };
+    }
+    if (name === 'discordactivitygetplatformbehaviors') {
+      return { handled: true, promise: activity.getPlatformBehaviors().then((result) => ({
+        returnvalue: result?.supported !== false,
+        outplatformbehaviorsjson: JSON.stringify(result?.behaviors || {}),
+      })) };
+    }
+    if (name === 'discordactivitygetlocale') {
+      return { handled: true, promise: activity.getLocale().then((result) => ({
+        returnvalue: result?.supported !== false,
+        outlocale: String(result?.locale || ''),
+      })) };
     }
     if (name === 'discordactivitysetrichpresence') {
       return { handled: true, promise: activity.setRichPresence({
@@ -721,6 +777,12 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     return { handled: false };
   }
   dispose() {
+    ++this.discordAttachment;
+    for (const [type, handler] of this.discordEventHandlers) {
+      this.discordEventSource?.removeEventListener?.(type, handler);
+    }
+    this.discordEventHandlers = [];
+    this.discordEventSource = null;
     this.input.dispose();
     this.replication.dispose();
     this.widgets.dispose();

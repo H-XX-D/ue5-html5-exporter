@@ -8,6 +8,15 @@ import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_CONFIG_URL = '/api/activity';
 const DEFAULT_SCOPES = ['identify'];
+const THERMAL_STATE_NAMES = Object.freeze({
+  [-1]: 'Unhandled', 0: 'Nominal', 1: 'Fair', 2: 'Serious', 3: 'Critical',
+});
+const ORIENTATION_NAMES = Object.freeze({
+  [-1]: 'Unhandled', 0: 'Portrait', 1: 'Landscape',
+});
+const LAYOUT_MODE_NAMES = Object.freeze({
+  [-1]: 'Unhandled', 0: 'Focused', 1: 'PictureInPicture', 2: 'Grid',
+});
 
 export function resolveActivityApiUrl(documentObject = globalThis.document) {
   const configured = documentObject
@@ -32,6 +41,14 @@ function partySize(value, label) {
     throw new Error(`${label} must be a non-negative integer.`);
   }
   return number;
+}
+
+function namedDiscordState(payload, field, names) {
+  const state = Number(payload?.[field] ?? payload);
+  return {
+    state: Number.isInteger(state) ? state : -1,
+    name: names[Number.isInteger(state) ? state : -1] || 'Unknown',
+  };
 }
 
 async function responseJson(response) {
@@ -84,6 +101,7 @@ export class DiscordActivityBridge extends EventTarget {
     this.refreshTimer = null;
     this.entitlementHandler = null;
     this.participantsHandler = null;
+    this.discordEventSubscriptions = [];
   }
 
   setMode(mode, detail = {}) {
@@ -256,8 +274,33 @@ export class DiscordActivityBridge extends EventTarget {
     this.participantsHandler = (participants) => {
       this.dispatchEvent(activityEvent('participants', participants));
     };
-    this.discord.subscribe(Events.ENTITLEMENT_CREATE, this.entitlementHandler);
-    this.discord.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, this.participantsHandler);
+    this.subscribeDiscordEvent(Events.ENTITLEMENT_CREATE, this.entitlementHandler);
+    this.subscribeDiscordEvent(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, this.participantsHandler);
+    this.subscribeDiscordEvent(Events.THERMAL_STATE_UPDATE, (payload) => {
+      const { state, name } = namedDiscordState(payload, 'thermal_state', THERMAL_STATE_NAMES);
+      this.dispatchEvent(activityEvent('thermalstate', { thermalState: state, thermalStateName: name }));
+    });
+    this.subscribeDiscordEvent(Events.ORIENTATION_UPDATE, (payload) => {
+      const { state, name } = namedDiscordState(payload, 'screen_orientation', ORIENTATION_NAMES);
+      this.dispatchEvent(activityEvent('orientation', { orientation: state, orientationName: name }));
+    });
+    this.subscribeDiscordEvent(Events.ACTIVITY_LAYOUT_MODE_UPDATE, (payload) => {
+      const { state, name } = namedDiscordState(payload, 'layout_mode', LAYOUT_MODE_NAMES);
+      this.dispatchEvent(activityEvent('layoutmode', { layoutMode: state, layoutModeName: name }));
+    });
+  }
+
+  subscribeDiscordEvent(event, handler) {
+    if (!event || typeof this.discord?.subscribe !== 'function') return;
+    try {
+      const result = this.discord.subscribe(event, handler);
+      this.discordEventSubscriptions.push([event, handler]);
+      Promise.resolve(result).catch((error) => {
+        this.dispatchEvent(activityEvent('warning', { event, error }));
+      });
+    } catch (error) {
+      this.dispatchEvent(activityEvent('warning', { event, error }));
+    }
   }
 
   async broadcast(event, payload) {
@@ -283,6 +326,33 @@ export class DiscordActivityBridge extends EventTarget {
 
   async encourageHardwareAcceleration() {
     return this.discord.commands.encourageHardwareAcceleration();
+  }
+
+  async setOrientationLock(lockState, pictureInPictureLockState = -1, gridLockState = -1) {
+    const args = { lock_state: Number(lockState) };
+    if (Number(pictureInPictureLockState) !== -1) {
+      args.picture_in_picture_lock_state = Number(pictureInPictureLockState);
+    }
+    if (Number(gridLockState) !== -1) args.grid_lock_state = Number(gridLockState);
+    const result = await this.callOptionalCommand('setOrientationLockState', args, { supported: false });
+    return result?.supported === false ? result : { supported: true, result };
+  }
+
+  async setInteractivePip(enabled) {
+    const result = await this.callOptionalCommand('setConfig', {
+      use_interactive_pip: Boolean(enabled),
+    }, { supported: false });
+    return result?.supported === false ? result : { supported: true, result };
+  }
+
+  async getPlatformBehaviors() {
+    const result = await this.callOptionalCommand('getPlatformBehaviors', undefined, { supported: false });
+    return result?.supported === false ? result : { supported: true, behaviors: result || {} };
+  }
+
+  async getLocale() {
+    const result = await this.callOptionalCommand('userSettingsGetLocale', undefined, { supported: false });
+    return result?.supported === false ? result : { supported: true, locale: String(result?.locale || '') };
   }
 
   async setRichPresence({
@@ -390,11 +460,9 @@ export class DiscordActivityBridge extends EventTarget {
   async dispose() {
     clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
-    if (this.discord && this.entitlementHandler) {
-      this.discord.unsubscribe?.(Events.ENTITLEMENT_CREATE, this.entitlementHandler);
-    }
-    if (this.discord && this.participantsHandler) {
-      this.discord.unsubscribe?.(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, this.participantsHandler);
+    for (const [event, handler] of this.discordEventSubscriptions) {
+      try { await this.discord?.unsubscribe?.(event, handler); }
+      catch (error) { this.dispatchEvent(activityEvent('warning', { event, error })); }
     }
     if (this.channel && this.supabase) await this.supabase.removeChannel(this.channel);
     this.discord?.close?.(1000, 'Activity disposed');
@@ -403,6 +471,7 @@ export class DiscordActivityBridge extends EventTarget {
     this.realtimeToken = null;
     this.entitlementHandler = null;
     this.participantsHandler = null;
+    this.discordEventSubscriptions = [];
     this.setMode('disposed');
   }
 }

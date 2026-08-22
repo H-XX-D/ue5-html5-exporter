@@ -168,6 +168,10 @@ In UE5, search the Blueprint palette for **UE5 HTML5 → Discord Activity**. Ava
 - `Discord Activity Broadcast`
 - `Discord Activity Open Invite Dialog`
 - `Discord Activity Encourage Hardware Acceleration`
+- `Discord Activity Set Orientation Lock`
+- `Discord Activity Set Interactive PiP`
+- `Discord Activity Get Platform Behaviors`
+- `Discord Activity Get Locale`
 - `Discord Activity Set/Clear Rich Presence`
 - `Discord Activity Share Link`
 - `Discord Activity Open External Link`
@@ -181,6 +185,14 @@ In UE5, search the Blueprint palette for **UE5 HTML5 → Discord Activity**. Ava
 - `Discord Activity Load/Save Player State`
 
 The nodes return safe unavailable/default values during native Unreal play. After export, async operations pause that Blueprint execution path until the Discord/Supabase operation completes. JSON payload pins accept JSON strings. Save nodes default `Expected Revision` to `-1` for an unconditional write; pass a prior revision to enable stale-write rejection.
+
+For automatic client display events, open **Class Settings → Implemented Interfaces**, add **UE5 HTML5 Discord Activity Listener**, and implement any of these interface events:
+
+- `Discord Activity Thermal State Changed` — `Nominal`, `Fair`, `Serious`, or `Critical`
+- `Discord Activity Orientation Changed` — `Portrait` or `Landscape`
+- `Discord Activity Layout Mode Changed` — `Focused`, `PictureInPicture`, or `Grid`
+
+Each event exposes both the exact Discord SDK integer and a readable name. Use thermal state to reduce particles, shadows, or tick frequency; use layout mode to simplify the HUD in picture-in-picture or grid; and use orientation to rearrange mobile controls. `Set Orientation Lock` accepts friendly enum values and optional picture-in-picture/grid overrides. These subscriptions and newer commands fail softly when an older Discord client does not expose them.
 
 `Get Launch Context` returns campaign `custom_id` and a Boolean saying whether a referrer exists. It deliberately does not expose the raw referrer's Discord user ID to Blueprint. `link_id` remains an optional input when sharing a Developer Portal custom link. Newer social commands return a safe unsupported result when an older Discord client reports `INVALID_COMMAND`; other errors remain visible instead of being silently swallowed.
 
@@ -196,6 +208,10 @@ activity.addEventListener('broadcast', ({ detail }) => {
 await activity.broadcast('player-input', { x: 1, y: 0 });
 const { participants } = await activity.getParticipants();
 await activity.openInviteDialog();
+await activity.setOrientationLock(3); // Discord landscape orientation
+await activity.setInteractivePip(true);
+const platform = await activity.getPlatformBehaviors();
+const locale = await activity.getLocale();
 await activity.setRichPresence({
   details: 'Round 3',
   state: 'In match',

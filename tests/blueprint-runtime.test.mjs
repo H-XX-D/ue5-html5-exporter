@@ -399,3 +399,52 @@ test('Discord Blueprint social nodes expose distribution features without raw re
   ]);
   adapters.dispose();
 });
+
+test('Discord display nodes and mobile lifecycle events map directly to Blueprint', async () => {
+  const activity = new EventTarget();
+  activity.mode = 'ready';
+  const commands = [];
+  activity.setOrientationLock = async (...args) => { commands.push(['orientation', ...args]); return { supported: true }; };
+  activity.setInteractivePip = async (enabled) => { commands.push(['pip', enabled]); return { supported: true }; };
+  activity.getPlatformBehaviors = async () => ({ supported: true, behaviors: { iosKeyboardResizesView: true } });
+  activity.getLocale = async () => ({ supported: true, locale: 'en-US' });
+  const eventCalls = [];
+  const eventTarget = new EventTarget();
+  eventTarget.UE5HTML5 = { activity, activityReady: Promise.resolve(activity) };
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, eventTarget);
+  adapters.attachRuntime({ call: (...args) => eventCalls.push(args) });
+
+  const orientation = await adapters.call('DiscordActivitySetOrientationLock', {
+    lockstate: 'EUE5HTML5DiscordOrientationLock::Landscape',
+    pictureinpicturelockstate: 'Portrait',
+    gridlockstate: 'Default',
+  }).promise;
+  const pip = await adapters.call('DiscordActivitySetInteractivePip', { benabled: true }).promise;
+  const behaviors = await adapters.call('DiscordActivityGetPlatformBehaviors', {}).promise;
+  const locale = await adapters.call('DiscordActivityGetLocale', {}).promise;
+  assert.deepEqual(orientation, { returnvalue: true });
+  assert.deepEqual(pip, { returnvalue: true });
+  assert.deepEqual(commands, [['orientation', 3, 2, -1], ['pip', true]]);
+  assert.deepEqual(behaviors, {
+    returnvalue: true, outplatformbehaviorsjson: '{"iosKeyboardResizesView":true}',
+  });
+  assert.deepEqual(locale, { returnvalue: true, outlocale: 'en-US' });
+
+  activity.dispatchEvent(new CustomEvent('thermalstate', {
+    detail: { thermalState: 3, thermalStateName: 'Critical' },
+  }));
+  activity.dispatchEvent(new CustomEvent('orientation', {
+    detail: { orientation: 0, orientationName: 'Portrait' },
+  }));
+  activity.dispatchEvent(new CustomEvent('layoutmode', {
+    detail: { layoutMode: 2, layoutModeName: 'Grid' },
+  }));
+  assert.deepEqual(eventCalls, [
+    ['DiscordActivityThermalStateChanged', null, { thermalState: 3, thermalStateName: 'Critical' }],
+    ['DiscordActivityOrientationChanged', null, { orientation: 0, orientationName: 'Portrait' }],
+    ['DiscordActivityLayoutModeChanged', null, { layoutMode: 2, layoutModeName: 'Grid' }],
+  ]);
+  adapters.dispose();
+  activity.dispatchEvent(new CustomEvent('layoutmode', { detail: { layoutMode: 0 } }));
+  assert.equal(eventCalls.length, 3);
+});

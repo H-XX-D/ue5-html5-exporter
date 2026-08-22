@@ -22,6 +22,12 @@ The controller first dispatches the stock UE5 First Person events `Primary Thumb
 
 This automatic layer makes the standard UE5 first-person template playable without authoring a second web UI. Project-specific gestures, remappable mobile layouts, controller-remapping UI, haptics, and complex Enhanced Input trigger semantics still require a project adapter.
 
+## Discord display and mobile lifecycle
+
+Blueprints implementing `UE5 HTML5 Discord Activity Listener` receive Discord's thermal-state, screen-orientation, and Activity-layout updates as ordinary interface events. The adapter normalizes each payload into the SDK integer plus a readable state name and broadcasts it to every exported Blueprint instance that implements the corresponding event.
+
+The `Set Orientation Lock`, `Set Interactive PiP`, `Get Platform Behaviors`, and `Get Locale` Blueprint nodes call the Embedded App SDK after export and return safe unavailable values during native Unreal play. Optional SDK commands and event subscriptions emit a warning and remain non-fatal on older Discord clients.
+
 ## Replication and RPCs
 
 Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synchronized between tabs with `BroadcastChannel`. Add this optional field to the exported IR to use a server transport:

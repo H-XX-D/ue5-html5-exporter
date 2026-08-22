@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { test } from 'node:test';
 import { decodeJwt, exportJWK, generateKeyPair } from 'jose';
+import { Events } from '@discord/embedded-app-sdk';
 
 import {
   DiscordActivityBridge,
@@ -300,6 +301,9 @@ test('Activity sessions reject tampering and cannot cross Activity instances', a
 test('bridge completes Discord auth, clears the OAuth token, and joins private Realtime', async () => {
   const calls = [];
   const socialCommands = [];
+  const displayCommands = [];
+  const subscriptions = new Map();
+  const unsubscribed = [];
   const config = {
     enabled: true,
     discordClientId: '123',
@@ -364,9 +368,13 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
       setActivity: async (args) => { socialCommands.push({ setActivity: args }); return args.activity; },
       shareLink: async (args) => { socialCommands.push({ shareLink: args }); return { success: true, didCopyLink: false, didSendMessage: true }; },
       openExternalLink: async (args) => { socialCommands.push({ openExternalLink: args }); return { opened: true }; },
+      setOrientationLockState: async (args) => { displayCommands.push({ orientation: args }); return args; },
+      setConfig: async (args) => { displayCommands.push({ config: args }); return args; },
+      getPlatformBehaviors: async () => ({ iosKeyboardResizesView: true }),
+      userSettingsGetLocale: async () => ({ locale: 'en-US' }),
     };
-    subscribe() {}
-    unsubscribe() {}
+    subscribe(event, handler) { subscriptions.set(event, handler); }
+    unsubscribe(event, handler) { unsubscribed.push([event, handler]); }
     close() {}
   }
 
@@ -403,6 +411,12 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
   assert.deepEqual(await bridge.getParticipants(), { participants: [{ id: '42' }] });
   assert.deepEqual(await bridge.openInviteDialog(), { opened: true });
   assert.deepEqual(await bridge.encourageHardwareAcceleration(), { enabled: true });
+  assert.equal((await bridge.setOrientationLock(3, 2)).supported, true);
+  assert.equal((await bridge.setInteractivePip(true)).supported, true);
+  assert.deepEqual(await bridge.getPlatformBehaviors(), {
+    supported: true, behaviors: { iosKeyboardResizesView: true },
+  });
+  assert.deepEqual(await bridge.getLocale(), { supported: true, locale: 'en-US' });
   assert.deepEqual(await bridge.getSkus(), { skus: [{ id: 'sku-premium' }] });
   assert.deepEqual(await bridge.getClientEntitlements(), { entitlements: [{ sku_id: 'client-only' }] });
   assert.deepEqual(await bridge.startPurchase('sku-premium'), {
@@ -419,12 +433,29 @@ test('bridge completes Discord auth, clears the OAuth token, and joins private R
   assert.deepEqual(bridge.getLaunchContext(), {
     customId: 'campaign-summer', hasReferrer: true,
   });
+  assert.deepEqual(displayCommands, [
+    { orientation: { lock_state: 3, picture_in_picture_lock_state: 2 } },
+    { config: { use_interactive_pip: true } },
+  ]);
+  const displayEvents = [];
+  for (const type of ['thermalstate', 'orientation', 'layoutmode']) {
+    bridge.addEventListener(type, ({ detail }) => displayEvents.push([type, detail]));
+  }
+  subscriptions.get(Events.THERMAL_STATE_UPDATE)({ thermal_state: 2 });
+  subscriptions.get(Events.ORIENTATION_UPDATE)({ screen_orientation: 1, orientation: 'landscape' });
+  subscriptions.get(Events.ACTIVITY_LAYOUT_MODE_UPDATE)({ layout_mode: 1 });
+  assert.deepEqual(displayEvents, [
+    ['thermalstate', { thermalState: 2, thermalStateName: 'Serious' }],
+    ['orientation', { orientation: 1, orientationName: 'Landscape' }],
+    ['layoutmode', { layoutMode: 1, layoutModeName: 'PictureInPicture' }],
+  ]);
   assert.deepEqual(socialCommands[0].setActivity.activity.party, { id: 'i-test', size: [2, 4] });
   assert.equal(socialCommands[1].setActivity.activity, null);
   assert.deepEqual(socialCommands[2].shareLink, { message: 'Join my match', custom_id: 'campaign-summer' });
   assert.deepEqual(socialCommands[3].openExternalLink, { url: 'https://example.com/help' });
   await assert.rejects(() => bridge.openExternalLink('javascript:alert(1)'), /must use HTTPS/);
   await bridge.dispose();
+  assert.equal(unsubscribed.length, 5);
 });
 
 test('new social commands fail soft on older Discord clients', async () => {
@@ -442,5 +473,12 @@ test('new social commands fail soft on older Discord clients', async () => {
     success: false, didCopyLink: false, didSendMessage: false, supported: false,
   });
   assert.deepEqual(await bridge.clearRichPresence(), { supported: false });
-  assert.deepEqual(warnings, ['shareLink', 'setActivity']);
+  assert.deepEqual(await bridge.setOrientationLock(1), { supported: false });
+  assert.deepEqual(await bridge.setInteractivePip(true), { supported: false });
+  assert.deepEqual(await bridge.getPlatformBehaviors(), { supported: false });
+  assert.deepEqual(await bridge.getLocale(), { supported: false });
+  assert.deepEqual(warnings, [
+    'shareLink', 'setActivity', 'setOrientationLockState', 'setConfig',
+    'getPlatformBehaviors', 'userSettingsGetLocale',
+  ]);
 });

@@ -23,12 +23,19 @@ test('runtime module exposes Discord Activity operations as familiar Blueprint n
     'DiscordActivityHasEntitlement', 'DiscordActivityStartPurchase',
     'DiscordActivitySetRichPresence', 'DiscordActivityClearRichPresence',
     'DiscordActivityShareLink', 'DiscordActivityOpenExternalLink',
-    'DiscordActivityGetLaunchContext',
+    'DiscordActivityGetLaunchContext', 'DiscordActivitySetOrientationLock',
+    'DiscordActivitySetInteractivePip', 'DiscordActivityGetPlatformBehaviors',
+    'DiscordActivityGetLocale',
   ]) {
     assert.match(header, new RegExp(functionName));
   }
   assert.match(header, /BlueprintCallable|BlueprintPure/);
   assert.match(implementation, /available after HTML5 export/);
+  const listener = read('Source/UE5HTML5ExporterRuntime/Public/UE5HTML5DiscordActivityListener.h');
+  for (const eventName of [
+    'DiscordActivityThermalStateChanged', 'DiscordActivityOrientationChanged',
+    'DiscordActivityLayoutModeChanged',
+  ]) assert.match(listener, new RegExp(eventName));
 });
 
 test('production web template is built and uses relative paths', () => {
@@ -183,6 +190,7 @@ test('browser adapters cover gameplay integration families', () => {
   assert.match(source, /attachGameplayController/);
   assert.match(source, /callDiscordActivity/);
   assert.match(source, /shouldUseTouchControls/);
+  assert.match(source, /DiscordActivityThermalStateChanged/);
 });
 
 test('first-person controller converts Unreal coordinates and consumes exported movement defaults', async () => {
