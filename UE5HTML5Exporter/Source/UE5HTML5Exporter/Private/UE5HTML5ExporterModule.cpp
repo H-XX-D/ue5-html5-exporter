@@ -3,6 +3,7 @@
 #include "DesktopPlatformModule.h"
 #include "Editor.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/PlatformProcess.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
@@ -30,23 +31,30 @@ void FUE5HTML5ExporterModule::RegisterMenus()
     FToolMenuSection& Section = Menu->FindOrAddSection("UE5HTML5Exporter", LOCTEXT("Section", "HTML5 Export"));
 
     Section.AddMenuEntry(
+        "UE5HTML5ExportDiscordActivity",
+        LOCTEXT("ExportDiscordActivity", "Export Discord Activity…"),
+        LOCTEXT("ExportDiscordActivityTooltip", "Run the Discord readiness gate, export the current level, and report exact Blueprint compatibility."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, false, true)));
+
+    Section.AddMenuEntry(
         "UE5HTML5ExportLevel",
         LOCTEXT("ExportLevel", "Export Level to HTML5…"),
         LOCTEXT("ExportLevelTooltip", "Export the current level as a ready-to-host WebGL site."),
         FSlateIcon(),
-        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, false)));
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, false, false)));
 
     Section.AddMenuEntry(
         "UE5HTML5ExportSelection",
         LOCTEXT("ExportSelection", "Export Selection to HTML5…"),
         LOCTEXT("ExportSelectionTooltip", "Export only selected actors as a ready-to-host WebGL site."),
         FSlateIcon(),
-        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, true)));
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, true, false)));
 
     Section.AddMenuEntry(
         "UE5HTML5DiscordActivityReadiness",
         LOCTEXT("DiscordActivityReadiness", "Check Discord Activity Readiness…"),
-        LOCTEXT("DiscordActivityReadinessTooltip", "Check whether this project can produce a complete Discord Activity handoff."),
+        LOCTEXT("DiscordActivityReadinessTooltip", "Check the exporter and runtime prerequisites before measuring Blueprint compatibility during export."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive)));
 }
@@ -57,7 +65,7 @@ void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()
     const FUE5HTML5ReadinessReport Report = FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(World);
 
     FString Message = Report.bReady
-        ? TEXT("READY TO EXPORT\n\nThis Unreal project can produce a complete Discord Activity handoff.\n")
+        ? TEXT("READY FOR DISCORD EXPORT\n\nThe exporter prerequisites are ready. Blueprint compatibility will be measured during export.\n")
         : TEXT("NOT READY YET\n\nFix the blockers below, then run this check again.\n");
 
     if (!Report.PassedChecks.IsEmpty())
@@ -88,13 +96,29 @@ void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()
     FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
 }
 
-void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly)
+void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const bool bDiscordGuided)
 {
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World)
     {
         FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoWorld", "Open a level before exporting."));
         return;
+    }
+
+    if (bDiscordGuided)
+    {
+        const FUE5HTML5ReadinessReport Report = FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(World);
+        if (!Report.bReady)
+        {
+            FString Message = TEXT("DISCORD ACTIVITY EXPORT IS NOT READY\n\n");
+            for (const FString& Blocker : Report.Blockers)
+            {
+                Message += FString::Printf(TEXT("  - %s\n"), *Blocker);
+            }
+            Message += TEXT("\nFix these blockers, then choose Export Discord Activity again.");
+            FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+            return;
+        }
     }
 
     TSet<AActor*> SelectedActors;
@@ -117,7 +141,8 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly)
     IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
     FString OutputDirectory;
     const void* ParentHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
-    if (!DesktopPlatform || !DesktopPlatform->OpenDirectoryDialog(ParentHandle, TEXT("Choose HTML5 export folder"), FPaths::ProjectDir(), OutputDirectory))
+    const FString DialogTitle = bDiscordGuided ? TEXT("Choose Discord Activity export folder") : TEXT("Choose HTML5 export folder");
+    if (!DesktopPlatform || !DesktopPlatform->OpenDirectoryDialog(ParentHandle, DialogTitle, FPaths::ProjectDir(), OutputDirectory))
     {
         return;
     }
@@ -129,11 +154,33 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly)
         return;
     }
 
-    const FText Message = FText::Format(
-        LOCTEXT("ExportComplete", "Exported {0} actors to:\n{1}\n\nThe Unreal handoff is complete. Test locally with serve.py, or give the entire folder to the release operator; activity-handoff.json lists the remaining Discord hosting steps."),
-        FText::AsNumber(Result.ActorCount),
-        FText::FromString(Result.OutputDirectory));
-    FMessageDialog::Open(EAppMsgType::Ok, Message);
+    FString Compatibility;
+    if (Result.UnsupportedBlueprintNodeCount > 0)
+    {
+        Compatibility = FString::Printf(
+            TEXT("Blueprint compatibility: %d of %d nodes translated; %d require adapters.\n")
+            TEXT("The export is playable, but its handoff is marked NEEDS BLUEPRINT ADAPTERS. Review logic/blueprints.json before release."),
+            Result.SupportedBlueprintNodeCount,
+            Result.BlueprintNodeCount,
+            Result.UnsupportedBlueprintNodeCount);
+    }
+    else
+    {
+        Compatibility = FString::Printf(
+            TEXT("Blueprint compatibility: all %d exported nodes translated."),
+            Result.BlueprintNodeCount);
+    }
+
+    const FString Message = FString::Printf(
+        TEXT("Exported %d actors to:\n%s\n\n%s\n\n")
+        TEXT("activity-handoff.json contains the release-operator steps.\n\nOpen the export folder now?"),
+        Result.ActorCount,
+        *Result.OutputDirectory,
+        *Compatibility);
+    if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
+    {
+        FPlatformProcess::ExploreFolder(*Result.OutputDirectory);
+    }
 }
 
 IMPLEMENT_MODULE(FUE5HTML5ExporterModule, UE5HTML5Exporter)

@@ -66,5 +66,12 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
     }
 
     UE_LOG(LogTemp, Display, TEXT("Exported %d actors to %s"), Result.ActorCount, *Result.OutputDirectory);
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT("Blueprint compatibility: %d/%d nodes supported; %d require adapters."),
+        Result.SupportedBlueprintNodeCount,
+        Result.BlueprintNodeCount,
+        Result.UnsupportedBlueprintNodeCount);
     return 0;
 }

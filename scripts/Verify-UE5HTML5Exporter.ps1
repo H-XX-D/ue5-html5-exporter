@@ -97,6 +97,17 @@ if (-not (Test-Path -LiteralPath $packagePreflight -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) { throw "Discord Activity package preflight failed with status $LASTEXITCODE." }
 
 $descriptor = Get-Content -LiteralPath (Join-Path $packagePath 'UE5HTML5Exporter.uplugin') -Raw | ConvertFrom-Json
+$manifestPath = Join-Path $exportPath 'export-manifest.json'
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw "Export manifest was not found after preflight: $manifestPath"
+}
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$compatibility = $manifest.blueprintCompatibility
+if (-not $compatibility) {
+    throw 'Export manifest does not contain Blueprint compatibility evidence.'
+}
+$unsupportedBlueprintNodes = [int]$compatibility.unsupportedNodeCount
+$unrealExportStatus = if ($unsupportedBlueprintNodes -gt 0) { 'passed-with-blueprint-adapters-required' } else { 'passed' }
 $report = [ordered]@{
     schema = 'ue5-html5-workstation-certification/v1'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -111,13 +122,24 @@ $report = [ordered]@{
     pluginPackageArtifact = 'UE5HTML5Exporter-Win64'
     exportArtifact = 'UE5HTML5Exporter-Certified-Export'
     readiness = 'passed'
-    unrealExport = 'passed'
+    unrealExport = $unrealExportStatus
+    blueprintCompatibility = [ordered]@{
+        status = [string]$compatibility.status
+        blueprintCount = [int]$compatibility.blueprintCount
+        nodeCount = [int]$compatibility.nodeCount
+        supportedNodeCount = [int]$compatibility.supportedNodeCount
+        unsupportedNodeCount = $unsupportedBlueprintNodes
+        details = 'logic/blueprints.json'
+    }
     activityPackagePreflight = 'passed'
 }
 $reportPath = Join-Path $exportPath 'workstation-certification.json'
 $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $reportPath -Encoding utf8
 
 Write-Host "UE5HTML5Exporter Win64 workstation certification passed."
+if ($unsupportedBlueprintNodes -gt 0) {
+    Write-Warning "$unsupportedBlueprintNodes Blueprint node(s) require adapters; certification records the partial gameplay compatibility explicitly."
+}
 Write-Host "Plugin package: $packagePath"
 Write-Host "Verified export: $exportPath"
 Write-Host "Report: $reportPath"

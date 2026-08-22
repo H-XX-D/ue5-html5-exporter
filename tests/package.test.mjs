@@ -88,7 +88,9 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
   assert.match(source, /activity-handoff\.json/);
-  assert.match(source, /ue5-discord-activity-handoff\/v1/);
+  assert.match(source, /ue5-discord-activity-handoff\/v2/);
+  assert.match(source, /blueprintCompatibility/);
+  assert.match(source, /unreal-export-needs-blueprint-adapters/);
   for (const environmentName of [
     'DISCORD_BOT_TOKEN', 'SUPABASE_PUBLISHABLE_KEY',
     'SUPABASE_JWT_PRIVATE_KEY', 'ACTIVITY_STATE_SECRET',
@@ -100,9 +102,12 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
   const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
   assert.match(module, /Check Discord Activity Readiness/);
+  assert.match(module, /Export Discord Activity/);
+  assert.match(module, /NEEDS BLUEPRINT ADAPTERS/);
   assert.match(module, /CheckDiscordActivityReadinessInteractive/);
   assert.match(library, /CheckDiscordActivityReadiness/);
   assert.match(library, /GLTFExporter/);
+  assert.match(library, /does not certify gameplay/);
   assert.match(library, /release operator supplies Discord and Supabase configuration/);
 });
 
@@ -352,6 +357,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /Get-UE5HTML5WorkstationReport/);
   assert.match(verify, /visualStudioVersion/);
+  assert.match(verify, /blueprintCompatibility/);
+  assert.match(verify, /passed-with-blueprint-adapters-required/);
   assert.match(verify, /Package-UE5HTML5Exporter\.ps1/);
   assert.match(verify, /Install-UE5HTML5Exporter\.ps1/);
   assert.match(verify, /projectFile/);

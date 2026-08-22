@@ -11,5 +11,5 @@ public:
 private:
     void RegisterMenus();
     void CheckDiscordActivityReadinessInteractive();
-    void ExportInteractive(bool bSelectionOnly);
+    void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);
 };

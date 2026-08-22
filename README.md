@@ -71,7 +71,7 @@ For a Discord release, the export also contains a server-side Activity API, a de
 
 Inside an exported folder, `npm run release:activity -- --env-file .env.activity.local --supabase-project-ref YOUR_REF --vercel-project YOUR_PROJECT` prints the complete release plan without changing either service. Add `--apply` only after reviewing the selected projects. Windows, macOS, and Linux use the same command.
 
-Before handing off a project, use **Tools → HTML5 Export → Check Discord Activity Readiness…** in Unreal. Every successful export includes `activity-handoff.json`, which separates completed Unreal work from the credentials, deployment, and two-player checks owned by the release operator.
+For the lowest-friction path, use **Tools → HTML5 Export → Export Discord Activity…**. It runs the readiness gate before exporting, reports the exact supported/unsupported Blueprint-node counts, and offers to open the finished folder. Every export includes `activity-handoff.json`; it says `unreal-export-complete` only when every exported Blueprint node is covered, otherwise it says `unreal-export-needs-blueprint-adapters` and points to the exact nodes in `logic/blueprints.json`. Credentials, deployment, and two-player checks remain owned by the release operator.
 
 ## Discord nodes in Blueprint
 

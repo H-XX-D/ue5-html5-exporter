@@ -41,12 +41,15 @@ namespace
         return !Matches.IsEmpty();
     }
 
-    bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World)
+    bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v1"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v2"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
-        Root->SetStringField(TEXT("handoffStatus"), TEXT("unreal-export-complete"));
+        const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
+        Root->SetStringField(
+            TEXT("handoffStatus"),
+            bNeedsBlueprintAdapters ? TEXT("unreal-export-needs-blueprint-adapters") : TEXT("unreal-export-complete"));
         Root->SetBoolField(TEXT("standalonePlayable"), true);
 
         const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
@@ -72,7 +75,20 @@ namespace
         }
         Root->SetArrayField(TEXT("releaseEnvironment"), RequiredEnvironment);
 
+        TSharedRef<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+        Compatibility->SetStringField(TEXT("status"), bNeedsBlueprintAdapters ? TEXT("needs-adapters") : TEXT("compatible"));
+        Compatibility->SetNumberField(TEXT("blueprintCount"), Result.BlueprintCount);
+        Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
+        Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
+        Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
+
         TArray<TSharedPtr<FJsonValue>> ReleaseSteps;
+        if (bNeedsBlueprintAdapters)
+        {
+            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Resolve or replace the unsupported Blueprint nodes listed in logic/blueprints.json, then export again.")));
+        }
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Select a Discord test Activity and a Supabase project; do not reuse an existing production app by accident.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Re-run the release tool with --apply to migrate Supabase, configure Vercel, verify services, and create a deployment.")));
@@ -122,6 +138,17 @@ namespace
             Adapters.Add(MakeShared<FJsonValueString>(Adapter));
         }
         Root->SetArrayField(TEXT("runtimeAdapters"), Adapters);
+
+        TSharedRef<FJsonObject> Compatibility = MakeShared<FJsonObject>();
+        Compatibility->SetStringField(
+            TEXT("status"),
+            Result.UnsupportedBlueprintNodeCount > 0 ? TEXT("needs-adapters") : TEXT("compatible"));
+        Compatibility->SetNumberField(TEXT("blueprintCount"), Result.BlueprintCount);
+        Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
+        Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
+        Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
 
         TArray<TSharedPtr<FJsonValue>> Unsupported;
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Blueprint nodes listed as unsupported in logic/blueprints.json")));
@@ -218,6 +245,7 @@ FUE5HTML5ReadinessReport FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(U
     }
 
     Report.Notes.Add(TEXT("You can build the level and gameplay in Unreal; the export includes the browser runtime and deployment files."));
+    Report.Notes.Add(TEXT("This prerequisite check does not certify gameplay; exact Blueprint compatibility is measured and reported during export."));
     Report.Notes.Add(TEXT("The release operator supplies Discord and Supabase configuration after export; no credentials belong in the Unreal project."));
     Report.Notes.Add(TEXT("Every export includes activity-handoff.json and per-Blueprint compatibility details."));
     Report.bReady = Report.Blockers.IsEmpty();
@@ -287,6 +315,10 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         Result.Error = FString::Printf(TEXT("Blueprint logic export failed: %s"), *BlueprintSummary.Error);
         return Result;
     }
+    Result.BlueprintCount = BlueprintSummary.BlueprintCount;
+    Result.BlueprintNodeCount = BlueprintSummary.NodeCount;
+    Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
+    Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;
     Result.Warnings.Append(BlueprintSummary.Warnings);
 
     UGLTFExportOptions* Options = NewObject<UGLTFExportOptions>();
@@ -303,7 +335,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         return Result;
     }
 
-    if (!WriteActivityHandoff(Result.OutputDirectory, World))
+    if (!WriteActivityHandoff(Result.OutputDirectory, World, Result))
     {
         Result.Error = TEXT("The scene exported, but activity-handoff.json could not be written.");
         return Result;
@@ -325,7 +357,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("For a Discord Activity, deploy this folder to an HTTPS host and follow `DISCORD_ACTIVITY_WORKFLOW.md`.\n")
         TEXT("The bundled Vercel adapter is the default; the Activity API endpoint is configurable in index.html.\n")
         TEXT("Before deployment, run `npm run preflight:package`, then `npm run preflight:online` with the server environment loaded.\n")
-        TEXT("Give the entire folder to the release operator; `activity-handoff.json` lists their remaining configuration steps.\n")
+        TEXT("Give the entire folder to the release operator; `activity-handoff.json` records whether Blueprint adapters remain and lists the release steps.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("Replace native project functions with `window.UE5HTML5.registerFunction(name, implementation)`.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));

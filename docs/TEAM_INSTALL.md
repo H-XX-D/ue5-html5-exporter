@@ -2,7 +2,7 @@
 
 ## No-web-development teammate path
 
-The Unreal developer only needs to install the plugin, open the project, and use the **Tools → HTML5 Export** menu. Run **Check Discord Activity Readiness…** before exporting. A successful export is a complete handoff folder: `activity-handoff.json` tells the release operator what remains, while the Unreal developer can stay focused on the level and Blueprint gameplay.
+The Unreal developer only needs to install the plugin, open the project, and choose **Tools → HTML5 Export → Export Discord Activity…**. That guided command runs the readiness gate, exports the level, reports exact Blueprint compatibility, and offers to open the finished folder. `activity-handoff.json` tells the release operator what remains. It marks the Unreal work complete only when every exported Blueprint node is covered; otherwise it names the handoff `unreal-export-needs-blueprint-adapters` and points to `logic/blueprints.json`. The developer can stay focused on the level and Blueprint gameplay instead of learning the web stack.
 
 Create that portable source bundle from the repository with:
 
@@ -15,7 +15,7 @@ Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HT
 
 The intended team workflow keeps Unreal developers inside Unreal. A release operator owns Discord, hosting, and Supabase configuration; level designers and Blueprint developers install the plugin and use familiar UE5 tools and nodes.
 
-The release operator does not need to assemble hosting commands by hand. Every export includes `scripts/activity-release.mjs`; `npm run release:activity` prints a dry-run plan, and an explicit `--apply` performs the selected Supabase/Vercel setup and creates a Preview deployment. It then verifies that an unauthenticated Discord player can reach the host, that iframe headers permit embedding, that the Unreal manifest is present, and that the Activity API is enabled. The same Node.js 22 command runs on Windows, macOS, and Linux, and secret values are sent to Vercel through stdin rather than command arguments.
+The release operator does not need to assemble hosting commands by hand. Every export includes `scripts/activity-release.mjs`; `npm run release:activity` prints a dry-run plan, and an explicit `--apply` performs the selected Supabase/Vercel setup and creates a Preview deployment. Package preflight rejects contradictory or stale handoff data and warns when Blueprint adapters remain. It then verifies that an unauthenticated Discord player can reach the host, that iframe headers permit embedding, that the Unreal manifest is present, and that the Activity API is enabled. The same Node.js 22 command runs on Windows, macOS, and Linux, and secret values are sent to Vercel through stdin rather than command arguments.
 
 ## Windows developer install
 
@@ -82,7 +82,7 @@ On the Windows Unreal workstation, one command can build the Win64 plugin, back 
   -Map "/Game/Maps/Main"
 ```
 
-The verified export receives `workstation-certification.json`. No Discord, Vercel, or Supabase credential is read or written by this script. The manual GitHub workflow accepts the same optional project and map paths when the self-hosted Windows runner has a test project available.
+The verified export receives `workstation-certification.json`, including the Blueprint compatibility counts and either `passed` or `passed-with-blueprint-adapters-required` for the Unreal export. No Discord, Vercel, or Supabase credential is read or written by this script. The manual GitHub workflow accepts the same optional project and map paths when the self-hosted Windows runner has a test project available.
 
 ## Who needs to understand the web stack?
 

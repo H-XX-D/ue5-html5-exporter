@@ -35,6 +35,23 @@ function exportFixture() {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, path.endsWith('.json') ? '{}' : 'fixture');
   }
+  writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
+    schema: 'ue5-html5-export/v2',
+    blueprintCompatibility: {
+      status: 'compatible', blueprintCount: 1, nodeCount: 2, supportedNodeCount: 2, unsupportedNodeCount: 0,
+    },
+  }));
+  writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
+    schema: 'ue5-discord-activity-handoff/v2',
+    handoffStatus: 'unreal-export-complete',
+    blueprintCompatibility: {
+      status: 'compatible', blueprintCount: 1, nodeCount: 2, supportedNodeCount: 2, unsupportedNodeCount: 0,
+    },
+  }));
+  writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
+    schema: 'ue-blueprint-ir/v1',
+    programs: [{ graphs: [{ nodes: [{}, {}] }], compatibility: { unsupportedCount: 0 } }],
+  }));
   for (const [index, required] of REQUIRED_EXPORT_PATTERNS.entries()) {
     const filename = required.label
       .replace('<hash>', `fixture${index}`)
@@ -83,6 +100,55 @@ test('Activity package preflight requires the Unreal-to-release-operator handoff
     rmSync(join(root, 'activity-handoff.json'));
     const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
     assert.ok(result.errors.includes('Export artifact is missing: activity-handoff.json'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight warns on honest partial Blueprint compatibility', () => {
+  const root = exportFixture();
+  try {
+    const compatibility = {
+      status: 'needs-adapters', blueprintCount: 1, nodeCount: 3, supportedNodeCount: 2, unsupportedNodeCount: 1,
+    };
+    writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
+      schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
+      schema: 'ue5-discord-activity-handoff/v2',
+      handoffStatus: 'unreal-export-needs-blueprint-adapters',
+      blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
+      schema: 'ue-blueprint-ir/v1', programs: [{ graphs: [{ nodes: [{}, {}, {}] }], compatibility: { unsupportedCount: 1 } }],
+    }));
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.warnings.some((warning) => warning.includes('1 Blueprint node requires')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight rejects a falsely complete Blueprint handoff', () => {
+  const root = exportFixture();
+  try {
+    const compatibility = {
+      status: 'needs-adapters', blueprintCount: 1, nodeCount: 3, supportedNodeCount: 2, unsupportedNodeCount: 1,
+    };
+    writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
+      schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
+      schema: 'ue5-discord-activity-handoff/v2',
+      handoffStatus: 'unreal-export-complete',
+      blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
+      schema: 'ue-blueprint-ir/v1', programs: [{ graphs: [{ nodes: [{}, {}, {}] }], compatibility: { unsupportedCount: 1 } }],
+    }));
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.ok(result.errors.some((error) => error.includes('unreal-export-needs-blueprint-adapters')));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

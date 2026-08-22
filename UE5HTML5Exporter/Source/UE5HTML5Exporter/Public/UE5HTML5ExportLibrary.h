@@ -12,6 +12,10 @@ struct FUE5HTML5ExportResult
     FString Error;
     TArray<FString> Warnings;
     int32 ActorCount = 0;
+    int32 BlueprintCount = 0;
+    int32 BlueprintNodeCount = 0;
+    int32 SupportedBlueprintNodeCount = 0;
+    int32 UnsupportedBlueprintNodeCount = 0;
 };
 
 struct FUE5HTML5ReadinessReport

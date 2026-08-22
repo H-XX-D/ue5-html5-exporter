@@ -64,6 +64,101 @@ function publicTextFiles(root) {
   return files;
 }
 
+function readJsonArtifact(root, path, errors) {
+  const file = join(root, path);
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    errors.push(`Export artifact contains invalid JSON: ${path}`);
+    return null;
+  }
+}
+
+function compatibilityCounts(value, label, errors) {
+  if (!value || typeof value !== 'object') {
+    errors.push(`${label} is missing Blueprint compatibility counts.`);
+    return null;
+  }
+  const result = {};
+  for (const name of ['blueprintCount', 'nodeCount', 'supportedNodeCount', 'unsupportedNodeCount']) {
+    const count = value[name];
+    if (!Number.isInteger(count) || count < 0) {
+      errors.push(`${label}.${name} must be a non-negative integer.`);
+      return null;
+    }
+    result[name] = count;
+  }
+  if (result.supportedNodeCount + result.unsupportedNodeCount !== result.nodeCount) {
+    errors.push(`${label} supported and unsupported counts do not add up to nodeCount.`);
+  }
+  return result;
+}
+
+function validateUnrealHandoff(root, errors, warnings) {
+  const manifest = readJsonArtifact(root, 'export-manifest.json', errors);
+  const handoff = readJsonArtifact(root, 'activity-handoff.json', errors);
+  const logic = readJsonArtifact(root, 'logic/blueprints.json', errors);
+  if (!manifest || !handoff || !logic) return;
+
+  if (manifest.schema !== 'ue5-html5-export/v2') {
+    errors.push('export-manifest.json has an unsupported schema.');
+  }
+  if (handoff.schema !== 'ue5-discord-activity-handoff/v2') {
+    errors.push('activity-handoff.json must use ue5-discord-activity-handoff/v2. Export again with the current plugin.');
+  }
+  if (logic.schema !== 'ue-blueprint-ir/v1' || !Array.isArray(logic.programs)) {
+    errors.push('logic/blueprints.json has an unsupported schema.');
+  }
+
+  const manifestCounts = compatibilityCounts(manifest.blueprintCompatibility, 'export-manifest.json.blueprintCompatibility', errors);
+  const handoffCounts = compatibilityCounts(handoff.blueprintCompatibility, 'activity-handoff.json.blueprintCompatibility', errors);
+  if (!manifestCounts || !handoffCounts || !Array.isArray(logic.programs)) return;
+
+  for (const name of Object.keys(manifestCounts)) {
+    if (manifestCounts[name] !== handoffCounts[name]) {
+      errors.push(`Blueprint compatibility mismatch between manifest and handoff: ${name}.`);
+    }
+  }
+  const logicBlueprints = logic.programs.length;
+  const logicNodes = logic.programs.reduce(
+    (total, program) => total + (Array.isArray(program?.graphs)
+      ? program.graphs.reduce((graphTotal, graph) => graphTotal + (Array.isArray(graph?.nodes) ? graph.nodes.length : 0), 0)
+      : 0),
+    0,
+  );
+  const logicUnsupported = logic.programs.reduce(
+    (total, program) => total + Number(program?.compatibility?.unsupportedCount || 0),
+    0,
+  );
+  if (logicBlueprints !== manifestCounts.blueprintCount) {
+    errors.push('Blueprint count does not match logic/blueprints.json.');
+  }
+  if (logicNodes !== manifestCounts.nodeCount) {
+    errors.push('Blueprint node count does not match logic/blueprints.json.');
+  }
+  if (logicUnsupported !== manifestCounts.unsupportedNodeCount) {
+    errors.push('Blueprint unsupported-node count does not match logic/blueprints.json.');
+  }
+
+  const needsAdapters = manifestCounts.unsupportedNodeCount > 0;
+  const expectedCompatibilityStatus = needsAdapters ? 'needs-adapters' : 'compatible';
+  if (manifest.blueprintCompatibility.status !== expectedCompatibilityStatus
+      || handoff.blueprintCompatibility.status !== expectedCompatibilityStatus) {
+    errors.push(`Blueprint compatibility status must be ${expectedCompatibilityStatus}.`);
+  }
+  const expectedStatus = needsAdapters
+    ? 'unreal-export-needs-blueprint-adapters'
+    : 'unreal-export-complete';
+  if (handoff.handoffStatus !== expectedStatus) {
+    errors.push(`activity-handoff.json status must be ${expectedStatus}.`);
+  }
+  if (needsAdapters) {
+    const subject = manifestCounts.unsupportedNodeCount === 1 ? '1 Blueprint node requires' : `${manifestCounts.unsupportedNodeCount} Blueprint nodes require`;
+    warnings.push(`${subject} adapters; review logic/blueprints.json before release.`);
+  }
+}
+
 function validateJwk(env, errors) {
   let jwk;
   try {
@@ -150,6 +245,7 @@ export function validateActivityExport({
       errors.push(`Export artifact is missing: ${required.label}`);
     }
   }
+  validateUnrealHandoff(root, errors, warnings);
 
   if (!packageOnly) {
     const environment = validateActivityEnvironment(env);

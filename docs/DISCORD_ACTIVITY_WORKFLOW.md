@@ -82,7 +82,7 @@ vercel
 
 The guided `npm run release:activity` command above performs these checks and Vercel/Supabase steps together. The manual commands in this section remain available for troubleshooting and custom hosts.
 
-`preflight:package` verifies that Unreal produced every required scene, Blueprint, API, migration, and deployment artifact. It also scans browser-visible text for any server secret already present in the shell environment. Run the full environment check before deploying by exposing the Vercel values to that one command (or by using a temporary, gitignored environment file):
+`preflight:package` verifies that Unreal produced every required scene, Blueprint, API, migration, and deployment artifact. It cross-checks Blueprint counts across `export-manifest.json`, `activity-handoff.json`, and `logic/blueprints.json`; a handoff cannot claim `unreal-export-complete` while unsupported nodes remain. Partial compatibility is reported as a warning because an unsupported node may be intentionally unused or replaced by a registered JavaScript function, but it must be reviewed before release. The preflight also scans browser-visible text for any server secret already present in the shell environment. Run the full environment check before deploying by exposing the Vercel values to that one command (or by using a temporary, gitignored environment file):
 
 ```bash
 vercel env pull .env.activity.local
