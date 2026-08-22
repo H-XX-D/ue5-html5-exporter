@@ -30,7 +30,11 @@ namespace
             TEXT(".env.example"),
             TEXT("DISCORD_ACTIVITY_WORKFLOW.md"),
             TEXT("scripts/activity-preflight.mjs"),
-            TEXT("scripts/activity-release.mjs")
+            TEXT("scripts/activity-release.mjs"),
+            TEXT("scripts/activity-release-assistant.mjs"),
+            TEXT("release-discord-activity.cmd"),
+            TEXT("release-discord-activity.command"),
+            TEXT("release-discord-activity.sh")
         };
         return Files;
     }

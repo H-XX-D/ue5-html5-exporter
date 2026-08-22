@@ -126,10 +126,18 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /Export Discord Activity/);
   assert.match(module, /NEEDS BLUEPRINT ADAPTERS/);
   assert.match(module, /CheckDiscordActivityReadinessInteractive/);
+  assert.match(module, /LaunchDiscordActivityReleaseAssistant/);
+  assert.match(module, /release-discord-activity\.cmd/);
+  assert.match(module, /release-discord-activity\.command/);
+  assert.match(module, /release-discord-activity\.sh/);
+  assert.match(module, /non-mutating dry run/);
+  assert.match(module, /Private credentials remain outside Unreal/);
   assert.match(library, /CheckDiscordActivityReadiness/);
   assert.match(library, /GLTFExporter/);
   assert.match(library, /does not certify gameplay/);
   assert.match(library, /credentials remain with the release operator/);
+  assert.match(library, /scripts\/activity-release-assistant\.mjs/);
+  assert.match(library, /release-discord-activity\.cmd/);
 });
 
 test('Unreal Project Settings expose only non-secret Discord Activity targets', () => {

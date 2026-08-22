@@ -38,7 +38,7 @@ jobs:
       - name: Run Linux Activity release launcher
         if: runner.os == 'Linux'
         shell: bash
-        run: UE5HTML5Exporter/Resources/WebTemplate/release-discord-activity.sh --help
+        run: UE5_ACTIVITY_NO_PAUSE=1 UE5HTML5Exporter/Resources/WebTemplate/release-discord-activity.sh --help
       - name: Create source teammate bundle
         if: runner.os == 'Linux'
         run: npm run package:source -- --output "$RUNNER_TEMP/UE5HTML5Exporter-Source"

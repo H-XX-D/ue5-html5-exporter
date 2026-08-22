@@ -8,11 +8,66 @@
 #include "ISettingsModule.h"
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
+#include "Misc/Paths.h"
 #include "Selection.h"
 #include "ToolMenus.h"
 #include "UE5HTML5ExportLibrary.h"
 
 #define LOCTEXT_NAMESPACE "FUE5HTML5ExporterModule"
+
+namespace
+{
+    FString DiscordActivityReleaseLauncher(const FString& OutputDirectory)
+    {
+#if PLATFORM_WINDOWS
+        return FPaths::Combine(OutputDirectory, TEXT("release-discord-activity.cmd"));
+#elif PLATFORM_MAC
+        return FPaths::Combine(OutputDirectory, TEXT("release-discord-activity.command"));
+#else
+        return FPaths::Combine(OutputDirectory, TEXT("release-discord-activity.sh"));
+#endif
+    }
+
+    bool LaunchDiscordActivityReleaseAssistant(const FString& OutputDirectory)
+    {
+        const FString Launcher = DiscordActivityReleaseLauncher(OutputDirectory);
+        if (!FPaths::FileExists(Launcher))
+        {
+            return false;
+        }
+
+#if PLATFORM_LINUX
+        const TArray<TPair<FString, FString>> TerminalCandidates = {
+            { TEXT("/usr/bin/x-terminal-emulator"), FString::Printf(TEXT("-e \"%s\""), *Launcher) },
+            { TEXT("/usr/bin/gnome-terminal"), FString::Printf(TEXT("-- \"%s\""), *Launcher) },
+            { TEXT("/usr/bin/konsole"), FString::Printf(TEXT("-e \"%s\""), *Launcher) }
+        };
+        for (const TPair<FString, FString>& Candidate : TerminalCandidates)
+        {
+            if (!FPaths::FileExists(Candidate.Key))
+            {
+                continue;
+            }
+            FProcHandle Process = FPlatformProcess::CreateProc(
+                *Candidate.Key,
+                *Candidate.Value,
+                true,
+                false,
+                false,
+                nullptr,
+                0,
+                *OutputDirectory,
+                nullptr);
+            if (Process.IsValid())
+            {
+                return true;
+            }
+        }
+#endif
+
+        return FPlatformProcess::LaunchFileInDefaultExternalApplication(*Launcher);
+    }
+}
 
 void FUE5HTML5ExporterModule::StartupModule()
 {
@@ -185,15 +240,31 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
             Result.BlueprintNodeCount);
     }
 
+    const FString NextAction = bDiscordGuided
+        ? TEXT("Start the Discord Activity release assistant now?\n\nIt opens in a terminal and begins with a non-mutating dry run. Private credentials remain outside Unreal.")
+        : TEXT("Open the export folder now?");
     const FString Message = FString::Printf(
         TEXT("Exported %d actors to:\n%s\n\n%s\n\n")
-        TEXT("activity-handoff.json contains the release-operator steps.\n\nOpen the export folder now?"),
+        TEXT("activity-handoff.json contains the release-operator steps.\n\n%s"),
         Result.ActorCount,
         *Result.OutputDirectory,
-        *Compatibility);
+        *Compatibility,
+        *NextAction);
     if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
     {
-        FPlatformProcess::ExploreFolder(*Result.OutputDirectory);
+        if (!bDiscordGuided)
+        {
+            FPlatformProcess::ExploreFolder(*Result.OutputDirectory);
+        }
+        else if (!LaunchDiscordActivityReleaseAssistant(Result.OutputDirectory))
+        {
+            FPlatformProcess::ExploreFolder(*Result.OutputDirectory);
+            FMessageDialog::Open(
+                EAppMsgType::Ok,
+                LOCTEXT(
+                    "ReleaseAssistantLaunchFailed",
+                    "Unreal could not start the release assistant automatically. The export folder is open; run the release-discord-activity launcher for this operating system."));
+        }
     }
 }
 
