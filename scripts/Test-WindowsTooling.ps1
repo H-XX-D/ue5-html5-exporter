@@ -65,6 +65,10 @@ try {
     Assert-True (-not $oldNode.ready) 'Node 21 must fail certification readiness'
     Assert-True (($oldNode.blockers -join ' ') -match 'Node.js 21') 'old Node blocker must be actionable'
 
+    $setupLauncher = Join-Path $PSScriptRoot 'Start-UE5HTML5Setup.ps1'
+    $launcherCheck = (& $setupLauncher -LauncherCheck | Out-String)
+    Assert-True ($launcherCheck -match 'Windows setup launcher check passed') 'click installer coordinator must pass its non-interactive check'
+
     Write-Host 'Windows tooling contract tests passed.'
 }
 finally {

@@ -29,13 +29,15 @@ Requirements:
 - For UE 5.8 source builds: Visual Studio 2022 17.14+ or Visual Studio 2026 18.0+, **Game development with C++**, Visual Studio Tools for Unreal Engine, and Windows SDK 10.0.22621+
 - Node.js 22.12 or newer only when rebuilding/testing the browser runtime; ordinary source or prebuilt plugin installation uses PowerShell
 
-From PowerShell in this repository or source bundle, the recommended one-command setup is:
+From the downloaded source bundle, double-click `Install-UE5HTML5Exporter.cmd`. Choose the game's `.uproject` file in the Windows file picker. The launcher runs the workstation doctor, installs the plugin, and opens the selected project; it does not ask for Discord, Vercel, Supabase, player, or billing information. You can also drag a `.uproject` file onto the launcher. When updating an existing installation, it asks before moving the current plugin into the project's recoverable `.ue5html5-backups` folder.
+
+For automation or advanced options, the equivalent PowerShell command is:
 
 ```powershell
 .\scripts\Setup-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject"
 ```
 
-The setup tool reads the project's `EngineAssociation`, discovers the matching Epic Launcher installation, checks the supported Visual Studio workload and Windows SDK when a source compile is needed, and installs the plugin. It refuses to select a newer engine minor version silently. Use `-CheckOnly` for a non-mutating workstation doctor or `-CheckOnly -Json` for automation:
+The setup tool reads the project's `EngineAssociation`, discovers the matching Epic Launcher installation, checks the supported Visual Studio workload and Windows SDK when a source compile is needed, and installs the plugin. It refuses to select a newer engine minor version silently. The click launcher uses Windows PowerShell 5.1 in STA mode only for its native `.uproject` picker and the bundled source setup scripts; it makes no network request. Use `-CheckOnly` for a non-mutating workstation doctor or `-CheckOnly -Json` for automation:
 
 ```powershell
 .\scripts\Setup-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject" -CheckOnly

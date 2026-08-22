@@ -35,6 +35,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: UE5HTML5Exporter\Resources\WebTemplate\preview-discord-activity.cmd --check
+      - name: Run Windows plugin installer launcher check
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: scripts\Install-UE5HTML5Exporter.cmd --check
       - name: Run macOS Activity release launcher
         if: runner.os == 'macOS'
         shell: bash
@@ -66,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $allErrors = @()
-          foreach ($script in @('UE5HTML5Tools.psm1', 'Setup-UE5HTML5Exporter.ps1', 'Install-UE5HTML5Exporter.ps1', 'Package-UE5HTML5Exporter.ps1', 'Verify-UE5HTML5Exporter.ps1', 'Test-WindowsTooling.ps1')) {
+          foreach ($script in @('UE5HTML5Tools.psm1', 'Start-UE5HTML5Setup.ps1', 'Setup-UE5HTML5Exporter.ps1', 'Install-UE5HTML5Exporter.ps1', 'Package-UE5HTML5Exporter.ps1', 'Verify-UE5HTML5Exporter.ps1', 'Test-WindowsTooling.ps1')) {
             $tokens = $null
             $parseErrors = $null
             [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\$script", [ref]$tokens, [ref]$parseErrors) | Out-Null

@@ -461,6 +461,8 @@ test('Unreal module declares editor dependencies for exported adapter assets', (
 
 test('Windows teammates have native PowerShell install and packaging helpers', () => {
   const tools = readFileSync(new URL('../scripts/UE5HTML5Tools.psm1', import.meta.url), 'utf8');
+  const launcher = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.cmd', import.meta.url), 'utf8');
+  const start = readFileSync(new URL('../scripts/Start-UE5HTML5Setup.ps1', import.meta.url), 'utf8');
   const setup = readFileSync(new URL('../scripts/Setup-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const install = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
@@ -470,6 +472,16 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(tools, /10\.0\.22621\.0/);
   assert.match(tools, /17\.14/);
   assert.match(tools, /18\.0/);
+  assert.match(launcher, /Start-UE5HTML5Setup\.ps1/);
+  assert.match(launcher, /--check/);
+  assert.match(launcher, /ExecutionPolicy Bypass/);
+  assert.match(start, /System\.Windows\.Forms\.OpenFileDialog/);
+  assert.match(start, /\.uproject/);
+  assert.match(start, /Setup-UE5HTML5Exporter\.ps1/);
+  assert.match(start, /LauncherCheck/);
+  assert.match(start, /MessageBoxButtons\]::YesNo/);
+  assert.match(start, /\$Replace = \$true/);
+  assert.match(start, /arguments\.Launch = \$true/);
   assert.match(setup, /Get-UE5HTML5WorkstationReport/);
   assert.match(setup, /CheckOnly/);
   assert.match(setup, /Install-UE5HTML5Exporter\.ps1/);

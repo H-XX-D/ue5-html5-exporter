@@ -42,6 +42,7 @@ Options:
   -h, --help            Show this help
 
 The bundle contains the plugin, Windows workstation doctor/installer, and handoff documentation.
+On Windows, double-click Install-UE5HTML5Exporter.cmd and choose a .uproject file.
 Unreal compiles the plugin for the teammate's installed engine version.`;
 }
 
@@ -91,6 +92,7 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
     mkdirSync(join(output, 'scripts'), { recursive: true });
     for (const script of [
       'UE5HTML5Tools.psm1',
+      'Start-UE5HTML5Setup.ps1',
       'Setup-UE5HTML5Exporter.ps1',
       'Install-UE5HTML5Exporter.ps1',
       'Package-UE5HTML5Exporter.ps1',
@@ -98,6 +100,10 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
     ]) {
       cpSync(join(REPOSITORY_ROOT, 'scripts', script), join(output, 'scripts', script));
     }
+    cpSync(
+      join(REPOSITORY_ROOT, 'scripts', 'Install-UE5HTML5Exporter.cmd'),
+      join(output, 'Install-UE5HTML5Exporter.cmd'),
+    );
     cpSync(join(REPOSITORY_ROOT, 'docs', 'TEAM_INSTALL.md'), join(output, 'TEAM_INSTALL.md'));
     cpSync(join(REPOSITORY_ROOT, 'LICENSE'), join(output, 'LICENSE'));
   } catch (error) {

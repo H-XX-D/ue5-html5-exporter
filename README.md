@@ -22,6 +22,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 - Automatic mobile FPS movement/look/jump/fire controls that execute the stock `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` Blueprint branches before using a browser fallback
 - A readiness chain that rejects incomplete Unreal targets, missing Discord launch commands, Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing the portal checklist and URL mappings
+- A double-click Windows installer that selects a `.uproject`, checks the exact Unreal/compiler toolchain, installs the plugin, and launches the project without requiring command-line or web-development knowledge
 
 ## Build the plugin
 
@@ -43,7 +44,7 @@ The web build is written into `UE5HTML5Exporter/Resources/WebTemplate`, where th
    npm run install:plugin -- --project "/path/to/YourGame.uproject" --source-only
    ```
 
-   On Windows, teammates can instead use the source bundle's one-command doctor and installer. It discovers the matching Epic Launcher engine for the project and validates the compiler toolchain:
+   On Windows, teammates can double-click `Install-UE5HTML5Exporter.cmd` in the source bundle, choose the game's `.uproject`, and let it check, install, and launch automatically. The equivalent command-line path discovers the matching Epic Launcher engine and validates the compiler toolchain:
 
    ```powershell
    .\scripts\Setup-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject"
