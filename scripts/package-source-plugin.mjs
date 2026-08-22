@@ -4,13 +4,13 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   renameSync,
   rmSync,
   statSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { findNumberedDuplicates } from './template-hygiene.mjs';
 
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_PLUGIN = join(REPOSITORY_ROOT, 'UE5HTML5Exporter');
@@ -53,20 +53,6 @@ function requireDirectory(path, label) {
   if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error(`${label} was not found: ${path}`);
 }
 
-function numberedDuplicateFiles(directory) {
-  const matches = [];
-  const visit = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === 'Binaries' || entry.name === 'Intermediate' || entry.name === '.DS_Store') continue;
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (/ \d+(?=\.[^.]+$|$)/.test(entry.name)) matches.push(path);
-    }
-  };
-  visit(directory);
-  return matches;
-}
-
 export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
   const plugin = resolve(rawOptions.plugin || DEFAULT_PLUGIN);
   const output = resolve(rawOptions.output);
@@ -74,7 +60,7 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
   requireFile(join(plugin, 'UE5HTML5Exporter.uplugin'), 'Plugin descriptor');
   requireFile(join(plugin, 'Resources', 'WebTemplate', 'index.html'), 'Built web runtime');
 
-  const duplicates = numberedDuplicateFiles(plugin);
+  const duplicates = findNumberedDuplicates(plugin, { skipNames: ['Binaries', 'Intermediate', '.DS_Store'] });
   if (duplicates.length) {
     throw new Error(`Refusing to package numbered duplicate files: ${duplicates.join(', ')}`);
   }
@@ -100,7 +86,13 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
       },
     });
     mkdirSync(join(output, 'scripts'), { recursive: true });
-    cpSync(join(REPOSITORY_ROOT, 'scripts', 'Install-UE5HTML5Exporter.ps1'), join(output, 'scripts', 'Install-UE5HTML5Exporter.ps1'));
+    for (const script of [
+      'Install-UE5HTML5Exporter.ps1',
+      'Package-UE5HTML5Exporter.ps1',
+      'Verify-UE5HTML5Exporter.ps1',
+    ]) {
+      cpSync(join(REPOSITORY_ROOT, 'scripts', script), join(output, 'scripts', script));
+    }
     cpSync(join(REPOSITORY_ROOT, 'docs', 'TEAM_INSTALL.md'), join(output, 'TEAM_INSTALL.md'));
     cpSync(join(REPOSITORY_ROOT, 'LICENSE'), join(output, 'LICENSE'));
   } catch (error) {

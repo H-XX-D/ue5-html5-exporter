@@ -55,6 +55,19 @@ Give that output folder to teammates. They can install it without `--source-only
 
 A prebuilt plugin is tied to its UE minor version and target operating system. Package UE 5.7 and UE 5.8 separately. macOS cannot prove a Win64 Unreal binary; the repository's manually triggered Windows workflow requires a self-hosted runner labeled `Windows` and `ue5` with Unreal already installed.
 
+## Certify the complete Windows handoff
+
+On the Windows Unreal workstation, one command can build the Win64 plugin, back up and install it into a real project, run the same readiness policy used by the Unreal menu, export a real map, and run the Discord Activity package preflight:
+
+```powershell
+.\scripts\Verify-UE5HTML5Exporter.ps1 `
+  -EngineRoot "C:\Program Files\Epic Games\UE_5.8" `
+  -Project "C:\Games\MyGame\MyGame.uproject" `
+  -Map "/Game/Maps/Main"
+```
+
+The verified export receives `workstation-certification.json`. No Discord, Vercel, or Supabase credential is read or written by this script. The manual GitHub workflow accepts the same optional project and map paths when the self-hosted Windows runner has a test project available.
+
 ## Who needs to understand the web stack?
 
 | Role | Unreal | Node/web tooling | Discord/Vercel/Supabase |

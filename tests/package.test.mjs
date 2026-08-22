@@ -97,6 +97,14 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(library, /release operator supplies Discord and Supabase configuration/);
 });
 
+test('Unreal commandlet exposes the same readiness policy for workstation automation', () => {
+  const commandlet = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportCommandlet.cpp');
+  assert.match(commandlet, /FParse::Param\(\*Params, TEXT\("CheckOnly"\)\)/);
+  assert.match(commandlet, /FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness\(World\)/);
+  assert.match(commandlet, /Discord Activity readiness check passed/);
+  assert.match(commandlet, /Readiness blocker/);
+});
+
 test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   const source = read('Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.cpp');
   assert.match(source, /ue-blueprint-ir\/v1/);
@@ -197,9 +205,17 @@ test('Unreal module declares editor dependencies for exported adapter assets', (
 test('Windows teammates have native PowerShell install and packaging helpers', () => {
   const install = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
+  const verify = readFileSync(new URL('../scripts/Verify-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   assert.match(install, /\.ue5html5-backups/);
   assert.match(install, /UE5HTML5Exporter\.uplugin/);
   assert.match(pack, /RunUAT\.bat/);
   assert.match(pack, /BuildPlugin/);
   assert.match(pack, /Win64/);
+  assert.match(verify, /-CheckOnly/);
+  assert.match(verify, /activity-preflight\.mjs/);
+  assert.match(verify, /workstation-certification\.json/);
+  assert.match(verify, /Package-UE5HTML5Exporter\.ps1/);
+  assert.match(verify, /Install-UE5HTML5Exporter\.ps1/);
+  assert.match(verify, /projectFile/);
+  assert.doesNotMatch(verify, /project = \$projectPath|pluginPackage = \$packagePath|export = \$exportPath/);
 });

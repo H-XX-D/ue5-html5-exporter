@@ -1,10 +1,10 @@
 {
   "name": "ue5-html5-exporter",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build --config web/vite.config.js",
+    "build": "vite build --config web/vite.config.js && node scripts/template-hygiene.mjs --clean",
     "dev": "vite --config web/vite.config.js",
     "install:plugin": "node scripts/install-plugin.mjs",
     "package:plugin": "node scripts/package-plugin.mjs",

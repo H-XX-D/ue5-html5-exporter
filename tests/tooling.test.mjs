@@ -21,6 +21,11 @@ import {
   packageSourcePlugin,
   parseSourcePackageArgs,
 } from '../scripts/package-source-plugin.mjs';
+import {
+  cleanGeneratedTemplateDuplicates,
+  duplicateBasePath,
+  findNumberedDuplicates,
+} from '../scripts/template-hygiene.mjs';
 
 test('installer parses Windows paths without shell quoting assumptions', () => {
   const options = parseInstallArgs([
@@ -105,6 +110,8 @@ test('source packager creates a clean Windows teammate bundle without native int
   assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Binaries')), false);
   assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Intermediate')), false);
   assert.equal(existsSync(join(output, 'scripts', 'Install-UE5HTML5Exporter.ps1')), true);
+  assert.equal(existsSync(join(output, 'scripts', 'Package-UE5HTML5Exporter.ps1')), true);
+  assert.equal(existsSync(join(output, 'scripts', 'Verify-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'TEAM_INSTALL.md')), true);
 });
 
@@ -119,4 +126,21 @@ test('source packager refuses Finder-style numbered duplicate files', () => {
     () => packageSourcePlugin({ plugin: source, output: join(root, 'Bundle'), replace: false }),
     /numbered duplicate files/,
   );
+});
+
+test('template hygiene removes only byte-identical numbered generated files', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-html5-template-hygiene-'));
+  mkdirSync(join(root, 'runtime'), { recursive: true });
+  const canonical = join(root, 'runtime', 'viewer-hash.js');
+  const duplicate = join(root, 'runtime', 'viewer-hash 2.js');
+  writeFileSync(canonical, 'same generated output');
+  writeFileSync(duplicate, 'same generated output');
+  assert.equal(duplicateBasePath(duplicate), canonical);
+  assert.deepEqual(findNumberedDuplicates(root), [duplicate]);
+  assert.deepEqual(cleanGeneratedTemplateDuplicates(root), [duplicate]);
+  assert.equal(existsSync(duplicate), false);
+
+  writeFileSync(duplicate, 'different output');
+  assert.throws(() => cleanGeneratedTemplateDuplicates(root), /differs from its canonical counterpart/);
+  assert.equal(existsSync(duplicate), true);
 });
