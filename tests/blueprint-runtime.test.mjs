@@ -71,6 +71,23 @@ test('routes a custom event through a branch', () => {
   assert.equal(runtime.instances[0].state.Enabled, true);
 });
 
+test('routes Switch on String cases with Unreal case-sensitivity semantics', () => {
+  const nodes = [
+    { id: 'event', kind: 'event', event: 'ChoosePlatform', pins: [pin('then', 'output', 'exec', { links: [link('switch', 'execute')] })] },
+    { id: 'switch', kind: 'switchString', caseSensitive: false, pins: [
+      pin('execute', 'input', 'exec'), pin('Selection', 'input', 'string', { default: 'ios' }),
+      pin('iOS', 'output', 'exec', { links: [link('set', 'execute')] }), pin('Default', 'output', 'exec'),
+    ] },
+    { id: 'set', kind: 'variableSet', variable: 'Touch', pins: [
+      pin('execute', 'input', 'exec'), pin('Touch', 'input', 'bool', { default: 'true' }), pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, { Touch: { value: 'false', category: 'bool' } }));
+  runtime.start();
+  runtime.call('ChoosePlatform', 'Test Actor');
+  assert.equal(runtime.instances[0].state.Touch, true);
+});
+
 test('maps UE transform calls onto a Three-style actor object', () => {
   const object = {
     name: 'TestActor_C_0',
@@ -121,6 +138,28 @@ test('invokes exported Blueprint function entries by name', () => {
   assert.equal(runtime.instances[0].state.Damaged, true);
 });
 
+test('passes Blueprint function arguments through reroute nodes', () => {
+  const nodes = [
+    { id: 'entry', kind: 'functionEntry', function: 'Aim', pins: [
+      pin('then', 'output', 'exec', { links: [link('call', 'execute')] }), pin('Yaw', 'output', 'real'),
+    ] },
+    { id: 'knot', kind: 'knot', pins: [
+      pin('InputPin', 'input', 'real', { links: [link('entry', 'Yaw')] }), pin('OutputPin', 'output', 'real', { links: [link('call', 'Val')] }),
+    ] },
+    { id: 'call', kind: 'callFunction', function: 'AddControllerYawInput', pure: false, pins: [
+      pin('execute', 'input', 'exec'), pin('Val', 'input', 'real', { links: [link('knot', 'OutputPin')] }), pin('then', 'output', 'exec'),
+    ] },
+  ];
+  let captured;
+  const runtime = new BlueprintRuntime(program(nodes), { call(name, args) {
+    if (name === 'AddControllerYawInput') { captured = args.val; return { handled: true }; }
+    return { handled: false };
+  } });
+  runtime.start();
+  runtime.call('Aim', 'Test Actor', { Yaw: 2.5 });
+  assert.equal(captured, 2.5);
+});
+
 test('applies browser physics impulses to Three actor transforms', () => {
   const root = new THREE.Group();
   const object = new THREE.Object3D();
@@ -157,5 +196,80 @@ test('routes Enhanced Input mapping phases through matching exec pins', () => {
   eventTarget.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
   assert.equal(runtime.instances[0].state.Jumped, true);
   runtime.stop();
+  adapters.dispose();
+});
+
+test('maps asynchronous Blueprint function output fields after the latent action completes', async () => {
+  const nodes = [
+    { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('save', 'execute')] })] },
+    { id: 'save', kind: 'callFunction', function: 'DiscordActivitySavePlayerState', pins: [
+      pin('execute', 'input', 'exec'), pin('JsonState', 'input', 'string', { default: '{"checkpoint":1}' }),
+      pin('ExpectedRevision', 'input', 'int64', { default: '-1' }),
+      pin('OutRevision', 'output', 'int64', { links: [link('set', 'Revision')] }),
+      pin('ReturnValue', 'output', 'bool'), pin('then', 'output', 'exec', { links: [link('set', 'execute')] }),
+    ] },
+    { id: 'set', kind: 'variableSet', variable: 'Revision', pins: [
+      pin('execute', 'input', 'exec'), pin('Revision', 'input', 'int64', { links: [link('save', 'OutRevision')] }), pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, { Revision: { value: '0', category: 'int64' } }), {
+    call: () => ({ handled: true, promise: Promise.resolve({ returnvalue: true, outrevision: 12 }) }),
+  });
+  runtime.start();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.instances[0].state.Revision, 12);
+});
+
+test('Discord Blueprint adapter routes JSON state, participants, and revisions to the Activity bridge', async () => {
+  const calls = [];
+  const activity = {
+    mode: 'ready',
+    async savePlayerState(state, revision) { calls.push({ state, revision }); return { revision: 4 }; },
+    async loadPlayerState() { return { state: { checkpoint: 3 }, revision: 3 }; },
+    async getParticipants() { return { participants: [{ id: '42' }] }; },
+  };
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, { UE5HTML5: { activity } });
+
+  const saved = await adapters.call('DiscordActivitySavePlayerState', {
+    jsonstate: '{"checkpoint":4}', expectedrevision: 3,
+  }).promise;
+  const loaded = await adapters.call('DiscordActivityLoadPlayerState', {}).promise;
+  const participants = await adapters.call('DiscordActivityGetParticipants', {}).promise;
+
+  assert.deepEqual(calls, [{ state: { checkpoint: 4 }, revision: 3 }]);
+  assert.deepEqual(saved, { returnvalue: true, outrevision: 4 });
+  assert.deepEqual(loaded, { returnvalue: true, outjsonstate: '{"checkpoint":3}', outrevision: 3 });
+  assert.match(participants.outparticipantsjson, /"id":"42"/);
+  adapters.dispose();
+});
+
+test('Discord Blueprint monetization nodes list SKUs and use server-verified entitlements', async () => {
+  const calls = [];
+  const activity = {
+    mode: 'ready',
+    async getSkus() { return { skus: [{ id: 'sku-premium', name: 'Premium' }] }; },
+    async verifyEntitlements() {
+      calls.push('verify');
+      return [{ skuId: 'sku-premium', consumed: false }];
+    },
+    async startPurchase(skuId) {
+      calls.push({ purchase: skuId });
+      return { purchase: { opened: true }, entitlements: [{ skuId }] };
+    },
+  };
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, { UE5HTML5: { activity } });
+
+  const skus = await adapters.call('DiscordActivityGetSkus', {}).promise;
+  const entitlements = await adapters.call('DiscordActivityGetVerifiedEntitlements', {}).promise;
+  const hasPremium = await adapters.call('DiscordActivityHasEntitlement', { skuid: 'sku-premium' }).promise;
+  const hasMissing = await adapters.call('DiscordActivityHasEntitlement', { skuid: 'sku-missing' }).promise;
+  const purchased = await adapters.call('DiscordActivityStartPurchase', { skuid: 'sku-premium' }).promise;
+
+  assert.match(skus.outskusjson, /sku-premium/);
+  assert.match(entitlements.outentitlementsjson, /sku-premium/);
+  assert.deepEqual(hasPremium, { returnvalue: true });
+  assert.deepEqual(hasMissing, { returnvalue: false });
+  assert.equal(JSON.parse(purchased.outpurchasejson).entitlements[0].skuId, 'sku-premium');
+  assert.deepEqual(calls, ['verify', 'verify', 'verify', { purchase: 'sku-premium' }]);
   adapters.dispose();
 });

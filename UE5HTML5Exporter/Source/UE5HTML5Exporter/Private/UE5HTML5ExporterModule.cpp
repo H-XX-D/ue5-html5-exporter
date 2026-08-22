@@ -6,6 +6,7 @@
 #include "Interfaces/IMainFrameModule.h"
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
+#include "Selection.h"
 #include "ToolMenus.h"
 #include "UE5HTML5ExportLibrary.h"
 

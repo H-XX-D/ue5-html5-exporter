@@ -194,6 +194,13 @@ export class BlueprintRuntime {
         this.runOutputWithContext(instance, node, [condition ? 'true' : 'false'], context);
         break;
       }
+      case 'switchString': {
+        const selection = String(this.readInput(instance, node, ['selection'], '') ?? '');
+        const match = outputExecPins(node).find((pin) => pin.name !== 'Default'
+          && (node.caseSensitive ? pin.name === selection : pin.name.toLocaleLowerCase() === selection.toLocaleLowerCase()));
+        this.runOutputWithContext(instance, node, [match?.name || 'Default'], context);
+        break;
+      }
       case 'sequence': {
         for (const pin of outputExecPins(node).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
           for (const link of pin.links || []) this.execute(instance, link.node, link.pin, context);
@@ -208,6 +215,12 @@ export class BlueprintRuntime {
         break;
       }
       case 'callFunction': {
+        const result = this.invoke(instance, node, context);
+        if (!result?.latent) this.runOutputWithContext(instance, node, ['then', 'completed'], context);
+        break;
+      }
+      case 'createWidget':
+      case 'getSubsystem': {
         const result = this.invoke(instance, node, context);
         if (!result?.latent) this.runOutputWithContext(instance, node, ['then', 'completed'], context);
         break;
@@ -239,6 +252,9 @@ export class BlueprintRuntime {
       case 'functionEntry':
         this.runOutputWithContext(instance, node, ['then'], context);
         break;
+      case 'comment':
+      case 'functionResult':
+        break;
       default:
         this.report('warning', instance, node, `Unsupported execution node ${node.class || node.kind}; branch skipped.`);
     }
@@ -269,6 +285,10 @@ export class BlueprintRuntime {
     let value = null;
     if (node.kind === 'variableGet') value = instance.state[node.variable];
     else if (node.kind === 'self') value = instance.object;
+    else if (node.kind === 'knot') {
+      const input = inputPins(node)[0];
+      value = input ? this.readSpecificPin(instance, input, stack) : null;
+    }
     else if (node.kind === 'event' || node.kind === 'inputKey' || node.kind === 'inputAction' || node.kind === 'functionEntry') {
       value = instance.eventArgs.get(node.id)?.[normalized(outputPin)];
     } else if (node.kind === 'literal') {
@@ -279,10 +299,15 @@ export class BlueprintRuntime {
     } else if (node.kind === 'breakStruct') {
       const source = this.readInput(instance, node, ['struct', 'input'], {});
       value = source?.[normalized(outputPin)] ?? source?.[String(outputPin).toLowerCase()] ?? null;
-    } else if (node.kind === 'callFunction') {
-      value = instance.internal.has(`result:${node.id}`)
+    } else if (node.kind === 'callFunction' || node.kind === 'createWidget' || node.kind === 'getSubsystem') {
+      const result = instance.internal.has(`result:${node.id}`)
         ? instance.internal.get(`result:${node.id}`)
         : this.invoke(instance, node, { steps: 0 }, stack)?.value;
+      const outputName = normalized(outputPin);
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        const resultEntry = Object.entries(result).find(([key]) => normalized(key) === outputName);
+        value = resultEntry ? resultEntry[1] : result;
+      } else value = result;
     }
     stack.delete(stackKey);
     return value;
@@ -307,22 +332,24 @@ export class BlueprintRuntime {
     const args = this.collectArgs(instance, node, stack);
     const values = Object.values(args);
 
-    if (name.startsWith('add')) return { value: binary(args, (a, b) => a + b) };
-    if (name.startsWith('subtract')) return { value: binary(args, (a, b) => a - b) };
-    if (name.startsWith('multiply')) return { value: binary(args, (a, b) => a * b) };
-    if (name.startsWith('divide')) return { value: binary(args, (a, b) => b === 0 ? 0 : a / b) };
-    if (name.startsWith('greaterorequal')) return { value: binary(args, (a, b) => a >= b) };
-    if (name.startsWith('lessorequal')) return { value: binary(args, (a, b) => a <= b) };
-    if (name.startsWith('greater')) return { value: binary(args, (a, b) => a > b) };
-    if (name.startsWith('less')) return { value: binary(args, (a, b) => a < b) };
-    if (name.startsWith('notequal')) return { value: binary(args, (a, b) => a !== b) };
-    if (name.startsWith('equalequal')) return { value: binary(args, (a, b) => a === b) };
-    if (name.includes('booleanand') || name === 'andandboolbool') return { value: binary(args, (a, b) => Boolean(a && b)) };
-    if (name.includes('booleanor') || name === 'ororboolbool') return { value: binary(args, (a, b) => Boolean(a || b)) };
-    if (name.startsWith('not')) return { value: !Boolean(args.a ?? values[0]) };
-    if (name.startsWith('clamp')) return { value: Math.min(args.max ?? values[2], Math.max(args.min ?? values[1], args.value ?? values[0])) };
-    if (name.startsWith('abs')) return { value: Math.abs(args.a ?? values[0]) };
-    if (name.startsWith('lerp')) return { value: (args.a ?? values[0]) + ((args.b ?? values[1]) - (args.a ?? values[0])) * (args.alpha ?? values[2]) };
+    if (node.pure) {
+      if (name.startsWith('add')) return { value: binary(args, (a, b) => a + b) };
+      if (name.startsWith('subtract')) return { value: binary(args, (a, b) => a - b) };
+      if (name.startsWith('multiply')) return { value: binary(args, (a, b) => a * b) };
+      if (name.startsWith('divide')) return { value: binary(args, (a, b) => b === 0 ? 0 : a / b) };
+      if (name.startsWith('greaterorequal')) return { value: binary(args, (a, b) => a >= b) };
+      if (name.startsWith('lessorequal')) return { value: binary(args, (a, b) => a <= b) };
+      if (name.startsWith('greater')) return { value: binary(args, (a, b) => a > b) };
+      if (name.startsWith('less')) return { value: binary(args, (a, b) => a < b) };
+      if (name.startsWith('notequal')) return { value: binary(args, (a, b) => a !== b) };
+      if (name.startsWith('equalequal')) return { value: binary(args, (a, b) => a === b) };
+      if (name.includes('booleanand') || name === 'andandboolbool') return { value: binary(args, (a, b) => Boolean(a && b)) };
+      if (name.includes('booleanor') || name === 'ororboolbool') return { value: binary(args, (a, b) => Boolean(a || b)) };
+      if (name.startsWith('not')) return { value: !Boolean(args.a ?? values[0]) };
+      if (name.startsWith('clamp')) return { value: Math.min(args.max ?? values[2], Math.max(args.min ?? values[1], args.value ?? values[0])) };
+      if (name.startsWith('abs')) return { value: Math.abs(args.a ?? values[0]) };
+      if (name.startsWith('lerp')) return { value: (args.a ?? values[0]) + ((args.b ?? values[1]) - (args.a ?? values[0])) * (args.alpha ?? values[2]) };
+    }
 
     if (name === 'delay' || name.endsWith('delay')) {
       const duration = Number(args.duration ?? values[0] ?? 0);

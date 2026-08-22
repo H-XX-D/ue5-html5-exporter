@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#070b10" />
+    <meta name="ue5-activity-api" content="/api/activity" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070b10'/%3E%3Cpath d='M17 17v21c0 8 5 12 15 12s15-4 15-12V17h-9v21c0 3-2 5-6 5s-6-2-6-5V17z' fill='%237fffd4'/%3E%3C/svg%3E" />
     <title>UE5 Web Export</title>
   </head>
   <body>
@@ -15,6 +17,7 @@
           <h1 id="title">Scene export</h1>
         </div>
         <div class="actions">
+          <span id="activity-status" class="activity-status" hidden>Discord · connecting</span>
           <button id="logic-button" type="button" aria-controls="logic-panel">Logic: loading…</button>
           <label class="file-button">Open GLB<input id="file" type="file" accept=".glb,.gltf" /></label>
           <button id="reset" type="button">Reset view</button>
@@ -39,12 +42,16 @@
         <div id="logic-details" class="logic-details"></div>
       </aside>
       <div id="blueprint-log" class="blueprint-log" aria-live="polite"></div>
+      <div id="fps-hud" class="fps-hud" hidden>
+        <span class="crosshair" aria-hidden="true"></span>
+        <span id="fps-prompt" class="fps-prompt">Click to play · WASD move · Mouse look · Space jump · Click shoot</span>
+      </div>
       <footer class="hud">
         <span id="stats">Preparing renderer…</span>
         <label id="animation-wrap" hidden>Animation
           <select id="animation"></select>
         </label>
-        <span>Drag to orbit · Scroll to zoom · Right-drag to pan</span>
+        <span>Controls adapt to the exported UE5 game mode</span>
       </footer>
     </main>
     <script type="module" src="/src/main.js"></script>

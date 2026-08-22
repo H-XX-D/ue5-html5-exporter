@@ -1,0 +1,56 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "UE5HTML5DiscordBlueprintLibrary.generated.h"
+
+/**
+ * Blueprint-facing Discord Activity operations. In native Unreal play these
+ * functions safely report unavailable. The HTML5 exporter maps the same nodes
+ * to the Embedded App SDK, a configurable Activity API, and Supabase runtime.
+ */
+UCLASS()
+class UE5HTML5EXPORTERRUNTIME_API UUE5HTML5DiscordBlueprintLibrary final : public UBlueprintFunctionLibrary
+{
+    GENERATED_BODY()
+
+public:
+    UFUNCTION(BlueprintPure, Category = "UE5 HTML5|Discord Activity")
+    static bool IsDiscordActivityReady();
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
+    static bool DiscordActivityBroadcast(const FString& Event, const FString& JsonPayload);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
+    static void DiscordActivityOpenInviteDialog();
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
+    static void DiscordActivityEncourageHardwareAcceleration();
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity")
+    static bool DiscordActivityGetParticipants(FString& OutParticipantsJson);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Monetization")
+    static bool DiscordActivityGetSkus(FString& OutSkusJson);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Monetization")
+    static bool DiscordActivityGetVerifiedEntitlements(FString& OutEntitlementsJson);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Monetization")
+    static bool DiscordActivityHasEntitlement(const FString& SkuId);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Monetization")
+    static bool DiscordActivityStartPurchase(const FString& SkuId, FString& OutPurchaseJson);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Persistence")
+    static bool DiscordActivityLoadWorldState(FString& OutJsonState, int64& OutRevision);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Persistence", meta = (AdvancedDisplay = "ExpectedRevision"))
+    static bool DiscordActivitySaveWorldState(const FString& JsonState, int64& OutRevision, int64 ExpectedRevision = -1);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Persistence")
+    static bool DiscordActivityLoadPlayerState(FString& OutJsonState, int64& OutRevision);
+
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Persistence", meta = (AdvancedDisplay = "ExpectedRevision"))
+    static bool DiscordActivitySavePlayerState(const FString& JsonState, int64& OutRevision, int64 ExpectedRevision = -1);
+};

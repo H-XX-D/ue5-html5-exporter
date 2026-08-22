@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class AActor;
+class UWorld;
 
 struct FUE5BlueprintExportSummary
 {
@@ -19,5 +20,5 @@ struct FUE5BlueprintExportSummary
 class FUE5BlueprintGraphExporter
 {
 public:
-    static FUE5BlueprintExportSummary Export(const TArray<AActor*>& Actors, const FString& OutputDirectory);
+    static FUE5BlueprintExportSummary Export(UWorld* World, const TArray<AActor*>& Actors, const FString& OutputDirectory);
 };

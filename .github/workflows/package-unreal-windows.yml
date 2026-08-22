@@ -1,0 +1,33 @@
+name: Package Unreal Plugin for Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_root:
+        description: Unreal Engine root on the self-hosted Windows runner
+        required: true
+        default: C:\Program Files\Epic Games\UE_5.8
+
+permissions:
+  contents: read
+
+jobs:
+  package-win64:
+    runs-on: [self-hosted, Windows, ue5]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Build Win64 Unreal plugin
+        shell: pwsh
+        run: npm run package:plugin -- --engine "${{ inputs.engine_root }}" --platform Win64 --output "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UE5HTML5Exporter-Win64
+          path: ${{ runner.temp }}\UE5HTML5Exporter-Win64
+          if-no-files-found: error

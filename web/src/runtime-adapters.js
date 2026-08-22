@@ -104,7 +104,10 @@ class EnhancedInputAdapter {
           if (normalizeInputKey(mapping.key) !== code) continue;
           const triggerEvent = pressed && !event.repeat ? 'Started' : pressed ? 'Triggered' : 'Completed';
           const negated = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('negate'));
-          const args = { value: Number(mapping.scale ?? 1) * (negated ? -1 : 1), triggerEvent, context: mapping.context };
+          const scalar = pressed ? Number(mapping.scale ?? 1) * (negated ? -1 : 1) : 0;
+          const swizzled = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('swizzle'));
+          const value = Number(mapping.valueType) === 2 ? { x: swizzled ? 0 : scalar, y: swizzled ? scalar : 0 } : scalar;
+          const args = { value, actionValue: value, triggerEvent, context: mapping.context };
           this.runtime.call(mapping.action, null, args);
           this.runtime.call(`InputAction_${mapping.action}`, null, args);
         }
@@ -114,6 +117,19 @@ class EnhancedInputAdapter {
     };
     bind('keydown', true);
     bind('keyup', false);
+    const mouseListener = (event) => {
+      for (const mapping of this.blueprintIr.inputMappings || []) {
+        if (normalize(mapping.key) !== 'mouse2d') continue;
+        if (mapping.context && !this.activeContexts.has(normalize(mapping.context))) continue;
+        const negated = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('negate'));
+        const value = { x: event.movementX, y: event.movementY * (negated ? -1 : 1) };
+        const args = { value, actionValue: value, triggerEvent: 'Triggered', context: mapping.context };
+        this.runtime.call(mapping.action, null, args);
+        this.runtime.call(`InputAction_${mapping.action}`, null, args);
+      }
+    };
+    this.eventTarget.addEventListener('mousemove', mouseListener);
+    this.handlers.push(['mousemove', mouseListener]);
   }
   addContext(context) { this.activeContexts.add(normalize(context?.name || context)); }
   removeContext(context) { this.activeContexts.delete(normalize(context?.name || context)); }
@@ -365,14 +381,93 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     this.particles = new ParticleAdapter(root);
     this.behaviors = new BehaviorTreeAdapter(blueprintIr);
     this.timers = new Map();
+    this.gameplayController = null;
   }
   attachRuntime(runtime) {
     this.runtime = runtime;
     for (const adapter of [this.replication, this.input, this.collisions, this.widgets, this.behaviors]) adapter.attach(runtime);
   }
   registerFunction(name, implementation) { this.customFunctions.set(normalize(name), implementation); }
+  attachGameplayController(controller) { this.gameplayController = controller; }
   variableChanged(instance, variable, value) { this.replication.changed(instance, variable, value); }
   tick(delta) { this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
+  discordActivity() { return this.eventTarget?.UE5HTML5?.activity || null; }
+  callDiscordActivity(name, args) {
+    const activity = this.discordActivity();
+    if (name === 'isdiscordactivityready') return { handled: true, value: activity?.mode === 'ready' };
+    if (!name.startsWith('discordactivity')) return null;
+    if (!activity || activity.mode !== 'ready') {
+      return { handled: true, promise: Promise.reject(new Error('Discord Activity is not ready.')) };
+    }
+    const parseJson = (value) => {
+      if (typeof value !== 'string') return value;
+      try { return JSON.parse(value); }
+      catch { throw new Error('Discord Activity Blueprint node received invalid JSON.'); }
+    };
+    const expectedRevision = Number(args.expectedrevision);
+    const revision = Number.isSafeInteger(expectedRevision) && expectedRevision >= 0 ? expectedRevision : undefined;
+    if (name === 'discordactivitybroadcast') {
+      return { handled: true, promise: activity.broadcast(String(args.event || 'message'), parseJson(args.jsonpayload || '{}')).then(() => true) };
+    }
+    if (name === 'discordactivityopeninvitedialog') {
+      return { handled: true, promise: activity.openInviteDialog().then(() => true) };
+    }
+    if (name === 'discordactivityencouragehardwareacceleration') {
+      return { handled: true, promise: activity.encourageHardwareAcceleration().then(() => true) };
+    }
+    if (name === 'discordactivitygetparticipants') {
+      return { handled: true, promise: activity.getParticipants().then((result) => ({
+        returnvalue: true,
+        outparticipantsjson: JSON.stringify(result),
+      })) };
+    }
+    if (name === 'discordactivitygetskus') {
+      return { handled: true, promise: activity.getSkus().then((result) => ({
+        returnvalue: true,
+        outskusjson: JSON.stringify(result?.skus ?? result ?? []),
+      })) };
+    }
+    if (name === 'discordactivitygetverifiedentitlements') {
+      return { handled: true, promise: activity.verifyEntitlements().then((entitlements) => ({
+        returnvalue: true,
+        outentitlementsjson: JSON.stringify(entitlements),
+      })) };
+    }
+    if (name === 'discordactivityhasentitlement') {
+      const skuId = String(args.skuid || '');
+      if (!skuId) return { handled: true, promise: Promise.reject(new Error('Discord SKU ID is required.')) };
+      return { handled: true, promise: activity.verifyEntitlements().then((entitlements) => ({
+        returnvalue: entitlements.some((item) => String(item.skuId ?? item.sku_id) === skuId),
+      })) };
+    }
+    if (name === 'discordactivitystartpurchase') {
+      const skuId = String(args.skuid || '');
+      if (!skuId) return { handled: true, promise: Promise.reject(new Error('Discord SKU ID is required.')) };
+      return { handled: true, promise: activity.startPurchase(skuId).then((result) => ({
+        returnvalue: true,
+        outpurchasejson: JSON.stringify(result),
+      })) };
+    }
+    if (name === 'discordactivityloadworldstate' || name === 'discordactivityloadplayerstate') {
+      const load = name.includes('world') ? activity.loadWorld() : activity.loadPlayerState();
+      return { handled: true, promise: load.then((result) => ({
+        returnvalue: true,
+        outjsonstate: JSON.stringify(result.state),
+        outrevision: Number(result.revision || 0),
+      })) };
+    }
+    if (name === 'discordactivitysaveworldstate' || name === 'discordactivitysaveplayerstate') {
+      const state = parseJson(args.jsonstate || 'null');
+      const save = name.includes('world')
+        ? activity.saveWorld(state, revision)
+        : activity.savePlayerState(state, revision);
+      return { handled: true, promise: save.then((result) => ({
+        returnvalue: true,
+        outrevision: Number(result.revision),
+      })) };
+    }
+    return null;
+  }
   call(functionName, args, instance) {
     const name = normalize(functionName);
     const custom = this.customFunctions.get(name);
@@ -380,8 +475,31 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
       const output = custom(args, instance, this.runtime);
       return output?.then ? { handled: true, promise: output } : { handled: true, value: output };
     }
+    const discord = this.callDiscordActivity(name, args);
+    if (discord) return discord;
     if (name === 'addmappingcontext') { this.input.addContext(args.mappingcontext || args.context); return { handled: true }; }
     if (name === 'removemappingcontext') { this.input.removeContext(args.mappingcontext || args.context); return { handled: true }; }
+    if (name === 'addmovementinput' && this.gameplayController) {
+      this.gameplayController.addMovementInput(args.worlddirection || args.direction, args.scalevalue ?? args.scale ?? 1);
+      return { handled: true };
+    }
+    if (name === 'jump' && this.gameplayController) return { handled: true, value: this.gameplayController.jump() };
+    if (name === 'stopjumping' && this.gameplayController) return { handled: true };
+    if (name === 'addcontrolleryawinput' && this.gameplayController) { this.gameplayController.addLookInput(args.val ?? args.value); return { handled: true }; }
+    if (name === 'addcontrollerpitchinput' && this.gameplayController) { this.gameplayController.addLookInput(0, args.val ?? args.value); return { handled: true }; }
+    if (name === 'getactorforwardvector' && this.gameplayController) {
+      const value = this.gameplayController.forward();
+      return { handled: true, value: { x: value.x * 100, y: -value.z * 100, z: value.y * 100 } };
+    }
+    if (name === 'getactorrightvector' && this.gameplayController) {
+      const value = this.gameplayController.right();
+      return { handled: true, value: { x: value.x * 100, y: -value.z * 100, z: value.y * 100 } };
+    }
+    if (name === 'islocalplayercontroller') return { handled: true, value: true };
+    if (name === 'getplatformname') return { handled: true, value: 'Web' };
+    if (name === 'shouldusetouchcontrols') return { handled: true, value: false };
+    if (name === 'getsubsystem') return { handled: true, value: this.input };
+    if (name === 'delayuntilnextframe') return { handled: true, promise: new Promise((resolve) => requestAnimationFrame(() => resolve(true))) };
     if (this.replication.remoteCall(functionName, args, instance)) return { handled: true };
     const three = super.call(functionName, args, instance);
     if (three.handled) return three;

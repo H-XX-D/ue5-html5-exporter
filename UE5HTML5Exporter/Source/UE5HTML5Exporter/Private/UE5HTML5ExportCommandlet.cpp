@@ -1,6 +1,6 @@
 #include "UE5HTML5ExportCommandlet.h"
 
-#include "EditorLoadingAndSavingUtils.h"
+#include "FileHelpers.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "UE5HTML5ExportLibrary.h"

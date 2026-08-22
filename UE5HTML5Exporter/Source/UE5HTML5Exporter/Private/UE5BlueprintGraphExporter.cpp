@@ -6,6 +6,8 @@
 #include "BehaviorTree/BTCompositeNode.h"
 #include "BehaviorTree/BTNode.h"
 #include "Blueprint/WidgetTree.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/PanelWidget.h"
 #include "Components/Widget.h"
 #include "Dom/JsonObject.h"
@@ -13,8 +15,22 @@
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "Engine/Blueprint.h"
+#include "Engine/SCS_Node.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameMapsSettings.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/GameModeBase.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/HUD.h"
 #include "GameFramework/InputSettings.h"
+#include "GameFramework/PlayerStart.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/SpectatorPawn.h"
+#include "GameFramework/WorldSettings.h"
 #include "HAL/FileManager.h"
 #include "K2Node.h"
 #include "K2Node_CallFunction.h"
@@ -37,6 +53,17 @@
 
 namespace
 {
+    struct FBlueprintExportTarget
+    {
+        TArray<AActor*> PlacedActors;
+        TMap<FString, UClass*> RuntimeClasses;
+    };
+
+    UObject* ExportParent(const UObject* Object)
+    {
+        return const_cast<UObject*>(Object);
+    }
+
     FString Normalize(const FString& Value)
     {
         FString Result;
@@ -55,14 +82,19 @@ namespace
         const FString ClassName = Node->GetClass()->GetName();
         if (ClassName.Contains(TEXT("EnhancedInputAction")) || ClassName.Contains(TEXT("InputAction"))) return TEXT("inputAction");
         if (ClassName.Contains(TEXT("InputKey"))) return TEXT("inputKey");
+        if (ClassName == TEXT("EdGraphNode_Comment")) return TEXT("comment");
         if (Node->IsA<UK2Node_Event>()) return TEXT("event");
         if (Node->IsA<UK2Node_FunctionEntry>()) return TEXT("functionEntry");
+        if (ClassName == TEXT("K2Node_FunctionResult")) return TEXT("functionResult");
+        if (ClassName == TEXT("K2Node_CreateWidget")) return TEXT("createWidget");
+        if (ClassName == TEXT("K2Node_GetSubsystem")) return TEXT("getSubsystem");
         if (ClassName == TEXT("K2Node_VariableGet")) return TEXT("variableGet");
         if (ClassName == TEXT("K2Node_VariableSet")) return TEXT("variableSet");
         if (ClassName.Contains(TEXT("CallDelegate")) || ClassName.Contains(TEXT("AddDelegate")) || ClassName.Contains(TEXT("RemoveDelegate"))) return TEXT("delegate");
         if (ClassName.Contains(TEXT("Message")) || ClassName.Contains(TEXT("Interface"))) return TEXT("interfaceCall");
         if (Node->IsA<UK2Node_CallFunction>()) return TEXT("callFunction");
         if (ClassName == TEXT("K2Node_IfThenElse")) return TEXT("branch");
+        if (ClassName == TEXT("K2Node_SwitchString")) return TEXT("switchString");
         if (ClassName == TEXT("K2Node_ExecutionSequence")) return TEXT("sequence");
         if (ClassName == TEXT("K2Node_Knot")) return TEXT("knot");
         if (ClassName == TEXT("K2Node_Self")) return TEXT("self");
@@ -91,7 +123,12 @@ namespace
             TEXT("setactorlocation"), TEXT("k2setactorlocation"), TEXT("addactorworldoffset"), TEXT("k2addactorworldoffset"),
             TEXT("addactorlocaloffset"), TEXT("setactorrotation"), TEXT("k2setactorrotation"), TEXT("setactorscale3d"),
             TEXT("setactorhiddeningame"), TEXT("setvisibility"), TEXT("destroyactor"),
-            TEXT("getactorlocation"), TEXT("k2getactorlocation"), TEXT("getactorscale3d")
+            TEXT("getactorlocation"), TEXT("k2getactorlocation"), TEXT("getactorscale3d"),
+            TEXT("getactorforwardvector"), TEXT("getactorrightvector"),
+            TEXT("addmovementinput"), TEXT("jump"), TEXT("stopjumping"),
+            TEXT("addcontrolleryawinput"), TEXT("addcontrollerpitchinput"),
+            TEXT("islocalplayercontroller"), TEXT("getplatformname"), TEXT("shouldusetouchcontrols"),
+            TEXT("delayuntilnextframe")
         };
         if (Exact.Contains(Name)) return true;
         static const TArray<FString> AdapterFamilies = {
@@ -100,7 +137,8 @@ namespace
             TEXT("delegate"), TEXT("broadcast"), TEXT("interface"), TEXT("settimer"), TEXT("cleartimer"), TEXT("openurl"),
             TEXT("loadasset"), TEXT("movecomponentto"), TEXT("httpgetjson"), TEXT("asyncdownloadjson"),
             TEXT("mappingcontext"), TEXT("runbehaviortree"), TEXT("simulatephysics"), TEXT("enablegravity"),
-            TEXT("physicslinearvelocity"), TEXT("addimpulse"), TEXT("addforce"), TEXT("setpercent")
+            TEXT("physicslinearvelocity"), TEXT("addimpulse"), TEXT("addforce"), TEXT("setpercent"),
+            TEXT("discordactivity")
         };
         for (const FString& Family : AdapterFamilies)
         {
@@ -128,7 +166,7 @@ namespace
             const FProperty* Property = Object->GetClass()->FindPropertyByName(Name);
             if (!Property) continue;
             FString Value;
-            Property->ExportText_InContainer(0, Value, Object, Object, Object, PPF_None);
+            Property->ExportText_InContainer(0, Value, Object, Object, ExportParent(Object), PPF_None);
             if (!Value.IsEmpty()) return Value;
         }
         return FString();
@@ -183,9 +221,9 @@ namespace
         Json->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Input ? TEXT("input") : TEXT("output"));
         Json->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
         Json->SetStringField(TEXT("subcategory"), Pin->PinType.PinSubCategory.ToString());
-        if (Pin->PinType.PinSubCategoryObject)
+        if (const UObject* TypeObject = Pin->PinType.PinSubCategoryObject.Get())
         {
-            Json->SetStringField(TEXT("typeObject"), Pin->PinType.PinSubCategoryObject->GetPathName());
+            Json->SetStringField(TEXT("typeObject"), TypeObject->GetPathName());
         }
         FString DefaultValue = Pin->DefaultValue;
         if (DefaultValue.IsEmpty() && Pin->DefaultObject)
@@ -211,21 +249,25 @@ namespace
         return Json;
     }
 
-    TSharedRef<FJsonObject> SerializeNode(const UEdGraphNode* Node, const FString& GraphName, FUE5BlueprintExportSummary& Summary, TArray<TSharedPtr<FJsonValue>>& Unsupported)
+    TSharedRef<FJsonObject> SerializeNode(const UEdGraphNode* Node, const FString& GraphName, const TSet<FString>& BlueprintFunctions, FUE5BlueprintExportSummary& Summary, TArray<TSharedPtr<FJsonValue>>& Unsupported)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         const FString Kind = NodeKind(Node);
         const FString Event = EventName(Node);
         FString Function = FunctionName(Node);
+        if (Kind == TEXT("functionEntry") && (Function.IsEmpty() || Function == TEXT("None"))) Function = GraphName;
+        if (Kind == TEXT("createWidget")) Function = TEXT("CreateWidget");
+        if (Kind == TEXT("getSubsystem")) Function = TEXT("GetSubsystem");
         if (Function.IsEmpty() && (Kind == TEXT("delegate") || Kind == TEXT("interfaceCall")))
         {
             Function = ReflectedPropertyText(Node, { TEXT("FunctionReference"), TEXT("DelegateReference"), TEXT("EventReference") });
             if (Function.IsEmpty()) Function = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
         }
         bool bSupported = Kind != TEXT("unsupported");
-        if (Kind == TEXT("callFunction")) bSupported = IsSupportedFunction(Function);
+        if (Kind == TEXT("callFunction")) bSupported = IsSupportedFunction(Function) || BlueprintFunctions.Contains(Normalize(Function));
         if (Kind == TEXT("event")) bSupported = IsSupportedEvent(Node, Event);
-        if (Kind == TEXT("delegate") || Kind == TEXT("interfaceCall") || Kind == TEXT("inputAction")) bSupported = true;
+        if (Kind == TEXT("delegate") || Kind == TEXT("interfaceCall") || Kind == TEXT("inputAction")
+            || Kind == TEXT("comment") || Kind == TEXT("functionResult") || Kind == TEXT("createWidget") || Kind == TEXT("getSubsystem")) bSupported = true;
 
         Json->SetStringField(TEXT("id"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
         Json->SetStringField(TEXT("class"), Node->GetClass()->GetName());
@@ -244,6 +286,11 @@ namespace
             Json->SetStringField(TEXT("inputAction"), Action);
             Json->SetStringField(TEXT("event"), Action);
             Json->SetStringField(TEXT("triggerEvent"), ReflectedPropertyText(Node, { TEXT("TriggerEvent"), TEXT("InputKeyEvent") }));
+        }
+        if (Kind == TEXT("switchString"))
+        {
+            const FString CaseSensitive = ReflectedPropertyText(Node, { TEXT("bIsCaseSensitive"), TEXT("IsCaseSensitive") });
+            Json->SetBoolField(TEXT("caseSensitive"), CaseSensitive.Equals(TEXT("True"), ESearchCase::IgnoreCase));
         }
 
         if (const UK2Node_CallFunction* Call = Cast<UK2Node_CallFunction>(Node))
@@ -297,12 +344,16 @@ namespace
         return Graphs;
     }
 
-    TSharedRef<FJsonObject> SerializeActor(const AActor* Actor, const UBlueprint* Blueprint)
+    TSharedRef<FJsonObject> SerializeActor(const AActor* Actor, const UBlueprint* Blueprint, const FString& RuntimeRole = FString())
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
-        Json->SetStringField(TEXT("label"), Actor->GetActorLabel());
-        Json->SetStringField(TEXT("objectName"), Actor->GetName());
+        const bool bRuntimeSpawned = !RuntimeRole.IsEmpty();
+        Json->SetStringField(TEXT("label"), bRuntimeSpawned ? RuntimeRole : Actor->GetActorLabel());
+        Json->SetStringField(TEXT("objectName"), bRuntimeSpawned ? FString::Printf(TEXT("__ue_%s"), *RuntimeRole) : Actor->GetName());
         Json->SetStringField(TEXT("path"), Actor->GetPathName());
+        Json->SetStringField(TEXT("class"), Actor->GetClass()->GetPathName());
+        Json->SetBoolField(TEXT("runtimeSpawned"), bRuntimeSpawned);
+        if (bRuntimeSpawned) Json->SetStringField(TEXT("runtimeRole"), RuntimeRole);
 
         TSharedRef<FJsonObject> InitialState = MakeShared<FJsonObject>();
         for (const FBPVariableDescription& Variable : Blueprint->NewVariables)
@@ -310,7 +361,7 @@ namespace
             const FProperty* Property = Actor->GetClass()->FindPropertyByName(Variable.VarName);
             if (!Property) continue;
             FString Value;
-            Property->ExportText_InContainer(0, Value, Actor, Actor, Actor, PPF_None);
+            Property->ExportText_InContainer(0, Value, Actor, Actor, ExportParent(Actor), PPF_None);
             TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
             Entry->SetStringField(TEXT("value"), Value);
             Entry->SetStringField(TEXT("category"), Variable.VarType.PinCategory.ToString());
@@ -320,6 +371,128 @@ namespace
         }
         Json->SetObjectField(TEXT("initialState"), InitialState);
         return Json;
+    }
+
+    UClass* ResolveGameModeClass(UWorld* World)
+    {
+        if (!World) return nullptr;
+        if (const AWorldSettings* WorldSettings = World->GetWorldSettings())
+        {
+            if (WorldSettings->DefaultGameMode) return WorldSettings->DefaultGameMode.Get();
+        }
+
+        const FString MapName = FPaths::GetBaseFilename(World->GetOutermost()->GetName());
+        const FString MapGameMode = UGameMapsSettings::GetGameModeForMapName(MapName);
+        if (!MapGameMode.IsEmpty())
+        {
+            if (UClass* Class = LoadClass<AGameModeBase>(nullptr, *MapGameMode)) return Class;
+        }
+        return LoadClass<AGameModeBase>(nullptr, *UGameMapsSettings::GetGlobalDefaultGameMode());
+    }
+
+    void AddRuntimeClass(TMap<UBlueprint*, FBlueprintExportTarget>& Targets, UClass* Class, const FString& Role)
+    {
+        if (!Class) return;
+        if (UBlueprint* Blueprint = Cast<UBlueprint>(Class->ClassGeneratedBy))
+        {
+            Targets.FindOrAdd(Blueprint).RuntimeClasses.Add(Role, Class);
+        }
+    }
+
+    TSharedRef<FJsonObject> SerializeGameplay(UWorld* World, UClass* GameModeClass, TMap<UBlueprint*, FBlueprintExportTarget>& Targets)
+    {
+        TSharedRef<FJsonObject> Gameplay = MakeShared<FJsonObject>();
+        Gameplay->SetStringField(TEXT("profile"), TEXT("scene"));
+        if (!GameModeClass) return Gameplay;
+
+        const AGameModeBase* GameMode = GameModeClass->GetDefaultObject<AGameModeBase>();
+        if (!GameMode) return Gameplay;
+
+        TSharedRef<FJsonObject> Classes = MakeShared<FJsonObject>();
+        auto AddClass = [&Targets, &Classes](const TCHAR* Role, UClass* Class)
+        {
+            if (!Class) return;
+            Classes->SetStringField(Role, Class->GetPathName());
+            AddRuntimeClass(Targets, Class, Role);
+        };
+        AddClass(TEXT("gameMode"), GameModeClass);
+        AddClass(TEXT("defaultPawn"), GameMode->DefaultPawnClass.Get());
+        AddClass(TEXT("playerController"), GameMode->PlayerControllerClass.Get());
+        AddClass(TEXT("hud"), GameMode->HUDClass.Get());
+        AddClass(TEXT("gameState"), GameMode->GameStateClass.Get());
+        AddClass(TEXT("playerState"), GameMode->PlayerStateClass.Get());
+        AddClass(TEXT("spectator"), GameMode->SpectatorClass.Get());
+        Gameplay->SetObjectField(TEXT("classes"), Classes);
+
+        FVector StartLocation = FVector::ZeroVector;
+        FRotator StartRotation = FRotator::ZeroRotator;
+        if (World)
+        {
+            TActorIterator<APlayerStart> It(World);
+            if (It)
+            {
+                StartLocation = It->GetActorLocation();
+                StartRotation = It->GetActorRotation();
+            }
+        }
+        TSharedRef<FJsonObject> PlayerStart = MakeShared<FJsonObject>();
+        TSharedRef<FJsonObject> Location = MakeShared<FJsonObject>();
+        Location->SetNumberField(TEXT("x"), StartLocation.X);
+        Location->SetNumberField(TEXT("y"), StartLocation.Y);
+        Location->SetNumberField(TEXT("z"), StartLocation.Z);
+        PlayerStart->SetObjectField(TEXT("location"), Location);
+        TSharedRef<FJsonObject> Rotation = MakeShared<FJsonObject>();
+        Rotation->SetNumberField(TEXT("pitch"), StartRotation.Pitch);
+        Rotation->SetNumberField(TEXT("yaw"), StartRotation.Yaw);
+        Rotation->SetNumberField(TEXT("roll"), StartRotation.Roll);
+        PlayerStart->SetObjectField(TEXT("rotation"), Rotation);
+        Gameplay->SetObjectField(TEXT("playerStart"), PlayerStart);
+
+        const ACharacter* Character = GameMode->DefaultPawnClass
+            ? Cast<ACharacter>(GameMode->DefaultPawnClass->GetDefaultObject())
+            : nullptr;
+        const UCameraComponent* Camera = Character ? Character->FindComponentByClass<UCameraComponent>() : nullptr;
+        if (!Camera && GameMode->DefaultPawnClass)
+        {
+            const UBlueprint* PawnBlueprint = Cast<UBlueprint>(GameMode->DefaultPawnClass->ClassGeneratedBy);
+            if (PawnBlueprint && PawnBlueprint->SimpleConstructionScript)
+            {
+                for (const USCS_Node* Node : PawnBlueprint->SimpleConstructionScript->GetAllNodes())
+                {
+                    if (Node && Node->ComponentClass && Node->ComponentClass->IsChildOf(UCameraComponent::StaticClass()))
+                    {
+                        Camera = Cast<UCameraComponent>(Node->ComponentTemplate);
+                        if (Camera) break;
+                    }
+                }
+            }
+        }
+        if (Character && Camera)
+        {
+            Gameplay->SetStringField(TEXT("profile"), TEXT("firstPerson"));
+            TSharedRef<FJsonObject> Movement = MakeShared<FJsonObject>();
+            if (const UCharacterMovementComponent* CharacterMovement = Character->GetCharacterMovement())
+            {
+                Movement->SetNumberField(TEXT("maxWalkSpeed"), CharacterMovement->MaxWalkSpeed);
+                Movement->SetNumberField(TEXT("jumpVelocity"), CharacterMovement->JumpZVelocity);
+                Movement->SetNumberField(TEXT("gravityScale"), CharacterMovement->GravityScale);
+            }
+            if (const UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
+            {
+                Movement->SetNumberField(TEXT("capsuleRadius"), Capsule->GetUnscaledCapsuleRadius());
+                Movement->SetNumberField(TEXT("capsuleHalfHeight"), Capsule->GetUnscaledCapsuleHalfHeight());
+            }
+            Movement->SetNumberField(TEXT("cameraFov"), Camera->FieldOfView);
+            Movement->SetNumberField(TEXT("baseEyeHeight"), Character->BaseEyeHeight);
+            TSharedRef<FJsonObject> CameraLocation = MakeShared<FJsonObject>();
+            const FVector RelativeLocation = Camera->GetRelativeLocation();
+            CameraLocation->SetNumberField(TEXT("x"), RelativeLocation.X);
+            CameraLocation->SetNumberField(TEXT("y"), RelativeLocation.Y);
+            CameraLocation->SetNumberField(TEXT("z"), RelativeLocation.Z);
+            Movement->SetObjectField(TEXT("cameraRelativeLocation"), CameraLocation);
+            Gameplay->SetObjectField(TEXT("movement"), Movement);
+        }
+        return Gameplay;
     }
 
     TSharedRef<FJsonObject> SerializeBehaviorNode(const UBTNode* Node)
@@ -334,7 +507,7 @@ namespace
             const FProperty* Property = *It;
             if (!Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(CPF_Transient)) continue;
             FString Value;
-            Property->ExportText_InContainer(0, Value, Node, Node, Node, PPF_None);
+            Property->ExportText_InContainer(0, Value, Node, Node, ExportParent(Node), PPF_None);
             Properties->SetStringField(Property->GetName(), Value);
         }
         Json->SetObjectField(TEXT("properties"), Properties);
@@ -365,7 +538,7 @@ namespace
             const FProperty* Property = *It;
             if (!Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(CPF_Transient)) continue;
             FString Value;
-            Property->ExportText_InContainer(0, Value, Widget, Widget, Widget, PPF_None);
+            Property->ExportText_InContainer(0, Value, Widget, Widget, ExportParent(Widget), PPF_None);
             if (!Value.IsEmpty()) Properties->SetStringField(Property->GetName(), Value);
         }
         Json->SetObjectField(TEXT("properties"), Properties);
@@ -385,16 +558,16 @@ namespace
     }
 }
 
-FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActor*>& Actors, const FString& OutputDirectory)
+FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, const TArray<AActor*>& Actors, const FString& OutputDirectory)
 {
     FUE5BlueprintExportSummary Summary;
-    TMap<UBlueprint*, TArray<AActor*>> BlueprintActors;
+    TMap<UBlueprint*, FBlueprintExportTarget> BlueprintTargets;
     for (AActor* Actor : Actors)
     {
         if (!Actor || !Actor->GetClass()->ClassGeneratedBy) continue;
         if (UBlueprint* Blueprint = Cast<UBlueprint>(Actor->GetClass()->ClassGeneratedBy))
         {
-            BlueprintActors.FindOrAdd(Blueprint).Add(Actor);
+            BlueprintTargets.FindOrAdd(Blueprint).PlacedActors.Add(Actor);
             ++Summary.ActorInstanceCount;
         }
     }
@@ -402,6 +575,7 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActo
     TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
     Root->SetStringField(TEXT("schema"), TEXT("ue-blueprint-ir/v1"));
     Root->SetStringField(TEXT("runtime"), TEXT("ue5-html5-blueprint-vm/1"));
+    Root->SetObjectField(TEXT("gameplay"), SerializeGameplay(World, ResolveGameModeClass(World), BlueprintTargets));
     TArray<TSharedPtr<FJsonValue>> InputMappings;
     if (const UInputSettings* InputSettings = UInputSettings::GetInputSettings())
     {
@@ -411,19 +585,6 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActo
             MappingJson->SetStringField(TEXT("action"), Mapping.ActionName.ToString());
             MappingJson->SetStringField(TEXT("key"), Mapping.Key.GetFName().ToString());
             MappingJson->SetNumberField(TEXT("scale"), 1.0);
-            MappingJson->SetNumberField(TEXT("valueType"), static_cast<int32>(Mapping.Action->ValueType));
-            TArray<TSharedPtr<FJsonValue>> Modifiers;
-            for (const UInputModifier* Modifier : Mapping.Modifiers)
-            {
-                if (Modifier) Modifiers.Add(MakeShared<FJsonValueString>(Modifier->GetClass()->GetName()));
-            }
-            MappingJson->SetArrayField(TEXT("modifiers"), Modifiers);
-            TArray<TSharedPtr<FJsonValue>> Triggers;
-            for (const UInputTrigger* Trigger : Mapping.Triggers)
-            {
-                if (Trigger) Triggers.Add(MakeShared<FJsonValueString>(Trigger->GetClass()->GetName()));
-            }
-            MappingJson->SetArrayField(TEXT("triggers"), Triggers);
             InputMappings.Add(MakeShared<FJsonValueObject>(MappingJson));
         }
         for (const FInputAxisKeyMapping& Mapping : InputSettings->GetAxisMappings())
@@ -451,6 +612,19 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActo
             MappingJson->SetStringField(TEXT("actionPath"), Mapping.Action->GetPathName());
             MappingJson->SetStringField(TEXT("key"), Mapping.Key.GetFName().ToString());
             MappingJson->SetNumberField(TEXT("scale"), 1.0);
+            MappingJson->SetNumberField(TEXT("valueType"), static_cast<int32>(Mapping.Action->ValueType));
+            TArray<TSharedPtr<FJsonValue>> Modifiers;
+            for (const UInputModifier* Modifier : Mapping.Modifiers)
+            {
+                if (Modifier) Modifiers.Add(MakeShared<FJsonValueString>(Modifier->GetClass()->GetName()));
+            }
+            MappingJson->SetArrayField(TEXT("modifiers"), Modifiers);
+            TArray<TSharedPtr<FJsonValue>> Triggers;
+            for (const UInputTrigger* Trigger : Mapping.Triggers)
+            {
+                if (Trigger) Triggers.Add(MakeShared<FJsonValueString>(Trigger->GetClass()->GetName()));
+            }
+            MappingJson->SetArrayField(TEXT("triggers"), Triggers);
             InputMappings.Add(MakeShared<FJsonValueObject>(MappingJson));
         }
     }
@@ -485,7 +659,7 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActo
     Root->SetArrayField(TEXT("widgetBlueprints"), WidgetBlueprints);
     TArray<TSharedPtr<FJsonValue>> Programs;
 
-    for (const TPair<UBlueprint*, TArray<AActor*>>& Pair : BlueprintActors)
+    for (const TPair<UBlueprint*, FBlueprintExportTarget>& Pair : BlueprintTargets)
     {
         UBlueprint* Blueprint = Pair.Key;
         TSharedRef<FJsonObject> Program = MakeShared<FJsonObject>();
@@ -494,14 +668,27 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActo
         Program->SetStringField(TEXT("generatedClass"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : FString());
 
         TArray<TSharedPtr<FJsonValue>> ActorValues;
-        for (const AActor* Actor : Pair.Value)
+        for (const AActor* Actor : Pair.Value.PlacedActors)
         {
             ActorValues.Add(MakeShared<FJsonValueObject>(SerializeActor(Actor, Blueprint)));
+        }
+        for (const TPair<FString, UClass*>& RuntimeClass : Pair.Value.RuntimeClasses)
+        {
+            if (const AActor* DefaultActor = RuntimeClass.Value->GetDefaultObject<AActor>())
+            {
+                ActorValues.Add(MakeShared<FJsonValueObject>(SerializeActor(DefaultActor, Blueprint, RuntimeClass.Key)));
+                ++Summary.ActorInstanceCount;
+            }
         }
         Program->SetArrayField(TEXT("actors"), ActorValues);
 
         TArray<TSharedPtr<FJsonValue>> GraphValues;
         TArray<TSharedPtr<FJsonValue>> Unsupported;
+        TSet<FString> BlueprintFunctions;
+        for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
+        {
+            if (FunctionGraph) BlueprintFunctions.Add(Normalize(FunctionGraph->GetName()));
+        }
         for (UEdGraph* Graph : CollectGraphs(Blueprint))
         {
             if (!Graph) continue;
@@ -511,7 +698,7 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(const TArray<AActo
             TArray<TSharedPtr<FJsonValue>> Nodes;
             for (const UEdGraphNode* Node : Graph->Nodes)
             {
-                if (Node) Nodes.Add(MakeShared<FJsonValueObject>(SerializeNode(Node, Graph->GetName(), Summary, Unsupported)));
+                if (Node) Nodes.Add(MakeShared<FJsonValueObject>(SerializeNode(Node, Graph->GetName(), BlueprintFunctions, Summary, Unsupported)));
             }
             GraphJson->SetArrayField(TEXT("nodes"), Nodes);
             GraphValues.Add(MakeShared<FJsonValueObject>(GraphJson));

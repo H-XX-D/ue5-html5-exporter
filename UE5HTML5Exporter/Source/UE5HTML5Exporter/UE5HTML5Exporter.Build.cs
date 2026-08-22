@@ -6,13 +6,14 @@ public class UE5HTML5Exporter : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
+        PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "UE5HTML5ExporterRuntime" });
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "AIModule",
             "BlueprintGraph",
             "DesktopPlatform",
             "EnhancedInput",
+            "EngineSettings",
             "GLTFExporter",
             "InputCore",
             "Json",

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { BlueprintRuntime } from './blueprint-runtime.js';
+import { FirstPersonController } from './first-person-controller.js';
 import { BrowserRuntimeAdapters } from './runtime-adapters.js';
 import './style.css';
 
@@ -19,6 +20,9 @@ const logicPanel = document.querySelector('#logic-panel');
 const logicSummary = document.querySelector('#logic-summary');
 const logicDetails = document.querySelector('#logic-details');
 const blueprintLog = document.querySelector('#blueprint-log');
+const activityStatus = document.querySelector('#activity-status');
+const fpsHud = document.querySelector('#fps-hud');
+const fpsPrompt = document.querySelector('#fps-prompt');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -55,7 +59,18 @@ let objectUrl = null;
 let blueprintRuntime = null;
 let blueprintDocument = null;
 let runtimeAdapters = null;
+let firstPersonController = null;
+let activityBridge = null;
 const pendingCustomFunctions = new Map();
+
+const looksLikeDiscordActivity = window.location.hostname.toLowerCase().endsWith('.discordsays.com')
+  || new URLSearchParams(window.location.search).has('frame_id');
+const activityPromise = looksLikeDiscordActivity
+  ? startDiscordActivity().catch((error) => {
+      console.warn('Discord Activity adapter unavailable:', error);
+      return activityBridge;
+    })
+  : Promise.resolve(null);
 
 window.UE5HTML5 = {
   registerFunction(name, implementation) {
@@ -65,7 +80,30 @@ window.UE5HTML5 = {
   call(eventName, actorName, args) { return blueprintRuntime?.call(eventName, actorName, args); },
   get runtime() { return blueprintRuntime; },
   get adapters() { return runtimeAdapters; },
+  get gameplay() { return firstPersonController; },
+  get activity() { return activityBridge; },
+  get activityReady() { return activityPromise; },
 };
+
+async function startDiscordActivity() {
+  activityStatus.hidden = false;
+  activityStatus.dataset.mode = 'connecting';
+  const { createDiscordActivityBridge } = await import('./discord-activity.js');
+  activityBridge = createDiscordActivityBridge();
+  activityBridge.addEventListener('statechange', ({ detail }) => {
+    if (detail.mode === 'standalone' || detail.mode === 'idle' || detail.mode === 'checking') {
+      activityStatus.hidden = true;
+      return;
+    }
+    activityStatus.hidden = false;
+    activityStatus.dataset.mode = detail.mode;
+    activityStatus.textContent = detail.mode === 'ready'
+      ? `Discord · ${detail.user.global_name || detail.user.username || 'connected'}`
+      : detail.mode === 'error' ? 'Discord · connection failed' : 'Discord · connecting';
+  });
+  await activityBridge.start();
+  return activityBridge;
+}
 
 function createEnvironment() {
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -82,6 +120,10 @@ function clearContent() {
   blueprintRuntime = null;
   runtimeAdapters?.dispose();
   runtimeAdapters = null;
+  firstPersonController?.dispose();
+  firstPersonController = null;
+  fpsHud.hidden = true;
+  controls.enabled = true;
   if (!content) return;
   scene.remove(content);
   content.traverse((object) => {
@@ -142,6 +184,22 @@ async function configureBlueprintLogic() {
       print: showBlueprintMessage,
       diagnostic: () => blueprintDocument && blueprintRuntime && showLogicReport(blueprintDocument, blueprintRuntime),
     }, window);
+    firstPersonController = new FirstPersonController(camera, canvas, content, blueprintDocument.gameplay, {
+      state: ({ locked }) => {
+        fpsHud.hidden = false;
+        fpsPrompt.hidden = locked;
+      },
+      shoot: (hit) => {
+        const args = { value: true, actionValue: true, triggerEvent: 'Started', hit };
+        blueprintRuntime?.call('IA_Shoot', null, args);
+        blueprintRuntime?.call('InputAction_IA_Shoot', null, args);
+      },
+    }, window);
+    if (firstPersonController.enabled) {
+      controls.enabled = false;
+      fpsHud.hidden = false;
+      runtimeAdapters.attachGameplayController(firstPersonController);
+    }
     for (const [name, implementation] of pendingCustomFunctions) runtimeAdapters.registerFunction(name, implementation);
     blueprintRuntime = new BlueprintRuntime(blueprintDocument, runtimeAdapters, { eventTarget: window });
     runtimeAdapters.attachRuntime(blueprintRuntime);
@@ -234,7 +292,10 @@ function load(url, label = 'scene.glb') {
   });
 }
 
-document.querySelector('#reset').addEventListener('click', () => content && frameObject(content));
+document.querySelector('#reset').addEventListener('click', () => {
+  if (firstPersonController?.enabled) firstPersonController.teleportToStart();
+  else if (content) frameObject(content);
+});
 document.querySelector('#fullscreen').addEventListener('click', () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
 logicButton.addEventListener('click', () => { logicPanel.hidden = !logicPanel.hidden; });
 document.querySelector('#logic-close').addEventListener('click', () => { logicPanel.hidden = true; });
@@ -259,7 +320,8 @@ renderer.setAnimationLoop(() => {
   mixer?.update(delta);
   blueprintRuntime?.tick(delta);
   runtimeAdapters?.tick(delta);
-  controls.update();
+  firstPersonController?.update(delta);
+  if (controls.enabled) controls.update();
   renderer.render(scene, camera);
 });
 

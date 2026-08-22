@@ -9,6 +9,7 @@
 #include "Exporters/GLTFExporter.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformFileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -39,7 +40,8 @@ namespace
         static const TArray<FString> AdapterNames = {
             TEXT("enhanced-input"), TEXT("replication-transport"), TEXT("interfaces-delegates"),
             TEXT("latent-async"), TEXT("physics-collision"), TEXT("gameplay-abilities"),
-            TEXT("behavior-trees"), TEXT("umg-dom"), TEXT("niagara-particle-fallback"), TEXT("user-cpp-bridge")
+            TEXT("behavior-trees"), TEXT("umg-dom"), TEXT("niagara-particle-fallback"), TEXT("user-cpp-bridge"),
+            TEXT("discord-activity"), TEXT("supabase-realtime"), TEXT("configurable-activity-api")
         };
         for (const FString& Adapter : AdapterNames)
         {
@@ -106,7 +108,8 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
 
     IFileManager& Files = IFileManager::Get();
     Files.MakeDirectory(*Result.OutputDirectory, true);
-    if (!Files.CopyDirectoryTree(*Result.OutputDirectory, *TemplateDirectory, true))
+    IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+    if (!PlatformFile.CopyDirectoryTree(*Result.OutputDirectory, *TemplateDirectory, true))
     {
         Result.Error = TEXT("Could not copy the web viewer into the chosen folder.");
         return Result;
@@ -135,7 +138,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         }
     }
 
-    const FUE5BlueprintExportSummary BlueprintSummary = FUE5BlueprintGraphExporter::Export(ExportActors, Result.OutputDirectory);
+    const FUE5BlueprintExportSummary BlueprintSummary = FUE5BlueprintGraphExporter::Export(World, ExportActors, Result.OutputDirectory);
     if (!BlueprintSummary.bSuccess)
     {
         Result.Error = FString::Printf(TEXT("Blueprint logic export failed: %s"), *BlueprintSummary.Error);
@@ -170,6 +173,9 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     const FString ExportReadme =
         TEXT("# UE5 Web Export\n\nRun `python3 serve.py`, then open http://localhost:8000.\n\n")
         TEXT("Upload this entire folder to any static host. Keep `index.html`, `runtime/`, and `assets/` together.\n")
+        TEXT("For a Discord Activity, deploy this folder to an HTTPS host and follow `DISCORD_ACTIVITY_WORKFLOW.md`.\n")
+        TEXT("The bundled Vercel adapter is the default; the Activity API endpoint is configurable in index.html.\n")
+        TEXT("Before deployment, run `npm run preflight:package`, then `npm run preflight:online` with the server environment loaded.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("Replace native project functions with `window.UE5HTML5.registerFunction(name, implementation)`.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));

@@ -1,0 +1,17 @@
+{
+  "name": "ue5-discord-activity-export",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "preflight": "node scripts/activity-preflight.mjs",
+    "preflight:package": "node scripts/activity-preflight.mjs --package-only",
+    "preflight:online": "node scripts/activity-preflight.mjs --online"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.3",
+    "jose": "6.2.10"
+  }
+}

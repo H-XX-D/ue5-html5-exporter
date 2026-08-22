@@ -15,10 +15,12 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - `export-manifest.json` plus per-Blueprint/node compatibility warnings
 - Commandlet support for CI or batch export
 - Output that works on any static host
+- Discord Activity Blueprint nodes plus verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
+- Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 
 ## Build the plugin
 
-Requirements: Node.js 20.19+ (or 22.12+), npm, and Unreal Engine 5.3 or newer with the built-in **glTF Exporter** plugin available.
+Requirements: Node.js 22.12+, npm, and Unreal Engine 5.3 or newer with the built-in **glTF Exporter** plugin available.
 
 ```bash
 npm install
@@ -30,12 +32,19 @@ The web build is written into `UE5HTML5Exporter/Resources/WebTemplate`, where th
 ## Install in a UE5 project
 
 1. Build the web template as shown above.
-2. Copy `UE5HTML5Exporter/` into `YourProject/Plugins/UE5HTML5Exporter/`.
+2. Install it without manually copying folders:
+
+   ```bash
+   npm run install:plugin -- --project "/path/to/YourGame.uproject" --source-only
+   ```
+
 3. Regenerate project files if your project uses C++.
 4. Open the project. When prompted, enable/rebuild **UE5 to HTML5 Exporter** and **glTF Exporter**, then restart the Editor.
 5. Open a level and use **Tools → HTML5 Export**.
 
 The first compile must match your installed UE5 minor version. The plugin contains source, so Unreal Build Tool will build it for your engine.
+
+For a redistributable package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
 
 ## Preview an export
 
@@ -48,6 +57,14 @@ python3 serve.py
 Then open [http://localhost:8000](http://localhost:8000). Do not double-click `index.html`; browser module and asset security rules require HTTP.
 
 Deploy by uploading the entire output folder to S3/CloudFront, GitHub Pages, Netlify, Vercel, Cloudflare Pages, or any ordinary static web server.
+
+For a Discord release, the export also contains a server-side Activity API, a default `vercel.json` deployment adapter, and the Supabase migration. Vercel is optional to Discord, but Supabase Storage is not used as the static HTML host. The frontend API URL can be changed with the `ue5-activity-api` meta tag in `index.html`. Follow [Discord Activity release workflow](docs/DISCORD_ACTIVITY_WORKFLOW.md). Without server configuration, the same output stays in standalone website mode.
+
+## Discord nodes in Blueprint
+
+Search the Blueprint palette for **UE5 HTML5 → Discord Activity**. The runtime module supplies nodes for readiness, Broadcast, the native invite dialog, hardware acceleration, connected participants, Discord SKUs/purchases, server-verified entitlements, and atomic world/player load/save. They return safe unavailable/default values during native Unreal play and become asynchronous Discord SDK operations after HTML5 export.
+
+State and Broadcast payloads are JSON strings. Save nodes accept an optional expected revision: leave it at `-1` for unconditional save, or pass the revision from the previous load/save to reject stale concurrent writes.
 
 ## Automated export
 
@@ -90,6 +107,7 @@ On Windows, use `UnrealEditor-Cmd.exe`.
 | UMG | Widget trees exported to DOM; common containers, text, buttons, viewport, visibility, and text calls supported |
 | Niagara/Cascade | Spawn/activate/deactivate calls use a portable Three.js particle fallback |
 | User C++ gameplay | Explicit JavaScript replacement registry through `UE5HTML5.registerFunction` |
+| Discord Activity | Blueprint nodes backed by Embedded App SDK authorization, opaque HttpOnly Activity sessions, server-verified membership/entitlements, private Supabase Broadcast/Presence, and atomic cross-device saves |
 | Other Blueprint nodes/functions | Preserved in IR and reported as unsupported |
 | UE post-processing/custom shaders | Not transferred or approximated by PBR conversion |
 
@@ -103,6 +121,8 @@ These adapters intentionally reproduce portable gameplay behavior, not Unreal's 
 npm run dev   # viewer development server
 npm test      # repository structure and packaging tests
 npm run build # production viewer bundle
+npm run install:plugin -- --help
+npm run package:plugin -- --help
 ```
 
 ## Architecture
