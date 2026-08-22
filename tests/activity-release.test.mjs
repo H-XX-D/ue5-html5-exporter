@@ -14,7 +14,9 @@ import {
   SENSITIVE_ENVIRONMENT,
   buildActivityReleasePlan,
   completeVercelOnlySecrets,
+  discoverSupabaseApiKeys,
   executeActivityRelease,
+  hydrateUnrealPublicEnvironment,
   loadReleaseEnvironment,
   parseActivityReleaseArgs,
   readActivityHandoffTargets,
@@ -38,21 +40,32 @@ test('release assistant keeps the underlying workflow arguments Windows-safe', (
   assert.deepEqual(options.forwarded, ['--environment', 'preview', '--apply']);
 });
 
-test('release assistant scaffolds a gitignored private environment before installing tools', () => {
+test('release assistant needs no environment file for the guided workflow', () => {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
-  writeFileSync(join(root, '.env.example'), 'DISCORD_CLIENT_ID=\n');
   const calls = [];
-  const messages = [];
   const status = runReleaseAssistant([], {
     directory: root,
     nodeVersion: '22.12.0',
     runner(command, args) { calls.push({ command, args }); return { status: 0 }; },
-    stdout(message) { messages.push(message); },
+    stdout() {},
   });
-  assert.equal(status, 2);
-  assert.equal(readFileSync(join(root, '.env.activity.local'), 'utf8'), 'DISCORD_CLIENT_ID=\n');
-  assert.deepEqual(calls, []);
-  assert.ok(messages.some((message) => message.includes('gitignored')));
+  assert.equal(status, 0);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].args.includes('--env-file'), false);
+  assert.ok(calls[1].args.includes('--vercel-only-secrets'));
+  assert.ok(calls[1].args.includes('--supabase-cli-keys'));
+});
+
+test('release assistant rejects an explicitly requested missing environment file', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
+  const errors = [];
+  const status = runReleaseAssistant(['--env-file', 'missing.env'], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    stderr(message) { errors.push(message); },
+  });
+  assert.equal(status, 1);
+  assert.ok(errors.some((message) => message.includes('was not found')));
 });
 
 test('release assistant installs pinned local tools and preserves dry-run by default', () => {
@@ -77,6 +90,7 @@ test('release assistant installs pinned local tools and preserves dry-run by def
     'run', 'release:activity', '--', '--env-file', join(root, '.env.activity.local'),
   ]);
   assert.ok(calls[1].args.includes('--vercel-only-secrets'));
+  assert.ok(calls[1].args.includes('--supabase-cli-keys'));
   assert.equal(calls[1].args.includes('--apply'), false);
   assert.ok(calls.every((call) => call.cwd === root));
 });
@@ -147,12 +161,14 @@ test('release workflow parses a Windows-safe explicit project plan', () => {
     '--vercel-project', 'my-discord-game',
     '--environment', 'production',
     '--vercel-only-secrets',
+    '--supabase-cli-keys',
     '--apply',
   ]);
   assert.equal(options.supabaseProjectRef, 'abcdefghijklmnopqrst');
   assert.equal(options.vercelProject, 'my-discord-game');
   assert.equal(options.environment, 'production');
   assert.equal(options.vercelOnlySecrets, true);
+  assert.equal(options.supabaseCliKeys, true);
   assert.equal(options.apply, true);
 });
 
@@ -199,6 +215,24 @@ test('release workflow defaults to Unreal project targets without copying secret
   assert.deepEqual(result.errors, []);
   assert.equal(result.selectedVercelProject, targets.vercelProjectName);
   assert.equal(result.selectedSupabaseProjectRef, targets.supabaseProjectRef);
+});
+
+test('release workflow hydrates public service identity directly from Unreal handoff', () => {
+  const root = exportFixture();
+  const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
+  handoff.projectTargets = {
+    ...handoff.projectTargets,
+    configured: true,
+    discordApplicationId: '123456789012345678',
+    discordPublicKey: 'a'.repeat(64),
+    vercelProjectName: 'my-discord-game',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+  };
+  writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
+  const hydrated = hydrateUnrealPublicEnvironment({ directory: root }, {});
+  assert.equal(hydrated.DISCORD_CLIENT_ID, handoff.projectTargets.discordApplicationId);
+  assert.equal(hydrated.DISCORD_PUBLIC_KEY, handoff.projectTargets.discordPublicKey);
+  assert.equal(hydrated.SUPABASE_URL, 'https://abcdefghijklmnopqrst.supabase.co');
 });
 
 test('release workflow rejects arguments and Discord environment that drift from Unreal targets', () => {
@@ -259,6 +293,43 @@ test('state secret can be generated in memory without writing an env file', () =
   const env = loadReleaseEnvironment(options, {}, () => Buffer.alloc(32, 7));
   assert.equal(Buffer.from(env.ACTIVITY_STATE_SECRET, 'base64url').length, 32);
   assert.equal(env.DISCORD_REQUIRE_PROXY_AUTH, 'false');
+});
+
+test('Supabase CLI API-key discovery stays in memory and selects modern default keys', () => {
+  const root = exportFixture();
+  const calls = [];
+  const environment = {
+    ...validEnvironment(),
+    SUPABASE_PUBLISHABLE_KEY: '',
+    SUPABASE_SECRET_KEY: '',
+  };
+  const discovered = discoverSupabaseApiKeys({
+    apply: true,
+    supabaseCliKeys: true,
+    directory: root,
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+  }, environment, {
+    runner(command, args) {
+      calls.push({ command, args });
+      return {
+        status: 0,
+        stdout: JSON.stringify([
+          { type: 'legacy', name: 'anon', api_key: 'legacy-value' },
+          { type: 'publishable', name: 'default', api_key: 'sb_publishable_discovered-value' },
+          { type: 'secret', name: 'default', api_key: 'sb_secret_discovered-value' },
+        ]),
+        stderr: '',
+      };
+    },
+  });
+  assert.equal(environment.SUPABASE_PUBLISHABLE_KEY, '');
+  assert.equal(discovered.SUPABASE_PUBLISHABLE_KEY, 'sb_publishable_discovered-value');
+  assert.equal(discovered.SUPABASE_SECRET_KEY, 'sb_secret_discovered-value');
+  assert.deepEqual(calls[0], {
+    command: 'supabase',
+    args: ['projects', 'api-keys', '--project-ref', 'abcdefghijklmnopqrst', '--reveal', '--output', 'json'],
+  });
+  assert.doesNotMatch(JSON.stringify(calls), /sb_(?:publishable|secret)_discovered/);
 });
 
 test('Vercel-only mode prompts for missing server secrets and never mutates the file environment', async () => {
@@ -322,6 +393,36 @@ test('Vercel-only dry-run plans hidden prompts without requiring local secrets',
   assert.equal(sources.ACTIVITY_STATE_SECRET, 'generated-at-apply');
 });
 
+test('guided dry-run needs no environment file when Unreal targets are configured', async () => {
+  const root = exportFixture();
+  const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
+  handoff.projectTargets = {
+    ...handoff.projectTargets,
+    configured: true,
+    discordApplicationId: '123456789012345678',
+    discordPublicKey: 'a'.repeat(64),
+    vercelProjectName: 'my-discord-game',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+  };
+  writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
+  const options = {
+    apply: false,
+    deploy: true,
+    migrate: true,
+    vercelOnlySecrets: true,
+    supabaseCliKeys: true,
+    directory: root,
+    environment: 'preview',
+  };
+  const result = await executeActivityRelease(options, loadReleaseEnvironment({}, {}));
+  assert.equal(result.ok, true);
+  assert.equal(result.plan.discordApplicationId, handoff.projectTargets.discordApplicationId);
+  assert.equal(result.plan.vercelProject, handoff.projectTargets.vercelProjectName);
+  const sources = Object.fromEntries(result.plan.vercelEnvironment.map((entry) => [entry.name, entry.source]));
+  assert.equal(sources.SUPABASE_PUBLISHABLE_KEY, 'supabase-cli-at-apply');
+  assert.equal(sources.SUPABASE_SECRET_KEY, 'supabase-cli-at-apply');
+});
+
 test('apply sends secrets only through stdin and stages preview deployment', async () => {
   const root = exportFixture();
   const options = {
@@ -364,6 +465,68 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
     assert.equal(upload.input, `${env[name]}\n`);
     assert.ok(upload.args.includes('--sensitive'));
   }
+});
+
+test('guided apply discovers Supabase keys then prompts only for remaining private inputs', async () => {
+  const root = exportFixture();
+  const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
+  handoff.projectTargets = {
+    ...handoff.projectTargets,
+    configured: true,
+    discordApplicationId: '123456789012345678',
+    discordPublicKey: 'a'.repeat(64),
+    vercelProjectName: 'my-discord-game',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+  };
+  writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
+  const calls = [];
+  const promptNames = [];
+  const promptValues = {
+    DISCORD_CLIENT_SECRET: 'prompted-discord-client-secret',
+    DISCORD_BOT_TOKEN: 'prompted-discord-bot-token-value',
+    SUPABASE_JWT_PRIVATE_KEY: JSON.stringify({
+      kty: 'EC', crv: 'P-256', kid: 'guided-key', x: 'x', y: 'y', d: 'd',
+    }),
+  };
+  const runner = (command, args, invocation) => {
+    calls.push({ command, args, input: invocation.input });
+    if (command === 'supabase' && args[0] === 'projects') {
+      return {
+        status: 0,
+        stdout: JSON.stringify([
+          { type: 'publishable', name: 'default', api_key: 'sb_publishable_guided-value' },
+          { type: 'secret', name: 'default', api_key: 'sb_secret_guided-value' },
+        ]),
+        stderr: '',
+      };
+    }
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const result = await executeActivityRelease({
+    apply: true,
+    deploy: false,
+    migrate: false,
+    vercelOnlySecrets: true,
+    supabaseCliKeys: true,
+    directory: root,
+    environment: 'preview',
+  }, loadReleaseEnvironment({}, {}), {
+    runner,
+    prompt: async (label) => {
+      const name = Object.keys(promptValues).find((candidate) => label.includes(candidate));
+      promptNames.push(name);
+      return promptValues[name];
+    },
+    random: () => Buffer.alloc(32, 4),
+    verifyServices: async () => ({ errors: [], warnings: [], checks: ['services verified'] }),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(promptNames, ['DISCORD_CLIENT_SECRET', 'DISCORD_BOT_TOKEN', 'SUPABASE_JWT_PRIVATE_KEY']);
+  const secretUpload = calls.find((call) => call.args.includes('SUPABASE_SECRET_KEY'));
+  assert.equal(secretUpload.input, 'sb_secret_guided-value\n');
+  assert.ok(secretUpload.args.includes('--sensitive'));
+  const serializedArgs = JSON.stringify(calls.map(({ command, args }) => ({ command, args })));
+  assert.doesNotMatch(serializedArgs, /sb_(?:publishable|secret)_guided-value/);
 });
 
 test('public deployment probe rejects Vercel authentication and iframe denial', async () => {

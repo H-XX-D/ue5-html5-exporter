@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -49,14 +49,14 @@ Windows:  release-discord-activity.cmd
 macOS:    ./release-discord-activity.command
 Linux:    ./release-discord-activity.sh
 
-The first run creates .env.activity.local from .env.example and stops so you can
-fill only the public project configuration. The next run installs pinned Vercel
-and Supabase CLIs locally, then prints the fail-closed dry-run release plan.
+The launcher reads public project identity directly from Unreal, installs pinned
+Vercel and Supabase CLIs locally, then prints the fail-closed dry-run plan. No
+environment file is required for the guided workflow.
 
 Add --apply only after reviewing that plan. All activity-release options are
-passed through unchanged. Missing server secrets are requested with hidden input
-at apply time and stored only in Vercel. Use --skip-install only when dependencies
-are already present in this export folder.`;
+passed through unchanged. At apply time, Supabase API keys are discovered through
+the authenticated CLI and remaining secrets use hidden input; none are saved by
+the assistant. Use --env-file only for CI or advanced overrides.`;
 }
 
 function defaultRunner(command, args, options) {
@@ -78,7 +78,6 @@ export function runReleaseAssistant(argv, {
   nodeVersion = process.versions.node,
   platform = process.platform,
   exists = existsSync,
-  copyFile = copyFileSync,
   runner = defaultRunner,
   stdout = console.log,
   stderr = console.error,
@@ -103,20 +102,9 @@ export function runReleaseAssistant(argv, {
   }
 
   const envFile = resolve(directory, options.envFile);
-  if (!exists(envFile)) {
-    if (options.explicitEnvFile) {
-      stderr(`Environment file was not found: ${envFile}`);
-      return 1;
-    }
-    const example = join(directory, '.env.example');
-    if (!exists(example)) {
-      stderr(`Release template was not found: ${example}`);
-      return 1;
-    }
-    copyFile(example, envFile);
-    stdout(`Created private release template: ${envFile}`);
-    stdout('Fill its public project values, then run this launcher again. Leave server-secret placeholders unchanged; the file is gitignored.');
-    return 2;
+  if (options.explicitEnvFile && !exists(envFile)) {
+    stderr(`Environment file was not found: ${envFile}`);
+    return 1;
   }
 
   const npm = platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -140,9 +128,10 @@ export function runReleaseAssistant(argv, {
     return 1;
   }
 
-  const release = runner(npm, [
-    'run', 'release:activity', '--', '--env-file', envFile, '--vercel-only-secrets', ...options.forwarded,
-  ], { cwd: directory });
+  const releaseArgs = ['run', 'release:activity', '--'];
+  if (exists(envFile)) releaseArgs.push('--env-file', envFile);
+  releaseArgs.push('--vercel-only-secrets', '--supabase-cli-keys', ...options.forwarded);
+  const release = runner(npm, releaseArgs, { cwd: directory });
   if (release.error) {
     stderr(`Could not start the release workflow: ${release.error.message}`);
     return 1;

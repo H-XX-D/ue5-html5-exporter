@@ -54,6 +54,7 @@ export function parseActivityReleaseArgs(argv) {
     environment: 'preview',
     generateStateSecret: false,
     vercelOnlySecrets: false,
+    supabaseCliKeys: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -62,6 +63,7 @@ export function parseActivityReleaseArgs(argv) {
     else if (argument === '--no-migrate') options.migrate = false;
     else if (argument === '--generate-state-secret') options.generateStateSecret = true;
     else if (argument === '--vercel-only-secrets') options.vercelOnlySecrets = true;
+    else if (argument === '--supabase-cli-keys') options.supabaseCliKeys = true;
     else if (argument === '--directory') options.directory = argv[++index];
     else if (argument === '--env-file') options.envFile = argv[++index];
     else if (argument === '--supabase-project-ref') options.supabaseProjectRef = argv[++index];
@@ -84,8 +86,8 @@ export function activityReleaseHelp() {
 Usage:
   npm run release:activity -- [options]
 
-Required:
-  --env-file <path>             Gitignored environment file (values are never printed)
+Optional configuration:
+  --env-file <path>             Gitignored overrides for CI or advanced workflows
 
 Project targets (optional when set in Unreal Project Settings):
   --supabase-project-ref <ref>  Exact Supabase project to receive the migration
@@ -95,6 +97,7 @@ Options:
   --environment <target>        preview (default) or production
   --generate-state-secret       Generate ACTIVITY_STATE_SECRET in memory when absent
   --vercel-only-secrets         Prompt hidden for missing secrets only when applying
+  --supabase-cli-keys           Discover API keys in memory from authenticated Supabase CLI
   --no-migrate                  Do not link or migrate Supabase
   --no-deploy                   Configure services without deploying Vercel
   --directory <export>          UE5 export directory (default: current directory)
@@ -108,7 +111,8 @@ Supabase migration dry-run before db push, writes Vercel values through stdin,
 runs the online identity/security preflight, and creates a Preview deployment.
 Production uses --prod --skip-domain and is never promoted automatically.
 With --vercel-only-secrets, missing server secrets are held only in process
-memory and Vercel; the public env file is never updated.`;
+memory and Vercel; the public env file is never updated. --supabase-cli-keys
+discovers the publishable and secret API keys without writing either to disk.`;
 }
 
 export function loadReleaseEnvironment(options, baseEnvironment = process.env, random = randomBytes) {
@@ -175,19 +179,85 @@ export async function completeVercelOnlySecrets(options, environment, {
   return completed;
 }
 
-function dryRunEnvironment(options, environment) {
-  if (!options.vercelOnlySecrets || options.apply) return environment;
-  const preview = { ...environment };
-  if (placeholder(preview.DISCORD_CLIENT_SECRET)) preview.DISCORD_CLIENT_SECRET = 'prompted-discord-client-secret';
-  if (placeholder(preview.DISCORD_BOT_TOKEN)) preview.DISCORD_BOT_TOKEN = 'prompted-discord-bot-token-value';
-  if (placeholder(preview.SUPABASE_SECRET_KEY)) preview.SUPABASE_SECRET_KEY = 'sb_secret_prompted-at-apply';
-  if (placeholder(preview.ACTIVITY_STATE_SECRET)) preview.ACTIVITY_STATE_SECRET = 'generated-at-apply-0123456789abcdef';
-  if (placeholder(preview.SUPABASE_JWT_PRIVATE_KEY)) {
-    preview.SUPABASE_JWT_PRIVATE_KEY = JSON.stringify({
-      kty: 'EC', crv: 'P-256', kid: 'prompted-at-apply', x: 'prompted', y: 'prompted', d: 'prompted',
-    });
+export function hydrateUnrealPublicEnvironment(options, environment) {
+  const hydrated = { ...environment };
+  const targets = readActivityHandoffTargets(options.directory);
+  const projectRef = options.supabaseProjectRef || targets.supabaseProjectRef;
+  if (placeholder(hydrated.DISCORD_CLIENT_ID) && targets.discordApplicationId) {
+    hydrated.DISCORD_CLIENT_ID = targets.discordApplicationId;
   }
-  if (placeholder(preview.SUPABASE_JWT_KEY_ID)) preview.SUPABASE_JWT_KEY_ID = 'prompted-at-apply';
+  if (placeholder(hydrated.DISCORD_PUBLIC_KEY) && targets.discordPublicKey) {
+    hydrated.DISCORD_PUBLIC_KEY = targets.discordPublicKey;
+  }
+  if (placeholder(hydrated.SUPABASE_URL) && projectRef) {
+    hydrated.SUPABASE_URL = `https://${projectRef}.supabase.co`;
+  }
+  return hydrated;
+}
+
+export function discoverSupabaseApiKeys(options, environment, { runner = defaultRunner } = {}) {
+  const discovered = { ...environment };
+  if (!options.supabaseCliKeys || !options.apply) return discovered;
+  if (!placeholder(discovered.SUPABASE_PUBLISHABLE_KEY)
+      && !placeholder(discovered.SUPABASE_SECRET_KEY)) return discovered;
+
+  const targets = readActivityHandoffTargets(options.directory);
+  const projectRef = options.supabaseProjectRef || targets.supabaseProjectRef;
+  if (!/^[a-z0-9]{20}$/.test(String(projectRef || ''))) {
+    throw new Error('Supabase API-key discovery requires the exact 20-character project ref in Unreal Project Settings or --supabase-project-ref.');
+  }
+  const result = runCommand('supabase', [
+    'projects', 'api-keys', '--project-ref', projectRef, '--reveal', '--output', 'json',
+  ], {
+    cwd: options.directory,
+    environment: discovered,
+    runner,
+  });
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch {
+    throw new Error('Supabase CLI returned invalid API-key JSON; no key values were printed.');
+  }
+  const keys = Array.isArray(payload) ? payload : payload?.keys;
+  if (!Array.isArray(keys)) throw new Error('Supabase CLI API-key response had an unexpected shape.');
+  const preferred = (type) => keys.find((key) => key.type === type && key.name === 'default')
+    || keys.find((key) => key.type === type);
+  const publishable = preferred('publishable')?.api_key;
+  const secret = preferred('secret')?.api_key;
+  if (placeholder(discovered.SUPABASE_PUBLISHABLE_KEY)) {
+    if (!String(publishable || '').startsWith('sb_publishable_')) {
+      throw new Error('This Supabase project has no modern publishable API key. Create its default publishable/secret keys, then apply again.');
+    }
+    discovered.SUPABASE_PUBLISHABLE_KEY = publishable;
+  }
+  if (placeholder(discovered.SUPABASE_SECRET_KEY)) {
+    if (!String(secret || '').startsWith('sb_secret_')) {
+      throw new Error('Supabase CLI could not reveal a modern secret API key. Confirm CLI access to this project, then apply again.');
+    }
+    discovered.SUPABASE_SECRET_KEY = secret;
+  }
+  return discovered;
+}
+
+function dryRunEnvironment(options, environment) {
+  if (options.apply) return environment;
+  const preview = { ...environment };
+  if (options.supabaseCliKeys && placeholder(preview.SUPABASE_PUBLISHABLE_KEY)) {
+    preview.SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_discovered-at-apply';
+  }
+  if (options.vercelOnlySecrets) {
+    if (placeholder(preview.DISCORD_CLIENT_SECRET)) preview.DISCORD_CLIENT_SECRET = 'prompted-discord-client-secret';
+    if (placeholder(preview.DISCORD_BOT_TOKEN)) preview.DISCORD_BOT_TOKEN = 'prompted-discord-bot-token-value';
+    if (placeholder(preview.SUPABASE_SECRET_KEY)) preview.SUPABASE_SECRET_KEY = 'sb_secret_prompted-at-apply';
+    if (placeholder(preview.ACTIVITY_STATE_SECRET)) preview.ACTIVITY_STATE_SECRET = 'generated-at-apply-0123456789abcdef';
+    if (placeholder(preview.SUPABASE_JWT_PRIVATE_KEY)) {
+      preview.SUPABASE_JWT_PRIVATE_KEY = JSON.stringify({
+        kty: 'EC', crv: 'P-256', kid: 'prompted-at-apply', x: 'prompted', y: 'prompted', d: 'prompted',
+      });
+    }
+    if (placeholder(preview.SUPABASE_JWT_KEY_ID)) preview.SUPABASE_JWT_KEY_ID = 'prompted-at-apply';
+  }
   return preview;
 }
 
@@ -286,7 +356,9 @@ export function validateReleaseSelection(
 export function buildActivityReleasePlan(options, environment, vercelLink = readVercelLink(options.directory)) {
   const selection = validateReleaseSelection(options, environment, vercelLink);
   const variableNames = [...PUBLIC_ENVIRONMENT, ...SENSITIVE_ENVIRONMENT]
-    .filter((name) => Boolean(environment[name]) || (options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name)));
+    .filter((name) => Boolean(environment[name])
+      || (options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name))
+      || (options.supabaseCliKeys && name === 'SUPABASE_PUBLISHABLE_KEY'));
   return {
     schema: 'ue5-discord-activity-release-plan/v1',
     mode: options.apply ? 'apply' : 'dry-run',
@@ -303,9 +375,13 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     vercelEnvironment: variableNames.map((name) => ({
       name,
       sensitive: SENSITIVE_ENVIRONMENT.includes(name),
-      source: options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name) && placeholder(environment[name])
-        ? (name === 'ACTIVITY_STATE_SECRET' ? 'generated-at-apply' : 'hidden-prompt-at-apply')
-        : 'environment',
+      source: options.supabaseCliKeys
+          && ['SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY'].includes(name)
+          && placeholder(environment[name])
+        ? 'supabase-cli-at-apply'
+        : (options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name) && placeholder(environment[name])
+          ? (name === 'ACTIVITY_STATE_SECRET' ? 'generated-at-apply' : 'hidden-prompt-at-apply')
+          : 'environment'),
     })),
     onlinePreflight: true,
     deployment: options.deploy
@@ -476,23 +552,31 @@ export async function executeActivityRelease(options, environment, {
   runner = defaultRunner,
   verifyServices = verifyActivityServices,
   verifyDeployment = verifyPublicDeployment,
+  prompt = promptHiddenValue,
+  random = randomBytes,
 } = {}) {
-  const validationEnvironment = dryRunEnvironment(options, environment);
+  let releaseEnvironment = hydrateUnrealPublicEnvironment(options, environment);
+  releaseEnvironment = discoverSupabaseApiKeys(options, releaseEnvironment, { runner });
+  releaseEnvironment = await completeVercelOnlySecrets(options, releaseEnvironment, { prompt, random });
+  const validationEnvironment = dryRunEnvironment(options, releaseEnvironment);
   const local = validateActivityExport({ directory: options.directory, env: validationEnvironment });
   const link = readVercelLink(options.directory);
-  const selection = validateReleaseSelection(options, environment, link);
+  const selection = validateReleaseSelection(options, releaseEnvironment, link);
   const errors = [...local.errors, ...selection.errors];
   const warnings = [...local.warnings, ...selection.warnings];
   if (options.vercelOnlySecrets && !options.apply) {
     warnings.push('Missing server secrets will be requested with hidden input only when --apply is used; they will not be written to the env file.');
   }
-  const plan = buildActivityReleasePlan(options, environment, link);
+  if (options.supabaseCliKeys && !options.apply) {
+    warnings.push('Supabase publishable and secret API keys will be discovered in memory from the authenticated CLI only when --apply is used.');
+  }
+  const plan = buildActivityReleasePlan(options, releaseEnvironment, link);
   if (errors.length) return { ok: false, applied: false, errors, warnings, plan };
   if (!options.apply) return { ok: true, applied: false, errors: [], warnings, plan };
 
   const run = (command, args, input) => runCommand(command, args, {
     cwd: options.directory,
-    environment,
+    environment: releaseEnvironment,
     input,
     runner,
   });
@@ -506,7 +590,7 @@ export async function executeActivityRelease(options, environment, {
     run('supabase', ['db', 'push', '--linked', '--yes']);
   }
 
-  const online = await verifyServices(environment);
+  const online = await verifyServices(releaseEnvironment);
   if (online.errors.length) {
     return {
       ok: false,
@@ -521,7 +605,7 @@ export async function executeActivityRelease(options, environment, {
 
   const uploadedVariables = [];
   for (const name of [...PUBLIC_ENVIRONMENT, ...SENSITIVE_ENVIRONMENT]) {
-    const value = environment[name];
+    const value = releaseEnvironment[name];
     if (!value) continue;
     const args = ['env', 'add', name, options.environment, '--force', '--yes'];
     if (SENSITIVE_ENVIRONMENT.includes(name)) args.push('--sensitive');
@@ -596,8 +680,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
       console.log(activityReleaseHelp());
       process.exit(0);
     }
-    let environment = loadReleaseEnvironment(options);
-    environment = await completeVercelOnlySecrets(options, environment);
+    const environment = loadReleaseEnvironment(options);
     const result = await executeActivityRelease(options, environment);
     process.exitCode = printResult(result);
   } catch (error) {
