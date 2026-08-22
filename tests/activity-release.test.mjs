@@ -5,6 +5,11 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import {
+  RELEASE_TOOL_PACKAGES,
+  parseReleaseAssistantArgs,
+  runReleaseAssistant,
+} from '../web/public/scripts/activity-release-assistant.mjs';
+import {
   PUBLIC_ENVIRONMENT,
   SENSITIVE_ENVIRONMENT,
   buildActivityReleasePlan,
@@ -20,6 +25,59 @@ import {
   REQUIRED_EXPORT_FILES,
   REQUIRED_EXPORT_PATTERNS,
 } from '../web/public/scripts/activity-preflight.mjs';
+
+test('release assistant keeps the underlying workflow arguments Windows-safe', () => {
+  const options = parseReleaseAssistantArgs([
+    '--env-file', 'C:\\Private Config\\activity.env',
+    '--environment', 'preview',
+    '--apply',
+  ]);
+  assert.equal(options.envFile, 'C:\\Private Config\\activity.env');
+  assert.equal(options.explicitEnvFile, true);
+  assert.deepEqual(options.forwarded, ['--environment', 'preview', '--apply']);
+});
+
+test('release assistant scaffolds a gitignored private environment before installing tools', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
+  writeFileSync(join(root, '.env.example'), 'DISCORD_CLIENT_ID=\n');
+  const calls = [];
+  const messages = [];
+  const status = runReleaseAssistant([], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    runner(command, args) { calls.push({ command, args }); return { status: 0 }; },
+    stdout(message) { messages.push(message); },
+  });
+  assert.equal(status, 2);
+  assert.equal(readFileSync(join(root, '.env.activity.local'), 'utf8'), 'DISCORD_CLIENT_ID=\n');
+  assert.deepEqual(calls, []);
+  assert.ok(messages.some((message) => message.includes('gitignored')));
+});
+
+test('release assistant installs pinned local tools and preserves dry-run by default', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
+  writeFileSync(join(root, '.env.activity.local'), 'DISCORD_CLIENT_ID=123\n');
+  const calls = [];
+  const status = runReleaseAssistant([], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    platform: 'win32',
+    runner(command, args, invocation) {
+      calls.push({ command, args, cwd: invocation.cwd });
+      return { status: 0 };
+    },
+    stdout() {},
+  });
+  assert.equal(status, 0);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].command, 'npm.cmd');
+  assert.deepEqual(calls[0].args.slice(-RELEASE_TOOL_PACKAGES.length), RELEASE_TOOL_PACKAGES);
+  assert.deepEqual(calls[1].args.slice(0, 5), [
+    'run', 'release:activity', '--', '--env-file', join(root, '.env.activity.local'),
+  ]);
+  assert.equal(calls[1].args.includes('--apply'), false);
+  assert.ok(calls.every((call) => call.cwd === root));
+});
 
 function validEnvironment() {
   return {

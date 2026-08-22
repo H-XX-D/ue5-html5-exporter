@@ -45,7 +45,9 @@ The migration explicitly revokes browser access to both state tables and grants 
 
 Before exporting, open **Tools → HTML5 Export → Discord Activity Project Settings…** in Unreal. Enter this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The exporter copies only the allowlisted public fields into `activity-handoff.json`.
 
-The exported folder includes one Node.js 22 release command that runs unchanged in PowerShell, Terminal, or a Linux shell. It is dry-run-only unless `--apply` is present, reads the public targets from `activity-handoff.json`, checks that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuses to silently switch an existing Vercel link.
+The exported folder includes a one-command assistant for each workstation. Double-click `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. The first run creates the gitignored `.env.activity.local` template and stops. After its private server values are filled, the assistant installs pinned Vercel and Supabase CLIs locally and invokes the same release workflow. No global CLI installation or web-project command knowledge is required.
+
+The assistant and the underlying Node.js 22 command are dry-run-only unless `--apply` is present. They read public targets from `activity-handoff.json`, check that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuse to silently switch an existing Vercel link.
 
 Create a gitignored environment file from `.env.example`, then review the exact project plan:
 
@@ -54,6 +56,8 @@ npm install
 npm run release:activity -- \
   --env-file .env.activity.local
 ```
+
+That manual command remains useful for CI and custom automation. The workstation launchers perform the install and select `.env.activity.local` automatically. Pass `--apply` to the launcher only after its dry-run plan names the intended Discord, Vercel, and Supabase projects.
 
 If an older export has no configured project targets, supply `--supabase-project-ref YOUR_PROJECT_REF --vercel-project YOUR_VERCEL_PROJECT`. When the handoff does contain targets, explicit arguments must match them exactly.
 

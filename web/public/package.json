@@ -9,10 +9,14 @@
     "preflight": "node scripts/activity-preflight.mjs",
     "preflight:package": "node scripts/activity-preflight.mjs --package-only",
     "preflight:online": "node scripts/activity-preflight.mjs --online",
-    "release:activity": "node scripts/activity-release.mjs"
+    "release:activity": "node scripts/activity-release.mjs",
+    "release:assist": "node scripts/activity-release-assistant.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.3",
     "jose": "6.2.10"
+  },
+  "overrides": {
+    "tar": "7.5.22"
   }
 }
