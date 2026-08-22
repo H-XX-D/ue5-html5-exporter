@@ -42,7 +42,7 @@ if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
 }
 
 if ($LauncherCheck) {
-    Write-Host 'UE5HTML5Exporter Windows setup launcher check passed.'
+    Write-Output 'UE5HTML5Exporter Windows setup launcher check passed.'
     return
 }
 
