@@ -127,18 +127,19 @@ function exportFixture() {
     schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
   }));
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-    schema: 'ue5-discord-activity-handoff/v3',
+    schema: 'ue5-discord-activity-handoff/v4',
     handoffStatus: 'unreal-export-complete',
     blueprintCompatibility: compatibility,
     projectTargets: {
       source: 'Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity',
       containsSecrets: false,
-      configured: false,
-      discordApplicationId: '',
-      discordPublicKey: '',
-      vercelProjectName: '',
-      supabaseProjectRef: '',
+      configured: true,
+      discordApplicationId: '123456789012345678',
+      discordPublicKey: 'a'.repeat(64),
+      vercelProjectName: 'my-discord-game',
+      supabaseProjectRef: 'abcdefghijklmnopqrst',
       productionUrl: '',
+      missingRequiredTargets: [],
     },
   }));
   writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
@@ -196,6 +197,7 @@ test('release workflow defaults to Unreal project targets without copying secret
     vercelProjectName: 'my-discord-game',
     supabaseProjectRef: 'abcdefghijklmnopqrst',
     productionUrl: 'https://game.example',
+    missingRequiredTargets: [],
   };
   const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({ ...handoff, projectTargets: targets }));
@@ -217,6 +219,27 @@ test('release workflow defaults to Unreal project targets without copying secret
   assert.equal(result.selectedSupabaseProjectRef, targets.supabaseProjectRef);
 });
 
+test('current handoff refuses release when Unreal public targets are incomplete', async () => {
+  const root = exportFixture();
+  const handoffPath = join(root, 'activity-handoff.json');
+  const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+  handoff.projectTargets.configured = false;
+  handoff.projectTargets.discordPublicKey = '';
+  handoff.projectTargets.missingRequiredTargets = ['Discord Public Key'];
+  writeFileSync(handoffPath, JSON.stringify(handoff));
+  const result = await executeActivityRelease({
+    apply: false,
+    deploy: false,
+    migrate: false,
+    directory: root,
+    environment: 'preview',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+    vercelProject: 'my-discord-game',
+  }, { ...validEnvironment(), DISCORD_PUBLIC_KEY: 'a'.repeat(64) });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.includes('Unreal project targets are incomplete (Discord Public Key)')));
+});
+
 test('release workflow hydrates public service identity directly from Unreal handoff', () => {
   const root = exportFixture();
   const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
@@ -227,6 +250,7 @@ test('release workflow hydrates public service identity directly from Unreal han
     discordPublicKey: 'a'.repeat(64),
     vercelProjectName: 'my-discord-game',
     supabaseProjectRef: 'abcdefghijklmnopqrst',
+    missingRequiredTargets: [],
   };
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
   const hydrated = hydrateUnrealPublicEnvironment({ directory: root }, {});
@@ -241,6 +265,7 @@ test('release workflow rejects arguments and Discord environment that drift from
     discordPublicKey: 'a'.repeat(64),
     vercelProjectName: 'expected-game',
     supabaseProjectRef: 'abcdefghijklmnopqrst',
+    missingRequiredTargets: [],
   };
   const result = validateReleaseSelection({
     directory: '/export',
@@ -403,6 +428,7 @@ test('guided dry-run needs no environment file when Unreal targets are configure
     discordPublicKey: 'a'.repeat(64),
     vercelProjectName: 'my-discord-game',
     supabaseProjectRef: 'abcdefghijklmnopqrst',
+    missingRequiredTargets: [],
   };
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
   const options = {
@@ -418,6 +444,8 @@ test('guided dry-run needs no environment file when Unreal targets are configure
   assert.equal(result.ok, true);
   assert.equal(result.plan.discordApplicationId, handoff.projectTargets.discordApplicationId);
   assert.equal(result.plan.vercelProject, handoff.projectTargets.vercelProjectName);
+  assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('Guild Install and User Install')));
+  assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('/supabase')));
   const sources = Object.fromEntries(result.plan.vercelEnvironment.map((entry) => [entry.name, entry.source]));
   assert.equal(sources.SUPABASE_PUBLISHABLE_KEY, 'supabase-cli-at-apply');
   assert.equal(sources.SUPABASE_SECRET_KEY, 'supabase-cli-at-apply');
@@ -477,6 +505,7 @@ test('guided apply discovers Supabase keys then prompts only for remaining priva
     discordPublicKey: 'a'.repeat(64),
     vercelProjectName: 'my-discord-game',
     supabaseProjectRef: 'abcdefghijklmnopqrst',
+    missingRequiredTargets: [],
   };
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
   const calls = [];

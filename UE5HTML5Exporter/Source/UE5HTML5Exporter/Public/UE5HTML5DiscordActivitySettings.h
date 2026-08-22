@@ -38,5 +38,7 @@ public:
     FString ProductionUrl;
 
     bool HasAnyTarget() const;
+    bool HasCompleteTargetSet() const;
+    void GetMissingRequiredTargets(TArray<FString>& OutMissingTargets) const;
     void ValidateTargets(TArray<FString>& OutErrors) const;
 };

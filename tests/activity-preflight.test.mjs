@@ -42,7 +42,7 @@ function exportFixture() {
     },
   }));
   writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-    schema: 'ue5-discord-activity-handoff/v3',
+    schema: 'ue5-discord-activity-handoff/v4',
     handoffStatus: 'unreal-export-complete',
     projectTargets: {
       source: 'Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity',
@@ -53,6 +53,9 @@ function exportFixture() {
       vercelProjectName: '',
       supabaseProjectRef: '',
       productionUrl: '',
+      missingRequiredTargets: [
+        'Discord Application ID', 'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+      ],
     },
     blueprintCompatibility: {
       status: 'compatible', blueprintCount: 1, nodeCount: 2, supportedNodeCount: 2, unsupportedNodeCount: 0,
@@ -125,10 +128,13 @@ test('Activity package preflight warns on honest partial Blueprint compatibility
       schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
     }));
     writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-      schema: 'ue5-discord-activity-handoff/v3',
+      schema: 'ue5-discord-activity-handoff/v4',
       handoffStatus: 'unreal-export-needs-blueprint-adapters',
       projectTargets: {
         source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+        missingRequiredTargets: [
+          'Discord Application ID', 'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+        ],
       },
       blueprintCompatibility: compatibility,
     }));
@@ -153,10 +159,13 @@ test('Activity package preflight rejects a falsely complete Blueprint handoff', 
       schema: 'ue5-html5-export/v2', blueprintCompatibility: compatibility,
     }));
     writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
-      schema: 'ue5-discord-activity-handoff/v3',
+      schema: 'ue5-discord-activity-handoff/v4',
       handoffStatus: 'unreal-export-complete',
       projectTargets: {
         source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+        missingRequiredTargets: [
+          'Discord Application ID', 'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+        ],
       },
       blueprintCompatibility: compatibility,
     }));
@@ -187,11 +196,18 @@ test('Activity package preflight rejects secret fields in Unreal project targets
   }
 });
 
-test('Activity package preflight rejects a target configuration flag that contradicts its values', () => {
+test('Activity package preflight keeps a partial public target set explicitly incomplete', () => {
   const root = exportFixture();
   try {
     const handoffPath = join(root, 'activity-handoff.json');
     const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    handoff.projectTargets.discordApplicationId = '123456789012345678';
+    handoff.projectTargets.missingRequiredTargets = [
+      'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+    ];
+    writeFileSync(handoffPath, JSON.stringify(handoff));
+    assert.deepEqual(validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true }).errors, []);
+
     handoff.projectTargets.configured = true;
     writeFileSync(handoffPath, JSON.stringify(handoff));
     const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
@@ -212,9 +228,14 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
       return Response.json({
         id: env.DISCORD_CLIENT_ID,
         flags_new: String(1 << 17),
+        integration_types_config: { '0': {}, '1': {} },
+        redirect_uris: ['https://127.0.0.1'],
         privacy_policy_url: 'https://game.test/privacy',
         terms_of_service_url: 'https://game.test/terms',
       });
+    }
+    if (value.endsWith(`/applications/${env.DISCORD_CLIENT_ID}/commands`)) {
+      return Response.json([{ id: 'entry', name: 'launch', type: 4, handler: 2 }]);
     }
     if (value.endsWith('/auth/v1/.well-known/jwks.json')) {
       return Response.json({ keys: [{ kid: 'activity-key', kty: 'EC', crv: 'P-256', x: 'x-value', y: 'y-value' }] });
@@ -230,7 +251,7 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
 
   const result = await verifyActivityServices(env, { fetchImpl });
   assert.deepEqual(result.errors, []);
-  assert.equal(result.checks.length, 6);
+  assert.equal(result.checks.length, 9);
   assert.equal(calls.find((call) => call.value.endsWith('/applications/@me')).headers.get('authorization'), `Bot ${env.DISCORD_BOT_TOKEN}`);
   for (const call of calls.filter((entry) => entry.value.includes('supabase.co/rest/'))) {
     assert.equal(call.headers.has('authorization'), false);
@@ -242,6 +263,7 @@ test('online preflight rejects mismatched service identities and browser-readabl
   const fetchImpl = async (url) => {
     const value = String(url);
     if (value.endsWith('/applications/@me')) return Response.json({ id: '999999999999999999', flags_new: '0' });
+    if (value.endsWith(`/applications/${env.DISCORD_CLIENT_ID}/commands`)) return Response.json([]);
     if (value.endsWith('/auth/v1/.well-known/jwks.json')) {
       return Response.json({ keys: [{ kid: 'activity-key', kty: 'EC', crv: 'P-256', x: 'wrong', y: 'wrong' }] });
     }
@@ -254,4 +276,7 @@ test('online preflight rejects mismatched service identities and browser-readabl
   assert.ok(result.errors.some((error) => error.includes('not marked as an embedded Activity')));
   assert.ok(result.errors.some((error) => error.includes('does not match this project')));
   assert.ok(result.errors.some((error) => error.includes('can read the private world-state table')));
+  assert.ok(result.errors.some((error) => error.includes('no global Primary Entry Point')));
+  assert.ok(result.warnings.some((warning) => warning.includes('Guild Install and User Install')));
+  assert.ok(result.warnings.some((warning) => warning.includes('OAuth2 redirect URI')));
 });

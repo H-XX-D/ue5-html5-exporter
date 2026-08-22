@@ -272,11 +272,20 @@ export function readVercelLink(directory) {
   }
 }
 
-export function readActivityHandoffTargets(directory) {
+function readActivityHandoffContract(directory) {
   const path = join(directory, 'activity-handoff.json');
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) return null;
   try {
-    const handoff = JSON.parse(readFileSync(path, 'utf8'));
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    throw new Error(`Activity handoff is invalid JSON: ${path}`);
+  }
+}
+
+export function readActivityHandoffTargets(directory) {
+  const handoff = readActivityHandoffContract(directory);
+  if (!handoff) return {};
+  try {
     const targets = handoff?.projectTargets;
     if (!targets || typeof targets !== 'object' || Array.isArray(targets)) return {};
     return {
@@ -303,6 +312,14 @@ export function validateReleaseSelection(
 ) {
   const errors = [];
   const warnings = [];
+  const handoff = readActivityHandoffContract(options.directory);
+  if (handoff?.schema === 'ue5-discord-activity-handoff/v4'
+      && handoff?.projectTargets?.configured !== true) {
+    const missing = Array.isArray(handoff.projectTargets.missingRequiredTargets)
+      ? handoff.projectTargets.missingRequiredTargets.join(', ')
+      : 'required public targets';
+    errors.push(`Unreal project targets are incomplete (${missing}). Complete Project Settings and export again.`);
+  }
   const handoffSupabase = handoffTargets.supabaseProjectRef || '';
   const handoffVercel = handoffTargets.vercelProjectName || '';
   if (options.supabaseProjectRef && handoffSupabase && options.supabaseProjectRef !== handoffSupabase) {
@@ -391,6 +408,15 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       '/': '<deployment-host returned after apply>',
       '/supabase': selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : null,
     },
+    discordPortalChecklist: [
+      'Installation: enable both Guild Install and User Install.',
+      'OAuth2: add a redirect URI; https://127.0.0.1 is sufficient when only the Embedded App SDK handles authorization.',
+      'Activities: enable Activities and keep a global Primary Entry Point using DISCORD_LAUNCH_ACTIVITY.',
+      'URL Mappings: map / to the deployment host printed after apply.',
+      `URL Mappings: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'}.`,
+      'Activity Settings: enable every intended desktop, web, iOS, and Android platform and configure mobile orientation.',
+      'General Information: add distribution metadata, art, participant limit, privacy policy, and terms as applicable.',
+    ],
     errors: selection.errors,
     warnings: selection.warnings,
   };

@@ -49,7 +49,7 @@ namespace
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v3"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v4"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
         Root->SetStringField(
@@ -59,26 +59,36 @@ namespace
 
         const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
         Root->SetStringField(TEXT("exporterVersion"), Plugin.IsValid() ? Plugin->GetDescriptor().VersionName : TEXT("unknown"));
+        const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
 
         TSharedRef<FJsonObject> Activity = MakeShared<FJsonObject>();
         Activity->SetStringField(TEXT("apiPath"), TEXT("/api/activity"));
         Activity->SetStringField(TEXT("defaultDeploymentAdapter"), TEXT("vercel"));
         Activity->SetStringField(TEXT("persistenceAdapter"), TEXT("supabase"));
-        Activity->SetStringField(TEXT("configurationStatus"), TEXT("release-operator-required"));
+        Activity->SetStringField(
+            TEXT("configurationStatus"),
+            ProjectSettings->HasCompleteTargetSet() ? TEXT("project-targets-complete") : TEXT("project-targets-incomplete"));
         Activity->SetStringField(TEXT("workflow"), TEXT("DISCORD_ACTIVITY_WORKFLOW.md"));
         Activity->SetStringField(TEXT("releaseTool"), TEXT("scripts/activity-release.mjs"));
         Root->SetObjectField(TEXT("discordActivity"), Activity);
 
-        const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
         TSharedRef<FJsonObject> ProjectTargets = MakeShared<FJsonObject>();
         ProjectTargets->SetStringField(TEXT("source"), TEXT("Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity"));
         ProjectTargets->SetBoolField(TEXT("containsSecrets"), false);
-        ProjectTargets->SetBoolField(TEXT("configured"), ProjectSettings->HasAnyTarget());
+        ProjectTargets->SetBoolField(TEXT("configured"), ProjectSettings->HasCompleteTargetSet());
         ProjectTargets->SetStringField(TEXT("discordApplicationId"), ProjectSettings->DiscordApplicationId);
         ProjectTargets->SetStringField(TEXT("discordPublicKey"), ProjectSettings->DiscordPublicKey);
         ProjectTargets->SetStringField(TEXT("vercelProjectName"), ProjectSettings->VercelProjectName);
         ProjectTargets->SetStringField(TEXT("supabaseProjectRef"), ProjectSettings->SupabaseProjectRef);
         ProjectTargets->SetStringField(TEXT("productionUrl"), ProjectSettings->ProductionUrl);
+        TArray<FString> MissingTargetNames;
+        ProjectSettings->GetMissingRequiredTargets(MissingTargetNames);
+        TArray<TSharedPtr<FJsonValue>> MissingTargets;
+        for (const FString& Name : MissingTargetNames)
+        {
+            MissingTargets.Add(MakeShared<FJsonValueString>(Name));
+        }
+        ProjectTargets->SetArrayField(TEXT("missingRequiredTargets"), MissingTargets);
         Root->SetObjectField(TEXT("projectTargets"), ProjectTargets);
 
         TArray<TSharedPtr<FJsonValue>> RequiredEnvironment;
@@ -102,6 +112,10 @@ namespace
         Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
 
         TArray<TSharedPtr<FJsonValue>> ReleaseSteps;
+        if (!ProjectSettings->HasCompleteTargetSet())
+        {
+            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Complete the required public Discord, Vercel, and Supabase targets in Unreal Project Settings, then export again.")));
+        }
         if (bNeedsBlueprintAdapters)
         {
             ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Resolve or replace the unsupported Blueprint nodes listed in logic/blueprints.json, then export again.")));
@@ -110,6 +124,7 @@ namespace
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Review the non-secret project targets copied from Unreal Project Settings; the release tool refuses mismatched Discord, Vercel, or Supabase identities.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Re-run the release tool with --apply to migrate Supabase, configure Vercel, verify services, and create a deployment.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Copy the two printed URL mappings into the Discord Developer Portal.")));
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Complete the printed Discord portal checklist for installation contexts, OAuth2 redirect, Activity enablement, Entry Point, platforms, and metadata.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Launch the deployment inside Discord and test with two participants.")));
         Root->SetArrayField(TEXT("releaseSteps"), ReleaseSteps);
 
@@ -271,13 +286,17 @@ FUE5HTML5ReadinessReport FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(U
             Report.Blockers.Add(FString::Printf(TEXT("Discord Activity Project Settings: %s"), *Error));
         }
     }
-    else if (ProjectSettings->HasAnyTarget())
+    else if (ProjectSettings->HasCompleteTargetSet())
     {
-        Report.PassedChecks.Add(TEXT("Shared non-secret Discord Activity project targets are valid."));
+        Report.PassedChecks.Add(TEXT("All required non-secret Discord Activity project targets are valid."));
     }
     else
     {
-        Report.Notes.Add(TEXT("Optional: set public project targets under Project Settings > Plugins > UE5 HTML5 Discord Activity to prevent release to the wrong app."));
+        TArray<FString> MissingTargets;
+        ProjectSettings->GetMissingRequiredTargets(MissingTargets);
+        Report.Blockers.Add(FString::Printf(
+            TEXT("Complete Project Settings > Plugins > UE5 HTML5 Discord Activity. Missing: %s."),
+            *FString::Join(MissingTargets, TEXT(", "))));
     }
 
     Report.Notes.Add(TEXT("You can build the level and gameplay in Unreal; the export includes the browser runtime and deployment files."));

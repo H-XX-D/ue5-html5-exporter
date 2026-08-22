@@ -40,6 +40,34 @@ bool UUE5HTML5DiscordActivitySettings::HasAnyTarget() const
         || !ProductionUrl.IsEmpty();
 }
 
+bool UUE5HTML5DiscordActivitySettings::HasCompleteTargetSet() const
+{
+    return !DiscordApplicationId.IsEmpty()
+        && !DiscordPublicKey.IsEmpty()
+        && !VercelProjectName.IsEmpty()
+        && !SupabaseProjectRef.IsEmpty();
+}
+
+void UUE5HTML5DiscordActivitySettings::GetMissingRequiredTargets(TArray<FString>& OutMissingTargets) const
+{
+    if (DiscordApplicationId.IsEmpty())
+    {
+        OutMissingTargets.Add(TEXT("Discord Application ID"));
+    }
+    if (DiscordPublicKey.IsEmpty())
+    {
+        OutMissingTargets.Add(TEXT("Discord Public Key"));
+    }
+    if (VercelProjectName.IsEmpty())
+    {
+        OutMissingTargets.Add(TEXT("Vercel Project Name"));
+    }
+    if (SupabaseProjectRef.IsEmpty())
+    {
+        OutMissingTargets.Add(TEXT("Supabase Project Ref"));
+    }
+}
+
 void UUE5HTML5DiscordActivitySettings::ValidateTargets(TArray<FString>& OutErrors) const
 {
     if (!DiscordApplicationId.IsEmpty()

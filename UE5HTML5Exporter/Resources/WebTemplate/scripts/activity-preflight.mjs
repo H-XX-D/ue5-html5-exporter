@@ -48,8 +48,16 @@ const SERVER_SECRET_NAMES = [
 const PUBLIC_TEXT_ROOTS = ['index.html', 'runtime', 'logic', 'activity-handoff.json'];
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_EMBEDDED_FLAG = 1n << 17n;
+const DISCORD_PRIMARY_ENTRY_POINT = 4;
+const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
-const HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v3';
+const HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v4';
+const REQUIRED_PROJECT_TARGETS = [
+  ['discordApplicationId', 'Discord Application ID'],
+  ['discordPublicKey', 'Discord Public Key'],
+  ['vercelProjectName', 'Vercel Project Name'],
+  ['supabaseProjectRef', 'Supabase Project Ref'],
+];
 const PROJECT_TARGET_KEYS = new Set([
   'source',
   'containsSecrets',
@@ -59,6 +67,7 @@ const PROJECT_TARGET_KEYS = new Set([
   'vercelProjectName',
   'supabaseProjectRef',
   'productionUrl',
+  'missingRequiredTargets',
 ]);
 const SECRET_TARGET_KEY = /(?:secret|token|password|private.?key|bot.?token|service.?role)/i;
 
@@ -130,9 +139,16 @@ function validateProjectTargets(value, errors) {
   const vercelProject = String(value.vercelProjectName || '');
   const supabaseRef = String(value.supabaseProjectRef || '');
   const productionUrl = String(value.productionUrl || '');
-  const hasAnyTarget = Boolean(appId || publicKey || vercelProject || supabaseRef || productionUrl);
-  if (typeof value.configured !== 'boolean' || value.configured !== hasAnyTarget) {
-    errors.push(`projectTargets.configured must be ${hasAnyTarget} for the supplied public targets.`);
+  const missingRequiredTargets = REQUIRED_PROJECT_TARGETS
+    .filter(([key]) => !String(value[key] || ''))
+    .map(([, label]) => label);
+  const complete = missingRequiredTargets.length === 0;
+  if (typeof value.configured !== 'boolean' || value.configured !== complete) {
+    errors.push(`projectTargets.configured must be ${complete} for the complete required target set.`);
+  }
+  if (!Array.isArray(value.missingRequiredTargets)
+      || JSON.stringify(value.missingRequiredTargets) !== JSON.stringify(missingRequiredTargets)) {
+    errors.push(`projectTargets.missingRequiredTargets must equal ${JSON.stringify(missingRequiredTargets)}.`);
   }
   if (appId && !/^\d{17,20}$/.test(appId)) {
     errors.push('projectTargets.discordApplicationId must contain 17 to 20 digits.');
@@ -374,6 +390,17 @@ export async function verifyActivityServices(env = process.env, { fetchImpl = fe
     } else {
       checks.push('Discord application has the EMBEDDED Activity flag');
     }
+    const integrationTypes = application.integration_types_config;
+    if (integrationTypes && Object.hasOwn(integrationTypes, '0') && Object.hasOwn(integrationTypes, '1')) {
+      checks.push('Discord application supports Guild Install and User Install');
+    } else {
+      warnings.push('Enable both Guild Install and User Install in Discord so the Activity can launch in servers, DMs, and group DMs.');
+    }
+    if (Array.isArray(application.redirect_uris) && application.redirect_uris.length > 0) {
+      checks.push('Discord application has an OAuth2 redirect URI for Embedded App SDK authorization');
+    } else {
+      warnings.push('Add an OAuth2 redirect URI in Discord; https://127.0.0.1 is sufficient when authorization is handled only by the Embedded App SDK.');
+    }
     if (/^(?:1|true|yes|on)$/i.test(String(env.DISCORD_REQUIRE_PROXY_AUTH || ''))) {
       if (String(application.verify_key || '').toLowerCase() !== String(env.DISCORD_PUBLIC_KEY).toLowerCase()) {
         errors.push('DISCORD_PUBLIC_KEY does not match the Discord application public key.');
@@ -383,6 +410,27 @@ export async function verifyActivityServices(env = process.env, { fetchImpl = fe
     }
     if (!application.privacy_policy_url) warnings.push('Discord application has no privacy policy URL.');
     if (!application.terms_of_service_url) warnings.push('Discord application has no terms-of-service URL.');
+  } catch (error) {
+    errors.push(error.message);
+  }
+
+  try {
+    const commands = await onlineJson(
+      fetchImpl,
+      'Discord Entry Point command check',
+      `${DISCORD_API}/applications/${env.DISCORD_CLIENT_ID}/commands`,
+      { headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } },
+    );
+    const entryPoint = Array.isArray(commands)
+      ? commands.find((command) => Number(command?.type) === DISCORD_PRIMARY_ENTRY_POINT)
+      : null;
+    if (!entryPoint) {
+      errors.push('Discord application has no global Primary Entry Point command; enable Activities or create a type-4 launch command.');
+    } else if (Number(entryPoint.handler) !== DISCORD_LAUNCH_ACTIVITY_HANDLER) {
+      errors.push('Discord Primary Entry Point must use the DISCORD_LAUNCH_ACTIVITY handler because this export does not host a custom interaction handler.');
+    } else {
+      checks.push('Discord Primary Entry Point launches the Activity through Discord');
+    }
   } catch (error) {
     errors.push(error.message);
   }

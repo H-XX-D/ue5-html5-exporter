@@ -108,8 +108,9 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
   assert.match(source, /activity-handoff\.json/);
-  assert.match(source, /ue5-discord-activity-handoff\/v3/);
+  assert.match(source, /ue5-discord-activity-handoff\/v4/);
   assert.match(source, /projectTargets/);
+  assert.match(source, /missingRequiredTargets/);
   assert.match(source, /blueprintCompatibility/);
   assert.match(source, /unreal-export-needs-blueprint-adapters/);
   for (const environmentName of [
@@ -132,6 +133,7 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /release-discord-activity\.sh/);
   assert.match(module, /non-mutating dry run/);
   assert.match(module, /Private credentials remain outside Unreal/);
+  assert.match(module, /open Project Settings and fill the missing public targets/);
   assert.match(library, /CheckDiscordActivityReadiness/);
   assert.match(library, /GLTFExporter/);
   assert.match(library, /does not certify gameplay/);
@@ -154,6 +156,8 @@ test('Unreal Project Settings expose only non-secret Discord Activity targets', 
   ]) assert.doesNotMatch(header, new RegExp(forbidden));
   assert.match(header, /Config = Game, DefaultConfig/);
   assert.match(implementation, /ValidateTargets/);
+  assert.match(implementation, /HasCompleteTargetSet/);
+  assert.match(implementation, /GetMissingRequiredTargets/);
   assert.match(module, /Discord Activity Project Settings/);
 });
 

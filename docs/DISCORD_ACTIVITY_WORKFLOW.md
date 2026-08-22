@@ -43,7 +43,7 @@ The migration explicitly revokes browser access to both state tables and grants 
 
 ### Guided cross-platform release
 
-Before exporting, open **Tools → HTML5 Export → Discord Activity Project Settings…** in Unreal. Enter this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The exporter copies only the allowlisted public fields into `activity-handoff.json`.
+Before exporting, open **Tools → HTML5 Export → Discord Activity Project Settings…** in Unreal. Enter this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The guided exporter requires all four non-optional values, names any missing fields, and offers to open this page instead of failing later in a terminal. The exporter copies only the allowlisted public fields and their completion status into `activity-handoff.json`.
 
 After **Export Discord Activity…**, Unreal offers to start the correct one-command assistant immediately. You can also launch it later by double-clicking `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. The assistant reads public identity from `activity-handoff.json`, installs pinned Vercel and Supabase CLIs locally, and invokes the release workflow without creating an environment file. No global CLI installation or web-project command knowledge is required.
 
@@ -91,7 +91,7 @@ The guided `npm run release:activity` command above performs these checks and Ve
 
 `preflight:package` verifies that Unreal produced every required scene, Blueprint, API, migration, and deployment artifact. It cross-checks Blueprint counts across `export-manifest.json`, `activity-handoff.json`, and `logic/blueprints.json`; a handoff cannot claim `unreal-export-complete` while unsupported nodes remain. Partial compatibility is reported as a warning because an unsupported node may be intentionally unused or replaced by a registered JavaScript function, but it must be reviewed before release. The preflight also scans browser-visible text for any server secret already present in process memory. The guided apply flow runs the full online check without pulling Vercel secrets onto disk. For CI systems that inject the complete environment through their native secret store, the equivalent standalone command is `npm run preflight:online`.
 
-The online preflight performs read-only checks: the bot token must belong to `DISCORD_CLIENT_ID`, Discord must report the `EMBEDDED` Activity flag, the Supabase JWKS public coordinates must match the configured private signing key, the publishable and secret keys must reach that project, the migration table must exist, and the publishable key must be denied direct table access. It does not create a Discord user, Supabase Auth user, profile, save, entitlement, or billing record.
+The online preflight performs read-only checks: the bot token must belong to `DISCORD_CLIENT_ID`; Discord must report the `EMBEDDED` Activity flag and a global Primary Entry Point using Discord's automatic launch handler; it also inspects Guild Install, User Install, and OAuth2 redirect setup; the Supabase JWKS public coordinates must match the configured private signing key; the publishable and secret keys must reach that project; the migration table must exist; and the publishable key must be denied direct table access. Missing install contexts or a redirect URI are reported as actionable warnings, while a missing or custom-handler Entry Point blocks this exporter because it does not provide a separate interactions endpoint. The check does not create a Discord user, Supabase Auth user, profile, save, entitlement, or billing record.
 
 The preflight prints setting names and failures only; it never prints secret values. The exported `.gitignore` excludes `.env*`, `.vercel`, and `node_modules` while retaining `.env.example`.
 
@@ -140,7 +140,7 @@ vercel promote DEPLOYMENT_URL
 ## 3. Discord Developer Portal
 
 1. Select the verified Discord application whose Application ID matches `DISCORD_CLIENT_ID`.
-2. Enable **Activities** and configure the app for the install contexts your game needs. A typical public Activity supports both user and guild installation.
+2. Enable **Activities**, then enable both **Guild Install** and **User Install** so the Activity can launch in servers, DMs, and group DMs.
 3. Add URL mappings:
 
    ```text
@@ -149,9 +149,10 @@ vercel promote DEPLOYMENT_URL
    ```
 
    Enter hostnames without a path. The bundled adapter calls Discord's `patchUrlMappings` for `/supabase`, covering Supabase Auth HTTP requests and the Realtime WebSocket.
-4. Add the OAuth redirect placeholder required by the Activity setup screen. The Embedded App SDK performs the authorization-code flow within Discord; the confidential exchange occurs only in `api/activity.mjs`.
-5. Enable Discord proxy authentication when the option is available for the app, then configure the matching `DISCORD_PUBLIC_KEY` and `DISCORD_REQUIRE_PROXY_AUTH=true` values in Vercel.
-6. Launch the Activity in a private test server and verify:
+4. Add an OAuth redirect URI. `https://127.0.0.1` is sufficient when authorization is handled only by the Embedded App SDK; the confidential exchange occurs only in `api/activity.mjs`.
+5. Confirm the global **Launch** command is a Primary Entry Point with Discord's automatic `DISCORD_LAUNCH_ACTIVITY` handler. The online preflight verifies this through the Discord API.
+6. Enable Discord proxy authentication when the option is available for the app, then configure the matching `DISCORD_PUBLIC_KEY` and `DISCORD_REQUIRE_PROXY_AUTH=true` values in Vercel.
+7. Launch the Activity in a private test server and verify:
 
    - The HUD changes from **Discord · connecting** to **Discord · your display name**.
    - A second Discord client joining the same Activity receives Broadcast and Presence events on `window.UE5HTML5.activity`.
@@ -272,6 +273,8 @@ Before public release, also verify:
 ## Official references
 
 - [Discord: Building Your First Activity](https://docs.discord.com/developers/activities/building-an-activity)
+- [Discord: Application commands and Primary Entry Points](https://docs.discord.com/developers/interactions/application-commands)
+- [Discord: Application installation contexts](https://docs.discord.com/developers/resources/application)
 - [Discord: Activity networking, cookies, and proxy security](https://docs.discord.com/developers/activities/development-guides/networking)
 - [Discord: Multiplayer Experience and Activity Instance API](https://docs.discord.com/developers/activities/development-guides/multiplayer-experience)
 - [Discord: Production readiness](https://docs.discord.com/developers/activities/development-guides/production-readiness)

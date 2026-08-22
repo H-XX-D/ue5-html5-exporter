@@ -11,6 +11,7 @@
 #include "Misc/Paths.h"
 #include "Selection.h"
 #include "ToolMenus.h"
+#include "UE5HTML5DiscordActivitySettings.h"
 #include "UE5HTML5ExportLibrary.h"
 
 #define LOCTEXT_NAMESPACE "FUE5HTML5ExporterModule"
@@ -162,6 +163,16 @@ void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()
         }
     }
 
+    const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+    if (!Report.bReady && !ProjectSettings->HasCompleteTargetSet())
+    {
+        Message += TEXT("\nChoose Yes to open the required public project targets now.");
+        if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
+        {
+            OpenDiscordActivitySettings();
+        }
+        return;
+    }
     FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
 }
 
@@ -184,8 +195,20 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
             {
                 Message += FString::Printf(TEXT("  - %s\n"), *Blocker);
             }
-            Message += TEXT("\nFix these blockers, then choose Export Discord Activity again.");
-            FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+            const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+            if (!ProjectSettings->HasCompleteTargetSet())
+            {
+                Message += TEXT("\nChoose Yes to open Project Settings and fill the missing public targets. No credentials are stored there.");
+                if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
+                {
+                    OpenDiscordActivitySettings();
+                }
+            }
+            else
+            {
+                Message += TEXT("\nFix these blockers, then choose Export Discord Activity again.");
+                FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+            }
             return;
         }
     }
