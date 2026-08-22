@@ -65,7 +65,8 @@ After reviewing the dry-run, add `--apply`. The tool then:
 4. runs `supabase db push --dry-run` before applying pending migrations;
 5. sends sensitive Vercel variables through process stdin rather than command arguments;
 6. runs the read-only Discord/Supabase online identity and security preflight;
-7. creates a Vercel Preview deployment and prints the two Discord URL mappings.
+7. creates a Vercel Preview deployment;
+8. probes the hosted root, export manifest, iframe headers, and Activity API as an unauthenticated player before printing the two Discord URL mappings.
 
 For production, `--environment production --apply` creates a staged deployment with `--skip-domain`; the tool never promotes production automatically. Use `--no-migrate` or `--no-deploy` when an operator intentionally owns that step separately.
 
@@ -94,6 +95,8 @@ If the variables are already loaded in the shell or CI environment, the equivale
 The online preflight performs read-only checks: the bot token must belong to `DISCORD_CLIENT_ID`, Discord must report the `EMBEDDED` Activity flag, the Supabase JWKS public coordinates must match the configured private signing key, the publishable and secret keys must reach that project, the migration table must exist, and the publishable key must be denied direct table access. It does not create a Discord user, Supabase Auth user, profile, save, entitlement, or billing record.
 
 The preflight prints setting names and failures only; it never prints secret values. The exported `.gitignore` excludes `.env*`, `.vercel`, and `node_modules` while retaining `.env.example`.
+
+Vercel Deployment Protection must not intercept the hostname mapped in Discord. A Vercel authentication redirect or `X-Frame-Options: DENY` makes an otherwise successful deployment unusable as an Activity. Use an unprotected production/custom domain, or disable Vercel Authentication for a dedicated public Activity project. Automation bypass secrets are suitable for CI testing only; never put one in a Discord URL mapping. The release command tests this boundary without a bypass token and stops instead of printing a misleading mapping.
 
 Set these in the Vercel project for Preview and Production. Mark every value under **Sensitive server configuration** as sensitive in Vercel.
 
@@ -126,6 +129,7 @@ The export pins Node.js 22 or later and includes:
 - `vercel.json`: no-cache API responses, content-hashed immutable runtime assets, and iframe-safe headers.
 - `package.json`: the server dependency needed by the Vercel Function.
 - `scripts/activity-preflight.mjs`: package, configuration, signing-key, accidental-secret, and optional online identity/access checks.
+- `scripts/activity-release.mjs`: dry-run/apply orchestration plus a post-deployment public, iframe, manifest, and API readiness probe.
 
 Use a Preview deployment for Discord testing. For a controlled release, stage production without assigning the domain, test that exact deployment, then promote it:
 

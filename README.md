@@ -19,6 +19,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A dry-run-first cross-platform release command that links the explicitly selected Supabase/Vercel projects, migrates, verifies, and deploys without printing server secrets
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 - Automatic mobile FPS movement/look/jump/fire controls with the same `ShouldUseTouchControls` decision exposed to exported Blueprints
+- A hosted readiness probe that rejects Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing Discord URL mappings
 
 ## Build the plugin
 

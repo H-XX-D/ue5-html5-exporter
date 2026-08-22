@@ -218,9 +218,122 @@ function deploymentUrl(output) {
   return urls.at(-1) || null;
 }
 
+function redirectDescription(response) {
+  const location = response.headers?.get?.('location');
+  if (!location) return 'another URL';
+  try {
+    return new URL(location).host;
+  } catch {
+    return 'another URL';
+  }
+}
+
+function restrictiveFrameAncestors(value) {
+  const directive = String(value || '').match(/(?:^|;)\s*frame-ancestors\s+([^;]+)/i)?.[1];
+  if (!directive) return null;
+  const normalized = directive.toLowerCase();
+  if (normalized.includes('*')
+      || normalized.includes('discord.com')
+      || normalized.includes('discordapp.com')) return null;
+  return directive.trim();
+}
+
+export async function verifyPublicDeployment(deploymentUrlValue, {
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 15_000,
+} = {}) {
+  const errors = [];
+  const warnings = [];
+  const checks = [];
+  let origin;
+  try {
+    origin = new URL(deploymentUrlValue);
+  } catch {
+    return { errors: ['Vercel did not return a valid deployment URL.'], warnings, checks };
+  }
+
+  const request = async (path, accept) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchImpl(new URL(path, origin), {
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { Accept: accept },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  let root;
+  try {
+    root = await request('/', 'text/html');
+  } catch (error) {
+    return {
+      errors: [`Deployment is not publicly reachable: ${error.message || error}.`],
+      warnings,
+      checks,
+    };
+  }
+  if (root.status >= 300 && root.status < 400) {
+    const destination = redirectDescription(root);
+    errors.push(`Deployment redirects unauthenticated players to ${destination}. Disable Vercel Deployment Protection or use an unprotected custom domain before mapping it in Discord.`);
+  } else if (!root.ok) {
+    errors.push(`Deployment root returned HTTP ${root.status} to an unauthenticated player.`);
+  } else {
+    checks.push('Deployment root is publicly reachable without a bypass token.');
+  }
+
+  const frameOptions = String(root.headers?.get?.('x-frame-options') || '');
+  if (/\b(?:deny|sameorigin)\b/i.test(frameOptions)) {
+    errors.push(`Deployment blocks iframe embedding with X-Frame-Options: ${frameOptions}.`);
+  }
+  const frameAncestors = restrictiveFrameAncestors(root.headers?.get?.('content-security-policy'));
+  if (frameAncestors) {
+    errors.push(`Deployment Content-Security-Policy blocks Discord framing: frame-ancestors ${frameAncestors}.`);
+  }
+  if (!frameOptions && !frameAncestors && root.ok) checks.push('Deployment response is iframe-compatible.');
+
+  try {
+    const manifestResponse = await request('/export-manifest.json', 'application/json');
+    if (!manifestResponse.ok) {
+      errors.push(`Hosted export manifest returned HTTP ${manifestResponse.status}.`);
+    } else {
+      const manifest = await manifestResponse.json();
+      if (manifest.schema !== 'ue5-html5-export/v2') {
+        errors.push('Hosted export manifest has an unexpected schema.');
+      } else {
+        checks.push(`Hosted Unreal export manifest is valid (${Number(manifest.actorCount || 0)} actors).`);
+      }
+    }
+  } catch (error) {
+    errors.push(`Hosted export manifest check failed: ${error.message || error}.`);
+  }
+
+  try {
+    const apiResponse = await request('/api/activity', 'application/json');
+    if (!apiResponse.ok) {
+      errors.push(`Hosted Activity API returned HTTP ${apiResponse.status}.`);
+    } else {
+      const config = await apiResponse.json();
+      if (config.enabled !== true) {
+        errors.push('Hosted Activity API reports enabled:false. Verify the selected Vercel environment variables and redeploy.');
+      } else {
+        checks.push('Hosted Activity API reports enabled:true without exposing server secrets.');
+      }
+    }
+  } catch (error) {
+    errors.push(`Hosted Activity API check failed: ${error.message || error}.`);
+  }
+
+  return { errors, warnings, checks };
+}
+
 export async function executeActivityRelease(options, environment, {
   runner = defaultRunner,
   verifyServices = verifyActivityServices,
+  verifyDeployment = verifyPublicDeployment,
 } = {}) {
   const local = validateActivityExport({ directory: options.directory, env: environment });
   const link = readVercelLink(options.directory);
@@ -277,12 +390,29 @@ export async function executeActivityRelease(options, environment, {
       : ['deploy', '--yes'];
     url = deploymentUrl(run('vercel', args).stdout);
   }
+  const hosted = url
+    ? await verifyDeployment(url)
+    : { errors: [], warnings: [], checks: [] };
+  const resultWarnings = [...warnings, ...online.warnings, ...hosted.warnings];
+  const resultChecks = [...online.checks, ...hosted.checks];
+  if (hosted.errors.length) {
+    return {
+      ok: false,
+      applied: true,
+      errors: hosted.errors,
+      warnings: resultWarnings,
+      checks: resultChecks,
+      uploadedVariables,
+      deploymentUrl: url,
+      plan,
+    };
+  }
   return {
     ok: true,
     applied: true,
     errors: [],
-    warnings: [...warnings, ...online.warnings],
-    checks: online.checks,
+    warnings: resultWarnings,
+    checks: resultChecks,
     uploadedVariables,
     deploymentUrl: url,
     discordUrlMappings: {

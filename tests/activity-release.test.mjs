@@ -13,6 +13,7 @@ import {
   parseActivityReleaseArgs,
   runCommand,
   validateReleaseSelection,
+  verifyPublicDeployment,
 } from '../web/public/scripts/activity-release.mjs';
 import {
   REQUIRED_EXPORT_FILES,
@@ -130,6 +131,7 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
   const result = await executeActivityRelease(options, env, {
     runner,
     verifyServices: async () => ({ errors: [], warnings: [], checks: ['services verified'] }),
+    verifyDeployment: async () => ({ errors: [], warnings: [], checks: ['public deployment verified'] }),
   });
   assert.equal(result.ok, true);
   assert.equal(result.deploymentUrl, 'https://my-discord-game-preview.vercel.app');
@@ -140,6 +142,7 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
   assert.ok(calls.some((call) => call.command === 'supabase' && call.args.includes('--dry-run')));
   assert.ok(calls.some((call) => call.command === 'supabase' && call.args.includes('--linked') && !call.args.includes('--dry-run')));
   assert.ok(calls.some((call) => call.command === 'vercel' && call.args[0] === 'deploy'));
+  assert.ok(result.checks.includes('public deployment verified'));
   const serializedArgs = JSON.stringify(calls.map(({ command, args }) => ({ command, args })));
   for (const name of SENSITIVE_ENVIRONMENT) assert.doesNotMatch(serializedArgs, new RegExp(env[name]));
   for (const name of SENSITIVE_ENVIRONMENT) {
@@ -147,6 +150,59 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
     assert.equal(upload.input, `${env[name]}\n`);
     assert.ok(upload.args.includes('--sensitive'));
   }
+});
+
+test('public deployment probe rejects Vercel authentication and iframe denial', async () => {
+  const result = await verifyPublicDeployment('https://protected-game.vercel.app', {
+    fetchImpl: async () => new Response(null, {
+      status: 302,
+      headers: {
+        location: 'https://vercel.com/sso-api?secret-value-is-not-reported',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "default-src 'self'; frame-ancestors 'self'",
+      },
+    }),
+  });
+
+  assert.ok(result.errors.some((error) => error.includes('vercel.com')));
+  assert.ok(result.errors.some((error) => error.includes('X-Frame-Options')));
+  assert.ok(result.errors.some((error) => error.includes('Content-Security-Policy')));
+  assert.doesNotMatch(JSON.stringify(result), /secret-value-is-not-reported/);
+});
+
+test('public deployment probe validates hosted export and enabled Activity API', async () => {
+  const requests = [];
+  const result = await verifyPublicDeployment('https://public-game.example', {
+    fetchImpl: async (input, options) => {
+      const url = new URL(input);
+      requests.push({ pathname: url.pathname, redirect: options.redirect });
+      if (url.pathname === '/') return new Response('<html></html>', { status: 200 });
+      if (url.pathname === '/export-manifest.json') {
+        return Response.json({ schema: 'ue5-html5-export/v2', actorCount: 69 });
+      }
+      if (url.pathname === '/api/activity') return Response.json({ enabled: true, clientId: 'public' });
+      return new Response(null, { status: 404 });
+    },
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.checks.some((check) => check.includes('69 actors')));
+  assert.ok(result.checks.some((check) => check.includes('enabled:true')));
+  assert.deepEqual(requests.map(({ pathname }) => pathname), ['/', '/export-manifest.json', '/api/activity']);
+  assert.ok(requests.every(({ redirect }) => redirect === 'manual'));
+});
+
+test('public deployment probe fails closed when hosted Activity API is disabled', async () => {
+  const result = await verifyPublicDeployment('https://incomplete-game.example', {
+    fetchImpl: async (input) => {
+      const { pathname } = new URL(input);
+      if (pathname === '/') return new Response('<html></html>', { status: 200 });
+      if (pathname === '/export-manifest.json') return Response.json({ schema: 'ue5-html5-export/v2' });
+      return Response.json({ enabled: false });
+    },
+  });
+
+  assert.ok(result.errors.some((error) => error.includes('enabled:false')));
 });
 
 test('failed service identity preflight stops before Vercel environment writes', async () => {
