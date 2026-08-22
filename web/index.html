@@ -46,6 +46,15 @@
         <span class="crosshair" aria-hidden="true"></span>
         <span id="fps-prompt" class="fps-prompt">Click to play · WASD move · Mouse look · Space jump · Click shoot</span>
       </div>
+      <div id="touch-controls" class="touch-controls" aria-label="Touch game controls" hidden>
+        <div class="touch-look" data-touch-look aria-label="Drag to look"></div>
+        <div class="touch-move" data-touch-move aria-label="Drag to move">
+          <span class="touch-move-ring" aria-hidden="true"></span>
+          <span class="touch-move-knob" data-touch-move-knob aria-hidden="true"></span>
+        </div>
+        <button class="touch-action touch-jump" data-touch-jump type="button">Jump</button>
+        <button class="touch-action touch-shoot" data-touch-shoot type="button">Fire</button>
+      </div>
       <footer class="hud">
         <span id="stats">Preparing renderer…</span>
         <label id="animation-wrap" hidden>Animation

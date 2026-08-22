@@ -185,9 +185,15 @@ async function configureBlueprintLogic() {
       diagnostic: () => blueprintDocument && blueprintRuntime && showLogicReport(blueprintDocument, blueprintRuntime),
     }, window);
     firstPersonController = new FirstPersonController(camera, canvas, content, blueprintDocument.gameplay, {
-      state: ({ locked }) => {
+      state: ({ locked, touch }) => {
         fpsHud.hidden = false;
-        fpsPrompt.hidden = locked;
+        fpsPrompt.hidden = touch || locked;
+      },
+      jump: ({ jumped }) => {
+        if (!jumped) return;
+        const args = { value: true, actionValue: true, triggerEvent: 'Started' };
+        blueprintRuntime?.call('IA_Jump', null, args);
+        blueprintRuntime?.call('InputAction_IA_Jump', null, args);
       },
       shoot: (hit) => {
         const args = { value: true, actionValue: true, triggerEvent: 'Started', hit };

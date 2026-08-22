@@ -18,6 +18,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Discord Activity Blueprint nodes plus Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
 - A dry-run-first cross-platform release command that links the explicitly selected Supabase/Vercel projects, migrates, verifies, and deploys without printing server secrets
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
+- Automatic mobile FPS movement/look/jump/fire controls with the same `ShouldUseTouchControls` decision exposed to exported Blueprints
 
 ## Build the plugin
 

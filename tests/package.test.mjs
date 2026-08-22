@@ -170,11 +170,16 @@ test('browser adapters cover gameplay integration families', () => {
   assert.match(source, /addmovementinput/);
   assert.match(source, /attachGameplayController/);
   assert.match(source, /callDiscordActivity/);
+  assert.match(source, /shouldUseTouchControls/);
 });
 
 test('first-person controller converts Unreal coordinates and consumes exported movement defaults', async () => {
   const THREE = await import('three');
-  const { FirstPersonController, unrealVectorToThree } = await import('../web/src/first-person-controller.js');
+  const {
+    FirstPersonController,
+    shouldUseTouchControls,
+    unrealVectorToThree,
+  } = await import('../web/src/first-person-controller.js');
   const converted = unrealVectorToThree({ x: 100, y: 200, z: 300 });
   assert.deepEqual(converted.toArray(), [1, 3, -2]);
 
@@ -204,6 +209,118 @@ test('first-person controller converts Unreal coordinates and consumes exported 
   assert.equal(controller.jump(), true);
   assert.equal(controller.velocity.y, 5.1);
   controller.dispose();
+
+  assert.equal(shouldUseTouchControls({
+    matchMedia: () => ({ matches: true }),
+  }, { maxTouchPoints: 0 }), true);
+  assert.equal(shouldUseTouchControls({
+    matchMedia: () => ({ matches: false }),
+  }, { maxTouchPoints: 2 }), true);
+  assert.equal(shouldUseTouchControls({
+    matchMedia: () => ({ matches: false }),
+  }, { maxTouchPoints: 0 }), false);
+  assert.equal(shouldUseTouchControls({
+    matchMedia: (query) => ({ matches: query === '(pointer: fine)' }),
+  }, { maxTouchPoints: 5 }), false);
+});
+
+test('mobile first-person controls provide move, look, jump, and fire without pointer lock', async () => {
+  const THREE = await import('three');
+  const { FirstPersonController } = await import('../web/src/first-person-controller.js');
+  class TouchTarget extends EventTarget {
+    constructor() {
+      super();
+      this.hidden = true;
+      this.style = {};
+      this.targets = new Map();
+    }
+    querySelector(selector) { return this.targets.get(selector) || null; }
+    setPointerCapture() {}
+  }
+  const eventTarget = new TouchTarget();
+  eventTarget.navigator = { maxTouchPoints: 5 };
+  eventTarget.matchMedia = () => ({ matches: true });
+  const documentTarget = new TouchTarget();
+  documentTarget.pointerLockElement = null;
+  const controls = new TouchTarget();
+  const move = new TouchTarget();
+  const knob = new TouchTarget();
+  const look = new TouchTarget();
+  const jump = new TouchTarget();
+  const shoot = new TouchTarget();
+  controls.targets.set('[data-touch-move]', move);
+  controls.targets.set('[data-touch-move-knob]', knob);
+  controls.targets.set('[data-touch-look]', look);
+  controls.targets.set('[data-touch-jump]', jump);
+  controls.targets.set('[data-touch-shoot]', shoot);
+  documentTarget.targets.set('#touch-controls', controls);
+  const canvas = new TouchTarget();
+  canvas.ownerDocument = documentTarget;
+  let requestedPointerLock = false;
+  canvas.requestPointerLock = () => { requestedPointerLock = true; };
+  let shots = 0;
+  let jumps = 0;
+  const controller = new FirstPersonController(
+    new THREE.PerspectiveCamera(),
+    canvas,
+    new THREE.Group(),
+    { profile: 'firstPerson', movement: {} },
+    {
+      shoot: () => { shots += 1; },
+      jump: ({ jumped }) => { if (jumped) jumps += 1; },
+    },
+    eventTarget,
+  );
+  const pointer = (type, { pointerId = 1, clientX = 0, clientY = 0 } = {}) => {
+    const event = new Event(type, { cancelable: true });
+    Object.defineProperties(event, {
+      pointerId: { value: pointerId },
+      clientX: { value: clientX },
+      clientY: { value: clientY },
+    });
+    return event;
+  };
+
+  assert.equal(controller.touchEnabled, true);
+  assert.equal(controls.hidden, false);
+  canvas.dispatchEvent(new Event('click'));
+  assert.equal(requestedPointerLock, false);
+  move.dispatchEvent(pointer('pointerdown', { clientX: 50, clientY: 100 }));
+  move.dispatchEvent(pointer('pointermove', { clientX: 77, clientY: 73 }));
+  assert.ok(controller.touchMovement.x > 0);
+  assert.ok(controller.touchMovement.y > 0);
+  const yawBefore = controller.yaw;
+  look.dispatchEvent(pointer('pointerdown', { pointerId: 2, clientX: 200, clientY: 100 }));
+  look.dispatchEvent(pointer('pointermove', { pointerId: 2, clientX: 230, clientY: 115 }));
+  assert.ok(controller.yaw > yawBefore);
+  controller.groundGrace = 0.1;
+  jump.dispatchEvent(pointer('pointerdown', { pointerId: 3 }));
+  shoot.dispatchEvent(pointer('pointerdown', { pointerId: 4 }));
+  assert.equal(jumps, 1);
+  assert.equal(shots, 1);
+  move.dispatchEvent(pointer('pointerup'));
+  assert.deepEqual(controller.touchMovement.toArray(), [0, 0]);
+  controller.dispose();
+  assert.equal(controls.hidden, true);
+});
+
+test('exported ShouldUseTouchControls Blueprint calls share the controller capability decision', async () => {
+  const THREE = await import('three');
+  const { BrowserRuntimeAdapters } = await import('../web/src/runtime-adapters.js');
+  const touchWindow = new EventTarget();
+  touchWindow.navigator = { maxTouchPoints: 3 };
+  touchWindow.matchMedia = () => ({ matches: true });
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {
+    inputMappings: [],
+    widgetBlueprints: [],
+    behaviorTrees: [],
+  }, {}, touchWindow);
+
+  assert.deepEqual(adapters.call('ShouldUseTouchControls', {}, {}), {
+    handled: true,
+    value: true,
+  });
+  adapters.dispose();
 });
 
 test('Unreal module declares editor dependencies for exported adapter assets', () => {

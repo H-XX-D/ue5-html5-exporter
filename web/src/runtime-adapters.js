@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { shouldUseTouchControls } from './first-person-controller.js';
 import { ThreeBlueprintAdapter } from './three-blueprint-adapter.js';
 
 const normalize = (value) => String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -533,7 +534,9 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     }
     if (name === 'islocalplayercontroller') return { handled: true, value: true };
     if (name === 'getplatformname') return { handled: true, value: 'Web' };
-    if (name === 'shouldusetouchcontrols') return { handled: true, value: false };
+    if (name === 'shouldusetouchcontrols') {
+      return { handled: true, value: shouldUseTouchControls(this.eventTarget, this.eventTarget?.navigator) };
+    }
     if (name === 'getsubsystem') return { handled: true, value: this.input };
     if (name === 'delayuntilnextframe') return { handled: true, promise: new Promise((resolve) => requestAnimationFrame(() => resolve(true))) };
     if (this.replication.remoteCall(functionName, args, instance)) return { handled: true };

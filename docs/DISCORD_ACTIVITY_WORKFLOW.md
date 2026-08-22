@@ -2,6 +2,8 @@
 
 This exporter can produce a Discord Activity-ready folder. The exported game remains playable as an ordinary website, while Discord launch, verified identity, Realtime multiplayer, and persistent saves turn on automatically inside Discord after configuration.
 
+Discord runs Activities on desktop, web, iOS, and Android. Standard first-person exports detect touch-capable clients and provide safe-area-aware movement, look, Jump, and Fire controls without changing the Unreal project. Desktop clients retain pointer-lock mouse and keyboard controls.
+
 ## Architecture
 
 | Layer | Responsibility | Trusted for authority? |

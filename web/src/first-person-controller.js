@@ -10,6 +10,16 @@ export function unrealVectorToThree(value = {}) {
   );
 }
 
+export function shouldUseTouchControls(
+  eventTarget = globalThis.window,
+  navigatorObject = globalThis.navigator,
+) {
+  if (eventTarget?.matchMedia?.('(pointer: coarse)')?.matches) return true;
+  if (eventTarget?.matchMedia?.('(pointer: fine)')?.matches) return false;
+  if (Number(navigatorObject?.maxTouchPoints || 0) > 0) return true;
+  return Boolean(eventTarget && 'ontouchstart' in eventTarget);
+}
+
 export class FirstPersonController {
   constructor(camera, canvas, world, gameplay = {}, hooks = {}, eventTarget = globalThis.window) {
     this.camera = camera;
@@ -20,12 +30,15 @@ export class FirstPersonController {
     this.eventTarget = eventTarget;
     this.document = canvas?.ownerDocument || globalThis.document;
     this.enabled = gameplay.profile === 'firstPerson';
+    this.touchEnabled = this.enabled && shouldUseTouchControls(eventTarget, eventTarget?.navigator);
     this.keys = new Set();
+    this.touchMovement = new THREE.Vector2();
     this.velocity = new THREE.Vector3();
     this.pendingMovement = new THREE.Vector3();
     this.worldOctree = new Octree();
     this.raycaster = new THREE.Raycaster();
     this.handlers = [];
+    this.touchControls = null;
     this.onFloor = false;
     this.groundGrace = 0;
 
@@ -53,7 +66,8 @@ export class FirstPersonController {
     this.camera.updateProjectionMatrix();
     this.teleportToStart();
     this.bind();
-    this.hooks.state?.({ enabled: true, locked: false });
+    if (this.touchEnabled) this.bindTouchControls();
+    this.hooks.state?.({ enabled: true, locked: false, touch: this.touchEnabled });
   }
 
   bind() {
@@ -68,9 +82,11 @@ export class FirstPersonController {
       if (code === 'Space' && !event.repeat) this.jump();
     });
     add(this.eventTarget, 'keyup', (event) => this.keys.delete(event.code || event.key));
-    add(this.canvas, 'click', () => {
-      if (this.document?.pointerLockElement !== this.canvas) this.canvas?.requestPointerLock?.();
-    });
+    if (!this.touchEnabled) {
+      add(this.canvas, 'click', () => {
+        if (this.document?.pointerLockElement !== this.canvas) this.canvas?.requestPointerLock?.();
+      });
+    }
     add(this.document, 'pointerlockchange', () => {
       this.hooks.state?.({ enabled: true, locked: this.document.pointerLockElement === this.canvas });
     });
@@ -81,6 +97,99 @@ export class FirstPersonController {
     add(this.canvas, 'mousedown', (event) => {
       if (event.button === 0 && this.document?.pointerLockElement === this.canvas) this.shoot();
     });
+  }
+
+  bindTouchControls() {
+    const controls = this.document?.querySelector?.('#touch-controls');
+    const movementSurface = controls?.querySelector?.('[data-touch-move]');
+    const movementKnob = controls?.querySelector?.('[data-touch-move-knob]');
+    const lookSurface = controls?.querySelector?.('[data-touch-look]');
+    const jumpButton = controls?.querySelector?.('[data-touch-jump]');
+    const shootButton = controls?.querySelector?.('[data-touch-shoot]');
+    if (!controls || !movementSurface || !lookSurface || !jumpButton || !shootButton) return;
+
+    this.touchControls = controls;
+    controls.hidden = false;
+    this.document?.documentElement?.classList?.add('touch-gameplay');
+    let movementPointer = null;
+    let movementOrigin = null;
+    let lookPointer = null;
+    let lookPosition = null;
+    const movementRadius = 54;
+    const add = (target, type, listener) => {
+      target.addEventListener(type, listener, { passive: false });
+      this.handlers.push([target, type, listener, { passive: false }]);
+    };
+    const stop = (event) => {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+    };
+    const resetMovement = (event) => {
+      if (event && event.pointerId !== movementPointer) return;
+      movementPointer = null;
+      movementOrigin = null;
+      this.touchMovement.set(0, 0);
+      if (movementKnob) movementKnob.style.transform = 'translate(-50%, -50%)';
+    };
+    add(movementSurface, 'pointerdown', (event) => {
+      if (movementPointer !== null) return;
+      stop(event);
+      movementPointer = event.pointerId;
+      movementOrigin = { x: event.clientX, y: event.clientY };
+      try { movementSurface.setPointerCapture?.(event.pointerId); } catch { /* synthetic or already-ended pointer */ }
+    });
+    add(movementSurface, 'pointermove', (event) => {
+      if (event.pointerId !== movementPointer || !movementOrigin) return;
+      stop(event);
+      const dx = Number(event.clientX) - movementOrigin.x;
+      const dy = Number(event.clientY) - movementOrigin.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const scale = Math.min(1, movementRadius / length);
+      const limitedX = dx * scale;
+      const limitedY = dy * scale;
+      this.touchMovement.set(limitedX / movementRadius, -limitedY / movementRadius);
+      if (movementKnob) {
+        movementKnob.style.transform = `translate(calc(-50% + ${limitedX}px), calc(-50% + ${limitedY}px))`;
+      }
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      add(movementSurface, type, resetMovement);
+    }
+
+    const resetLook = (event) => {
+      if (event && event.pointerId !== lookPointer) return;
+      lookPointer = null;
+      lookPosition = null;
+    };
+    add(lookSurface, 'pointerdown', (event) => {
+      if (lookPointer !== null) return;
+      stop(event);
+      lookPointer = event.pointerId;
+      lookPosition = { x: event.clientX, y: event.clientY };
+      try { lookSurface.setPointerCapture?.(event.pointerId); } catch { /* synthetic or already-ended pointer */ }
+    });
+    add(lookSurface, 'pointermove', (event) => {
+      if (event.pointerId !== lookPointer || !lookPosition) return;
+      stop(event);
+      const dx = Number(event.clientX) - lookPosition.x;
+      const dy = Number(event.clientY) - lookPosition.y;
+      lookPosition = { x: event.clientX, y: event.clientY };
+      this.addLookInput(dx, -dy);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      add(lookSurface, type, resetLook);
+    }
+
+    add(jumpButton, 'pointerdown', (event) => {
+      stop(event);
+      const jumped = this.jump();
+      this.hooks.jump?.({ jumped });
+    });
+    add(shootButton, 'pointerdown', (event) => {
+      stop(event);
+      this.shoot();
+    });
+    add(controls, 'contextmenu', stop);
   }
 
   teleportToStart() {
@@ -167,8 +276,12 @@ export class FirstPersonController {
   update(delta) {
     if (!this.enabled) return;
     this.groundGrace = Math.max(0, this.groundGrace - delta);
-    const forwardAxis = Number(this.keys.has('KeyW') || this.keys.has('ArrowUp')) - Number(this.keys.has('KeyS') || this.keys.has('ArrowDown'));
-    const rightAxis = Number(this.keys.has('KeyD') || this.keys.has('ArrowRight')) - Number(this.keys.has('KeyA') || this.keys.has('ArrowLeft'));
+    const forwardAxis = Number(this.keys.has('KeyW') || this.keys.has('ArrowUp'))
+      - Number(this.keys.has('KeyS') || this.keys.has('ArrowDown'))
+      + this.touchMovement.y;
+    const rightAxis = Number(this.keys.has('KeyD') || this.keys.has('ArrowRight'))
+      - Number(this.keys.has('KeyA') || this.keys.has('ArrowLeft'))
+      + this.touchMovement.x;
     const movement = this.forward().multiplyScalar(forwardAxis).addScaledVector(this.right(), rightAxis).add(this.pendingMovement);
     this.pendingMovement.set(0, 0, 0);
     if (movement.lengthSq()) {
@@ -195,5 +308,9 @@ export class FirstPersonController {
     for (const [target, type, listener, options] of this.handlers) target?.removeEventListener(type, listener, options);
     this.handlers = [];
     this.keys.clear();
+    this.touchMovement.set(0, 0);
+    if (this.touchControls) this.touchControls.hidden = true;
+    this.document?.documentElement?.classList?.remove('touch-gameplay');
+    this.touchControls = null;
   }
 }

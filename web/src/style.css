@@ -132,6 +132,75 @@ button:hover, .file-button:hover { border-color: #6fe7cb88; background: #17232e;
   white-space: nowrap;
 }
 
+.touch-controls {
+  position: absolute;
+  inset: var(--sait) var(--sair) var(--saib) var(--sail);
+  z-index: 18;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.touch-gameplay .topbar, .touch-gameplay .hud { display: none; }
+.touch-look {
+  position: absolute;
+  top: 18%;
+  right: 0;
+  bottom: 0;
+  width: 58%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-move {
+  position: absolute;
+  left: max(22px, 4vw);
+  bottom: max(28px, 6vh);
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-move-ring, .touch-move-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+}
+.touch-move-ring {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #ffffff48;
+  background: #08111a66;
+  box-shadow: inset 0 0 28px #0007;
+}
+.touch-move-knob {
+  width: 58px;
+  height: 58px;
+  border: 2px solid #ffffff80;
+  background: #6fe7cb66;
+  box-shadow: 0 6px 20px #0008;
+}
+.touch-action {
+  position: absolute;
+  z-index: 2;
+  width: 70px;
+  height: 70px;
+  padding: 0;
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  background: #111923b8;
+  backdrop-filter: blur(8px);
+}
+.touch-jump { right: max(28px, 5vw); bottom: max(112px, 19vh); }
+.touch-shoot { right: max(104px, 14vw); bottom: max(30px, 6vh); border-color: #ffb45488; }
+
 #ue-widget-layer .ue-widget { box-sizing: border-box; gap: .5rem; }
 #ue-widget-layer button.ue-widget {
   border: 1px solid #ffffff40;
@@ -150,4 +219,10 @@ button:hover, .file-button:hover { border-color: #6fe7cb88; background: #17232e;
   .actions button, .file-button { padding: 8px; font-size: 12px; }
   .hud > :last-child { display: none; }
   .logic-panel { top: calc(130px + var(--sait)); right: calc(12px + var(--sair)); bottom: calc(70px + var(--saib)); width: calc(100% - 24px - var(--sail) - var(--sair)); }
+}
+@media (max-height: 500px) {
+  .touch-move { width: 108px; height: 108px; bottom: 18px; }
+  .touch-action { width: 62px; height: 62px; }
+  .touch-jump { bottom: 92px; }
+  .touch-shoot { bottom: 20px; }
 }

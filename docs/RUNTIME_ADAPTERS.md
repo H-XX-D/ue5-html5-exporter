@@ -10,6 +10,14 @@ Legacy project mappings and every `UInputMappingContext` asset are exported. Enh
 
 Complex chord, hold, combo, dead-zone, and custom trigger semantics need a project adapter.
 
+## Desktop and mobile first-person input
+
+When the exported game mode resolves to a Character with a Camera component, the viewer supplies a first-person controller using the Character Movement, capsule, camera, and Player Start defaults exported from Unreal. Desktop retains pointer-lock mouse look, keyboard movement, jump, and fire.
+
+Touch-capable devices automatically receive a virtual movement stick, drag-to-look surface, Jump button, and Fire button. The controls respect Discord and browser safe-area insets, use Pointer Events so they work across current mobile browsers, and do not request pointer lock. Exported Blueprint calls to `ShouldUseTouchControls` use the same coarse-pointer/touch-capability decision as the generated controller.
+
+This automatic layer makes the standard UE5 first-person template playable without authoring a second web UI. Project-specific gestures, remappable mobile layouts, gamepad UI, haptics, and complex Enhanced Input trigger semantics still require a project adapter.
+
 ## Replication and RPCs
 
 Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synchronized between tabs with `BroadcastChannel`. Add this optional field to the exported IR to use a server transport:
