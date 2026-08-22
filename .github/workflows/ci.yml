@@ -31,14 +31,26 @@ jobs:
         run: |
           set UE5_ACTIVITY_NO_PAUSE=1
           UE5HTML5Exporter\Resources\WebTemplate\release-discord-activity.cmd --help
+      - name: Run Windows Discord preview launcher check
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: UE5HTML5Exporter\Resources\WebTemplate\preview-discord-activity.cmd --check
       - name: Run macOS Activity release launcher
         if: runner.os == 'macOS'
         shell: bash
         run: printf '\n' | UE5HTML5Exporter/Resources/WebTemplate/release-discord-activity.command --help
+      - name: Run macOS Discord preview launcher check
+        if: runner.os == 'macOS'
+        shell: bash
+        run: UE5HTML5Exporter/Resources/WebTemplate/preview-discord-activity.command --check
       - name: Run Linux Activity release launcher
         if: runner.os == 'Linux'
         shell: bash
         run: UE5_ACTIVITY_NO_PAUSE=1 UE5HTML5Exporter/Resources/WebTemplate/release-discord-activity.sh --help
+      - name: Run Linux Discord preview launcher check
+        if: runner.os == 'Linux'
+        shell: bash
+        run: UE5HTML5Exporter/Resources/WebTemplate/preview-discord-activity.sh --check
       - name: Create source teammate bundle
         if: runner.os == 'Linux'
         run: npm run package:source -- --output "$RUNNER_TEMP/UE5HTML5Exporter-Source"

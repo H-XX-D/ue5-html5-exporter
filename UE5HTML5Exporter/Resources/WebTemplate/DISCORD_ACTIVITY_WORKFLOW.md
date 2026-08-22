@@ -41,6 +41,12 @@ Supabase is the persistence/Realtime layer, not the static game host: Supabase S
 
 The migration explicitly revokes browser access to both state tables and grants only the server-side secret role access to the atomic save functions. Realtime authorization accepts short-lived `authenticated` JWTs only when their opaque `activity_topic` claim exactly matches the private channel being joined. Raw Discord IDs, names, avatars, email, OAuth tokens, entitlements, and billing data are not stored. Rotating `ACTIVITY_STATE_SECRET` invalidates all Activity session cookies and changes the opaque state keys, so plan a state migration before rotating it in production.
 
+### Local Unreal development preview
+
+Before creating or configuring any hosted service, choose **Tools → HTML5 Export → Export & Preview Discord Blueprint Logic**. The plugin exports the open level to `Saved/UE5HTML5/DiscordActivityPreview`, uses Unreal's bundled Python to serve it on loopback, and opens the browser with an explicit local-only preview flag. The runtime then uses Discord's official `DiscordSDKMock`, a synthetic participant, looped-back Broadcast, mock entitlements, and revisioned browser-local game state. It never calls Discord, Vercel, Supabase, OAuth, or billing.
+
+The same export also includes `preview-discord-activity.cmd`, `.command`, and `.sh` launchers for reopening the preview outside Unreal. This is a fast Blueprint logic check, not proof of the iframe proxy, Activity-instance authentication, Supabase Realtime, mobile behavior, real purchases, or multiple Discord clients. Continue through the hosted checks below before release.
+
 ### Guided cross-platform release
 
 Before exporting, open **Tools → HTML5 Export → Discord Activity Project Settings…** in Unreal. Enter this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The guided exporter requires all four non-optional values, names any missing fields, and offers to open this page instead of failing later in a terminal. The exporter copies only the allowlisted public fields and their completion status into `activity-handoff.json`.
@@ -273,6 +279,8 @@ Before public release, also verify:
 ## Official references
 
 - [Discord: Building Your First Activity](https://docs.discord.com/developers/activities/building-an-activity)
+- [Discord: Local Activity development and Developer Activity Shelf](https://docs.discord.com/developers/activities/development-guides/local-development)
+- [Discord: Embedded App SDK reference](https://docs.discord.com/developers/developer-tools/embedded-app-sdk)
 - [Discord: Application commands and Primary Entry Points](https://docs.discord.com/developers/interactions/application-commands)
 - [Discord: Application installation contexts](https://docs.discord.com/developers/resources/application)
 - [Discord: Activity networking, cookies, and proxy security](https://docs.discord.com/developers/activities/development-guides/networking)

@@ -29,6 +29,28 @@ namespace
 #endif
     }
 
+    FString DiscordActivityPreviewLauncher(const FString& OutputDirectory)
+    {
+#if PLATFORM_WINDOWS
+        return FPaths::Combine(OutputDirectory, TEXT("preview-discord-activity.cmd"));
+#elif PLATFORM_MAC
+        return FPaths::Combine(OutputDirectory, TEXT("preview-discord-activity.command"));
+#else
+        return FPaths::Combine(OutputDirectory, TEXT("preview-discord-activity.sh"));
+#endif
+    }
+
+    FString BundledPythonExecutable()
+    {
+#if PLATFORM_WINDOWS
+        return FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/Python3/Win64/python.exe"));
+#elif PLATFORM_MAC
+        return FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/Python3/Mac/bin/python3"));
+#else
+        return FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/Python3/Linux/bin/python3"));
+#endif
+    }
+
     bool LaunchDiscordActivityReleaseAssistant(const FString& OutputDirectory)
     {
         const FString Launcher = DiscordActivityReleaseLauncher(OutputDirectory);
@@ -77,6 +99,7 @@ void FUE5HTML5ExporterModule::StartupModule()
 
 void FUE5HTML5ExporterModule::ShutdownModule()
 {
+    StopDiscordActivityPreview();
     UToolMenus::UnRegisterStartupCallback(this);
     UToolMenus::UnregisterOwner(this);
 }
@@ -93,6 +116,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("ExportDiscordActivityTooltip", "Run the Discord readiness gate, export the current level, and report exact Blueprint compatibility."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, false, true)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5PreviewDiscordActivity",
+        LOCTEXT("PreviewDiscordActivity", "Export & Preview Discord Blueprint Logic"),
+        LOCTEXT("PreviewDiscordActivityTooltip", "Export to the project's Saved folder and launch a local-only browser preview backed by Discord's official SDK mock. No credentials or deployment required."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive)));
 
     Section.AddMenuEntry(
         "UE5HTML5ExportLevel",
@@ -289,6 +319,104 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
                     "Unreal could not start the release assistant automatically. The export folder is open; run the release-discord-activity launcher for this operating system."));
         }
     }
+}
+
+void FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoPreviewWorld", "Open a level before starting a Discord Activity preview."));
+        return;
+    }
+
+    const FString PreviewDirectory = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UE5HTML5/DiscordActivityPreview")));
+    StopDiscordActivityPreview();
+    IFileManager::Get().DeleteDirectory(*PreviewDirectory, false, true);
+
+    const FUE5HTML5ExportResult Result = FUE5HTML5ExportLibrary::ExportWorld(World, PreviewDirectory, {});
+    if (!Result.bSuccess)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(
+            LOCTEXT("PreviewExportFailed", "Discord Activity preview export failed:\n{0}"),
+            FText::FromString(Result.Error)));
+        return;
+    }
+
+    if (!LaunchDiscordActivityPreview(Result.OutputDirectory))
+    {
+        FPlatformProcess::ExploreFolder(*Result.OutputDirectory);
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT(
+                "PreviewLaunchFailed",
+                "Unreal could not start the local preview automatically. The export folder is open; run the preview-discord-activity launcher for this operating system."));
+        return;
+    }
+
+    const FString Compatibility = Result.UnsupportedBlueprintNodeCount > 0
+        ? FString::Printf(
+            TEXT("%d of %d Blueprint nodes translated; %d still require adapters."),
+            Result.SupportedBlueprintNodeCount,
+            Result.BlueprintNodeCount,
+            Result.UnsupportedBlueprintNodeCount)
+        : FString::Printf(TEXT("All %d exported Blueprint nodes translated."), Result.BlueprintNodeCount);
+    FMessageDialog::Open(
+        EAppMsgType::Ok,
+        FText::FromString(FString::Printf(
+            TEXT("Local Discord Blueprint preview started.\n\n%s\n\n")
+            TEXT("The browser uses Discord's official SDK mock plus local-only game-state storage. ")
+            TEXT("It does not contact Discord, Vercel, or Supabase and does not replace a final in-Discord test.\n\nExport: %s"),
+            *Compatibility,
+            *Result.OutputDirectory)));
+}
+
+bool FUE5HTML5ExporterModule::LaunchDiscordActivityPreview(const FString& OutputDirectory)
+{
+    const FString ServeScript = FPaths::Combine(OutputDirectory, TEXT("serve.py"));
+    if (!FPaths::FileExists(ServeScript))
+    {
+        return false;
+    }
+
+    const FString Python = BundledPythonExecutable();
+    if (FPaths::FileExists(Python))
+    {
+        const FString Arguments = FString::Printf(TEXT("\"%s\" --discord-preview"), *ServeScript);
+        PreviewServerProcess = FPlatformProcess::CreateProc(
+            *Python,
+            *Arguments,
+            false,
+            false,
+            false,
+            nullptr,
+            0,
+            *OutputDirectory,
+            nullptr);
+        if (PreviewServerProcess.IsValid())
+        {
+            return true;
+        }
+    }
+
+    const FString Launcher = DiscordActivityPreviewLauncher(OutputDirectory);
+    return FPaths::FileExists(Launcher)
+        && FPlatformProcess::LaunchFileInDefaultExternalApplication(*Launcher);
+}
+
+void FUE5HTML5ExporterModule::StopDiscordActivityPreview()
+{
+    if (!PreviewServerProcess.IsValid())
+    {
+        return;
+    }
+    if (FPlatformProcess::IsProcRunning(PreviewServerProcess))
+    {
+        FPlatformProcess::TerminateProc(PreviewServerProcess, true);
+    }
+    FPlatformProcess::CloseProc(PreviewServerProcess);
+    PreviewServerProcess.Reset();
 }
 
 IMPLEMENT_MODULE(FUE5HTML5ExporterModule, UE5HTML5Exporter)

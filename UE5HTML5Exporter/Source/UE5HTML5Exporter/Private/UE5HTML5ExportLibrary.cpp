@@ -396,18 +396,8 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         return Result;
     }
 
-    const FString ServeScript =
-        TEXT("#!/usr/bin/env python3\n")
-        TEXT("import http.server, socketserver, webbrowser\n")
-        TEXT("PORT = 8000\n")
-        TEXT("webbrowser.open(f'http://localhost:{PORT}')\n")
-        TEXT("with socketserver.TCPServer(('localhost', PORT), http.server.SimpleHTTPRequestHandler) as server:\n")
-        TEXT("    print(f'Serving UE5 export at http://localhost:{PORT} (Ctrl+C to stop)')\n")
-        TEXT("    server.serve_forever()\n");
-    FFileHelper::SaveStringToFile(ServeScript, *FPaths::Combine(Result.OutputDirectory, TEXT("serve.py")));
-
     const FString ExportReadme =
-        TEXT("# UE5 Web Export\n\nRun `python3 serve.py`, then open http://localhost:8000.\n\n")
+        TEXT("# UE5 Web Export\n\nRun `python3 serve.py` for an ordinary browser preview, or use the preview-discord-activity launcher to exercise Discord Blueprint logic with the official local SDK mock.\n\n")
         TEXT("Upload this entire folder to any static host. Keep `index.html`, `runtime/`, and `assets/` together.\n")
         TEXT("For a Discord Activity, deploy this folder to an HTTPS host and follow `DISCORD_ACTIVITY_WORKFLOW.md`.\n")
         TEXT("The bundled Vercel adapter is the default; the Activity API endpoint is configurable in index.html.\n")

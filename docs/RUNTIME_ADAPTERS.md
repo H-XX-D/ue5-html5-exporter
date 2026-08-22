@@ -44,6 +44,12 @@ The listener interface emits `Connection State Changed`, `Ready`, `Unavailable`,
 
 Diagnostics follow a strict privacy boundary. The bridge forwards normalized state/reason/error/command codes and fixed messages only. Raw SDK error objects, response bodies, stack traces, access tokens, user identifiers, private Realtime topics, and Supabase details stay out of Blueprint event arguments and are never persisted by this adapter.
 
+### Local Blueprint preview
+
+**Tools → HTML5 Export → Export & Preview Discord Blueprint Logic** creates a disposable export under the Unreal project's `Saved` directory and launches it on `127.0.0.1` with `?ue5_discord_preview=1`. That flag is ignored on non-loopback hosts. The browser uses Discord's packaged `DiscordSDKMock`, a synthetic **Mock Player**, looped-back Broadcast events, mock purchase entitlements, and browser-local world/player state with the same optimistic revision checks as production. No Discord, Vercel, Supabase, OAuth, raw player identity, or billing system is contacted.
+
+This preview shortens Blueprint iteration; it is not a Discord emulator or a release certificate. Real proxy URL mapping, authentication, Activity-instance membership, Supabase Realtime, mobile layouts, purchases, and two-client behavior must still pass the hosted workflow.
+
 ## Replication and RPCs
 
 Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synchronized between tabs with `BroadcastChannel`. Add this optional field to the exported IR to use a server transport:

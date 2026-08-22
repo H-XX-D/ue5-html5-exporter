@@ -1,5 +1,6 @@
 import {
   DiscordSDK,
+  DiscordSDKMock,
   Events,
   RPCErrorCodes,
   patchUrlMappings,
@@ -8,6 +9,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_CONFIG_URL = '/api/activity';
 const DEFAULT_SCOPES = ['identify'];
+const PREVIEW_CLIENT_ID = '123456789012345678';
+const PREVIEW_STATE_BYTES = 512 * 1024;
+const PREVIEW_STORAGE_PREFIX = 'ue5-html5-discord-preview';
 const THERMAL_STATE_NAMES = Object.freeze({
   [-1]: 'Unhandled', 0: 'Nominal', 1: 'Fair', 2: 'Serious', 3: 'Critical',
 });
@@ -79,22 +83,47 @@ export function isDiscordActivityContext(locationObject = globalThis.location) {
   return hostname.endsWith('.discordsays.com') || new URLSearchParams(search).has('frame_id');
 }
 
+export function isDiscordActivityPreviewContext(locationObject = globalThis.location) {
+  if (!locationObject) return false;
+  const hostname = String(locationObject.hostname || '').toLowerCase();
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+  return loopback && new URLSearchParams(String(locationObject.search || '')).get('ue5_discord_preview') === '1';
+}
+
+function previewStorageKey(kind) {
+  return `${PREVIEW_STORAGE_PREFIX}:${kind}`;
+}
+
+function previewStateSize(state) {
+  return new TextEncoder().encode(JSON.stringify(state)).byteLength;
+}
+
 export class DiscordActivityBridge extends EventTarget {
   constructor({
     fetchImpl = globalThis.fetch?.bind(globalThis),
     DiscordSDKClass = DiscordSDK,
+    DiscordSDKMockClass = DiscordSDKMock,
     patchMappings = patchUrlMappings,
     createSupabaseClient = createClient,
     locationObject = globalThis.location,
+    storage,
+    previewMode = false,
     randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto),
     configUrl = resolveActivityApiUrl(),
   } = {}) {
     super();
     this.fetchImpl = fetchImpl;
     this.DiscordSDKClass = DiscordSDKClass;
+    this.DiscordSDKMockClass = DiscordSDKMockClass;
     this.patchMappings = patchMappings;
     this.createSupabaseClient = createSupabaseClient;
     this.locationObject = locationObject;
+    this.previewMode = Boolean(previewMode) && isDiscordActivityPreviewContext(locationObject);
+    this.storage = storage;
+    if (this.previewMode && !this.storage) {
+      try { this.storage = globalThis.localStorage; }
+      catch { this.storage = null; }
+    }
     this.randomUUID = randomUUID || (() => `${Date.now()}-${Math.random()}`);
     this.configUrl = configUrl;
     this.mode = 'idle';
@@ -121,11 +150,13 @@ export class DiscordActivityBridge extends EventTarget {
       mode,
       ...(optionalText(detail.reason) ? { reason: optionalText(detail.reason) } : {}),
       ...(detail.error ? { errorCode: publicActivityErrorCode(detail.error) } : {}),
+      ...(detail.preview ? { preview: true } : {}),
     };
     this.dispatchEvent(activityEvent('statechange', { mode, ...detail, ...this.publicState }));
   }
 
   async start() {
+    if (this.previewMode) return this.startPreview();
     if (!this.fetchImpl) throw new Error('A fetch implementation is required.');
     this.setMode('checking');
     let response;
@@ -194,6 +225,56 @@ export class DiscordActivityBridge extends EventTarget {
       this.setMode('error', { error });
       throw error;
     }
+  }
+
+  async startPreview() {
+    this.setMode('connecting', { preview: true });
+    this.config = {
+      enabled: true,
+      discordClientId: PREVIEW_CLIENT_ID,
+      oauthScopes: DEFAULT_SCOPES,
+      richPresenceEnabled: true,
+      preview: true,
+    };
+    this.user = {
+      id: 'preview-player',
+      username: 'PreviewPlayer',
+      global_name: 'Mock Player',
+      discriminator: '0',
+      avatar: null,
+      bot: false,
+      flags: 0,
+    };
+    this.entitlements = [];
+    this.discord = new this.DiscordSDKMockClass(
+      PREVIEW_CLIENT_ID,
+      null,
+      'preview-channel',
+      'preview-location',
+    );
+    this.discord._updateCommandMocks?.({
+      getInstanceConnectedParticipants: async () => ({ participants: [this.user] }),
+      getActivityInstanceConnectedParticipants: async () => ({ participants: [this.user] }),
+      getSkus: async () => ({ skus: [] }),
+      getEntitlements: async () => ({ entitlements: this.entitlements }),
+      userSettingsGetLocale: async () => ({ locale: 'en-US' }),
+      openInviteDialog: async () => ({}),
+      encourageHardwareAcceleration: async () => ({ enabled: true }),
+      setActivity: async ({ activity }) => activity || {},
+      setConfig: async ({ use_interactive_pip: enabled }) => ({ use_interactive_pip: Boolean(enabled) }),
+      setOrientationLockState: async () => ({}),
+      shareLink: async () => ({ success: true, didCopyLink: true, didSendMessage: false }),
+      openExternalLink: async () => ({ opened: true }),
+    });
+    await this.discord.ready();
+    this.subscribeToDiscordEvents();
+    this.setMode('ready', {
+      preview: true,
+      user: this.user,
+      topic: 'preview:local-only',
+      entitlements: this.entitlements,
+    });
+    return this;
   }
 
   configureSupabaseProxy() {
@@ -323,11 +404,17 @@ export class DiscordActivityBridge extends EventTarget {
   }
 
   async broadcast(event, payload) {
-    if (this.mode !== 'ready' || !this.channel) throw new Error('Discord Activity is not ready.');
+    if (this.mode !== 'ready') throw new Error('Discord Activity is not ready.');
+    if (this.previewMode) {
+      this.dispatchEvent(activityEvent('broadcast', { event, payload, meta: { replayed: false, preview: true } }));
+      return { status: 'ok', preview: true };
+    }
+    if (!this.channel) throw new Error('Discord Activity Realtime is not connected.');
     return this.channel.send({ type: 'broadcast', event, payload });
   }
 
   getPresenceState() {
+    if (this.previewMode) return { preview: [{ connected: true, player: 'preview-player' }] };
     return this.channel?.presenceState?.() || {};
   }
 
@@ -444,6 +531,10 @@ export class DiscordActivityBridge extends EventTarget {
   }
 
   async verifyEntitlements() {
+    if (this.previewMode) {
+      this.dispatchEvent(activityEvent('entitlements', this.entitlements));
+      return this.entitlements;
+    }
     const result = await this.callApi('verify-entitlements', { instanceId: this.discord.instanceId });
     this.entitlements = result.entitlements || [];
     this.dispatchEvent(activityEvent('entitlements', this.entitlements));
@@ -451,16 +542,26 @@ export class DiscordActivityBridge extends EventTarget {
   }
 
   async startPurchase(skuId) {
+    if (this.previewMode) {
+      const normalizedSkuId = String(skuId);
+      if (!this.entitlements.some((item) => item.skuId === normalizedSkuId)) {
+        this.entitlements.push({ skuId: normalizedSkuId, type: 1, consumed: false, preview: true });
+      }
+      this.dispatchEvent(activityEvent('entitlements', this.entitlements));
+      return { purchase: { preview: true, skuId: normalizedSkuId }, entitlements: this.entitlements };
+    }
     const purchase = await this.discord.commands.startPurchase({ sku_id: String(skuId) });
     const entitlements = await this.verifyEntitlements();
     return { purchase, entitlements };
   }
 
   async loadWorld() {
+    if (this.previewMode) return this.loadPreviewState('world');
     return this.callApi('load-world', { instanceId: this.discord.instanceId });
   }
 
   async saveWorld(state, expectedRevision) {
+    if (this.previewMode) return this.savePreviewState('world', state, expectedRevision);
     return this.callApi('save-world', {
       instanceId: this.discord.instanceId,
       state,
@@ -469,15 +570,51 @@ export class DiscordActivityBridge extends EventTarget {
   }
 
   async loadPlayerState() {
+    if (this.previewMode) return this.loadPreviewState('player');
     return this.callApi('load-player', { instanceId: this.discord.instanceId });
   }
 
   async savePlayerState(state, expectedRevision) {
+    if (this.previewMode) return this.savePreviewState('player', state, expectedRevision);
     return this.callApi('save-player', {
       instanceId: this.discord.instanceId,
       state,
       ...(expectedRevision === undefined ? {} : { expectedRevision }),
     });
+  }
+
+  loadPreviewState(kind) {
+    let saved = null;
+    try { saved = JSON.parse(this.storage?.getItem?.(previewStorageKey(kind)) || 'null'); }
+    catch { saved = null; }
+    return {
+      state: saved?.state ?? null,
+      revision: Number.isSafeInteger(saved?.revision) ? saved.revision : 0,
+      updatedAt: saved?.updatedAt || null,
+      preview: true,
+    };
+  }
+
+  savePreviewState(kind, state, expectedRevision) {
+    if (previewStateSize(state) > PREVIEW_STATE_BYTES) {
+      const error = new Error(`Preview game state exceeds ${PREVIEW_STATE_BYTES} bytes.`);
+      error.status = 413;
+      throw error;
+    }
+    const current = this.loadPreviewState(kind);
+    if (expectedRevision !== undefined && expectedRevision !== current.revision) {
+      const error = new Error('Preview game state changed; reload before saving.');
+      error.status = 409;
+      error.revision = current.revision;
+      throw error;
+    }
+    const next = {
+      state,
+      revision: current.revision + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    this.storage?.setItem?.(previewStorageKey(kind), JSON.stringify(next));
+    return { saved: true, revision: next.revision, updatedAt: next.updatedAt, preview: true };
   }
 
   async dispose() {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { test } from 'node:test';
 
 const plugin = new URL('../UE5HTML5Exporter/', import.meta.url);
@@ -61,6 +61,10 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/scripts/activity-preflight.mjs',
     'Resources/WebTemplate/scripts/activity-release.mjs',
     'Resources/WebTemplate/scripts/activity-release-assistant.mjs',
+    'Resources/WebTemplate/serve.py',
+    'Resources/WebTemplate/preview-discord-activity.cmd',
+    'Resources/WebTemplate/preview-discord-activity.command',
+    'Resources/WebTemplate/preview-discord-activity.sh',
     'Resources/WebTemplate/release-discord-activity.cmd',
     'Resources/WebTemplate/release-discord-activity.command',
     'Resources/WebTemplate/release-discord-activity.sh',
@@ -96,6 +100,21 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(activity, /startPurchase/);
   assert.match(activity, /setRichPresence/);
   assert.match(activity, /shareLink/);
+  assert.match(activity, /DiscordSDKMock/);
+  assert.match(activity, /preview-player/);
+  assert.match(viewer, /ue5_discord_preview/);
+
+  const serve = read('Resources/WebTemplate/serve.py');
+  assert.match(serve, /127\.0\.0\.1/);
+  assert.match(serve, /ue5_discord_preview=1/);
+  assert.match(serve, /--check/);
+  if (process.platform !== 'win32') {
+    for (const path of [
+      'Resources/WebTemplate/serve.py',
+      'Resources/WebTemplate/preview-discord-activity.command',
+      'Resources/WebTemplate/preview-discord-activity.sh',
+    ]) assert.ok(statSync(new URL(path, plugin)).mode & 0o100, `${path} must be executable`);
+  }
 });
 
 test('exporter writes the scene, manifest, and local server helper', () => {
@@ -128,6 +147,15 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /NEEDS BLUEPRINT ADAPTERS/);
   assert.match(module, /CheckDiscordActivityReadinessInteractive/);
   assert.match(module, /LaunchDiscordActivityReleaseAssistant/);
+  assert.match(module, /Export & Preview Discord Blueprint Logic/);
+  assert.match(module, /ExportDiscordActivityPreviewInteractive/);
+  assert.match(module, /LaunchDiscordActivityPreview/);
+  assert.match(module, /StopDiscordActivityPreview/);
+  assert.match(module, /Binaries\/ThirdParty\/Python3\/Win64\/python\.exe/);
+  assert.match(module, /Binaries\/ThirdParty\/Python3\/Mac\/bin\/python3/);
+  assert.match(module, /Binaries\/ThirdParty\/Python3\/Linux\/bin\/python3/);
+  assert.match(module, /ProjectSavedDir/);
+  assert.match(module, /DiscordActivityPreview/);
   assert.match(module, /release-discord-activity\.cmd/);
   assert.match(module, /release-discord-activity\.command/);
   assert.match(module, /release-discord-activity\.sh/);

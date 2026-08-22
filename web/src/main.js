@@ -65,8 +65,12 @@ const pendingCustomFunctions = new Map();
 
 const looksLikeDiscordActivity = window.location.hostname.toLowerCase().endsWith('.discordsays.com')
   || new URLSearchParams(window.location.search).has('frame_id');
-const activityPromise = looksLikeDiscordActivity
-  ? startDiscordActivity().catch((error) => {
+const activityQuery = new URLSearchParams(window.location.search);
+const activityHostname = window.location.hostname.toLowerCase();
+const discordPreviewMode = activityQuery.get('ue5_discord_preview') === '1'
+  && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(activityHostname);
+const activityPromise = looksLikeDiscordActivity || discordPreviewMode
+  ? startDiscordActivity({ previewMode: discordPreviewMode }).catch((error) => {
       console.warn('Discord Activity adapter unavailable:', error);
       return activityBridge;
     })
@@ -85,11 +89,11 @@ window.UE5HTML5 = {
   get activityReady() { return activityPromise; },
 };
 
-async function startDiscordActivity() {
+async function startDiscordActivity({ previewMode = false } = {}) {
   activityStatus.hidden = false;
   activityStatus.dataset.mode = 'connecting';
   const { createDiscordActivityBridge } = await import('./discord-activity.js');
-  activityBridge = createDiscordActivityBridge();
+  activityBridge = createDiscordActivityBridge({ previewMode });
   activityBridge.addEventListener('statechange', ({ detail }) => {
     if (detail.mode === 'standalone' || detail.mode === 'idle' || detail.mode === 'checking') {
       activityStatus.hidden = true;
@@ -98,7 +102,7 @@ async function startDiscordActivity() {
     activityStatus.hidden = false;
     activityStatus.dataset.mode = detail.mode;
     activityStatus.textContent = detail.mode === 'ready'
-      ? `Discord · ${detail.user.global_name || detail.user.username || 'connected'}`
+      ? `${detail.preview ? 'Discord Preview' : 'Discord'} · ${detail.user.global_name || detail.user.username || 'connected'}`
       : detail.mode === 'error' ? 'Discord · connection failed' : 'Discord · connecting';
   });
   await activityBridge.start();

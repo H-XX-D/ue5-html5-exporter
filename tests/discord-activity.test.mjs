@@ -7,6 +7,7 @@ import { Events } from '@discord/embedded-app-sdk';
 import {
   DiscordActivityBridge,
   isDiscordActivityContext,
+  isDiscordActivityPreviewContext,
   resolveActivityApiUrl,
 } from '../web/src/discord-activity.js';
 import {
@@ -44,6 +45,14 @@ function mockDiscordFetch(requests = []) {
   };
 }
 
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+}
+
 async function authenticatedCookie(env, fetchImpl, instanceId = 'i-test') {
   const response = await handleActivityRequest(new Request('https://game.test/api/activity', {
     method: 'POST',
@@ -58,6 +67,69 @@ test('Discord context detection does not activate on an ordinary deployment URL'
   assert.equal(isDiscordActivityContext({ hostname: 'game.vercel.app', search: '' }), false);
   assert.equal(isDiscordActivityContext({ hostname: '123.discordsays.com', search: '' }), true);
   assert.equal(isDiscordActivityContext({ hostname: 'localhost', search: '?frame_id=test' }), true);
+});
+
+test('local Discord preview requires an explicit loopback-only flag', () => {
+  assert.equal(isDiscordActivityPreviewContext({ hostname: 'localhost', search: '?ue5_discord_preview=1' }), true);
+  assert.equal(isDiscordActivityPreviewContext({ hostname: '127.0.0.1', search: '?ue5_discord_preview=1' }), true);
+  assert.equal(isDiscordActivityPreviewContext({ hostname: 'game.vercel.app', search: '?ue5_discord_preview=1' }), false);
+  assert.equal(isDiscordActivityPreviewContext({ hostname: 'localhost', search: '' }), false);
+});
+
+test('official SDK mock preview reaches ready without API calls and loops Broadcast locally', async () => {
+  let fetchCalls = 0;
+  const bridge = new DiscordActivityBridge({
+    previewMode: true,
+    locationObject: { hostname: 'localhost', search: '?ue5_discord_preview=1' },
+    fetchImpl: async () => { fetchCalls += 1; throw new Error('preview must stay offline'); },
+    storage: memoryStorage(),
+  });
+  const broadcasts = [];
+  bridge.addEventListener('broadcast', ({ detail }) => broadcasts.push(detail));
+  await bridge.start();
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(bridge.mode, 'ready');
+  assert.deepEqual(bridge.publicState, { mode: 'ready', preview: true });
+  assert.equal(bridge.discord.sdkVersion, 'mock');
+  assert.equal((await bridge.getParticipants()).participants[0].global_name, 'Mock Player');
+  assert.equal((await bridge.getLocale()).locale, 'en-US');
+
+  await bridge.broadcast('ScoreChanged', { score: 12 });
+  assert.deepEqual(broadcasts, [{
+    event: 'ScoreChanged', payload: { score: 12 }, meta: { replayed: false, preview: true },
+  }]);
+  await bridge.dispose();
+});
+
+test('local Discord preview mirrors persistence revisions and mock purchases', async () => {
+  const storage = memoryStorage();
+  const options = {
+    previewMode: true,
+    locationObject: { hostname: 'localhost', search: '?ue5_discord_preview=1' },
+    storage,
+  };
+  const first = new DiscordActivityBridge(options);
+  await first.start();
+  assert.deepEqual(await first.loadPlayerState(), {
+    state: null, revision: 0, updatedAt: null, preview: true,
+  });
+  assert.equal((await first.savePlayerState({ level: 3 }, 0)).revision, 1);
+  await assert.rejects(first.savePlayerState({ level: 4 }, 0), (error) => {
+    assert.equal(error.status, 409);
+    assert.equal(error.revision, 1);
+    return true;
+  });
+  const purchase = await first.startPurchase('preview-sku');
+  assert.equal(purchase.entitlements[0].skuId, 'preview-sku');
+  assert.equal(purchase.entitlements[0].preview, true);
+
+  const second = new DiscordActivityBridge(options);
+  await second.start();
+  assert.deepEqual((await second.loadPlayerState()).state, { level: 3 });
+  assert.equal((await second.loadPlayerState()).revision, 1);
+  await first.dispose();
+  await second.dispose();
 });
 
 test('public lifecycle state exposes stable reasons and codes without raw errors', async () => {
