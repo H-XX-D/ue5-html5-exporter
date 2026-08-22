@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import { installPlugin, parseInstallArgs } from '../scripts/install-plugin.mjs';
@@ -67,14 +67,15 @@ test('packager resolves native RunUAT launchers and target platform arguments', 
   assert.match(resolveRunUat('C:\\Epic\\UE_5.8', 'win32'), /RunUAT\.bat$/);
   assert.match(resolveRunUat('/opt/Unreal/UE_5.8', 'linux'), /RunUAT\.sh$/);
 
+  const packageOutput = join(tmpdir(), 'plugin package');
   const options = parsePackageArgs([
     '--engine', '/opt/Unreal/UE_5.8',
     '--platform', 'Win64,Linux',
-    '--output', '/tmp/plugin package',
+    '--output', packageOutput,
     '--dry-run',
   ], 'linux');
   const invocation = buildPackageInvocation(options, 'linux');
   assert.deepEqual(options.platforms, ['Win64', 'Linux']);
   assert.ok(invocation.args.includes('-TargetPlatforms=Win64+Linux'));
-  assert.ok(invocation.args.includes('-Package=/tmp/plugin package'));
+  assert.ok(invocation.args.includes(`-Package=${resolve(packageOutput)}`));
 });
