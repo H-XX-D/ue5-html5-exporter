@@ -60,6 +60,30 @@ test('Discord context detection does not activate on an ordinary deployment URL'
   assert.equal(isDiscordActivityContext({ hostname: 'localhost', search: '?frame_id=test' }), true);
 });
 
+test('public lifecycle state exposes stable reasons and codes without raw errors', async () => {
+  const bridge = new DiscordActivityBridge({
+    fetchImpl: async () => Response.json({ enabled: false }),
+    locationObject: { hostname: 'localhost', search: '?frame_id=test' },
+  });
+  await bridge.start();
+  assert.deepEqual(bridge.publicState, {
+    mode: 'standalone', reason: 'ConfigurationDisabled',
+  });
+
+  bridge.setMode('error', {
+    error: Object.assign(new Error('Bearer discord-access-token player@example.test'), {
+      code: '401 invalid token',
+    }),
+  });
+  assert.deepEqual(bridge.publicState, {
+    mode: 'error', errorCode: 'ACTIVITY_CONNECTION_FAILED',
+  });
+  assert.doesNotMatch(JSON.stringify(bridge.publicState), /discord-access-token|player@example\.test/);
+
+  bridge.setMode('error', { error: Object.assign(new Error('unsupported'), { code: 4002 }) });
+  assert.deepEqual(bridge.publicState, { mode: 'error', errorCode: '4002' });
+});
+
 test('Activity API endpoint is host-configurable and defaults to the bundled route', () => {
   assert.equal(resolveActivityApiUrl(null), '/api/activity');
   assert.equal(resolveActivityApiUrl({

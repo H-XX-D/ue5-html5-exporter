@@ -27,6 +27,42 @@ function blueprintJson(value) {
   }
 }
 
+const DISCORD_ACTIVITY_STATE_NAMES = Object.freeze({
+  idle: 'Idle',
+  checking: 'Checking',
+  standalone: 'Unavailable',
+  connecting: 'Connecting',
+  ready: 'Ready',
+  error: 'Error',
+  disposed: 'Disposed',
+});
+
+const DISCORD_ACTIVITY_WARNING_COMMANDS = new Set([
+  'getPlatformBehaviors',
+  'openExternalLink',
+  'setActivity',
+  'setConfig',
+  'setOrientationLockState',
+  'shareLink',
+  'userSettingsGetLocale',
+]);
+
+function activityWarningCommand(value) {
+  const command = String(value || '');
+  return DISCORD_ACTIVITY_WARNING_COMMANDS.has(command) ? command : '';
+}
+
+function activityPublicCode(value, fallback) {
+  const code = String(value || '').trim();
+  return /^\d{3,6}$/.test(code) || /^[A-Z][A-Z0-9_]{1,63}$/.test(code) ? code : fallback;
+}
+
+function activityUnavailableReason(value) {
+  const reason = String(value || '');
+  return ['ConfigurationDisabled', 'ConfigurationUnavailable', 'OutsideDiscord'].includes(reason)
+    ? reason : 'Unavailable';
+}
+
 const STANDARD_GAMEPAD_BUTTONS = Object.freeze({
   gamepadfacebuttonbottom: 0,
   gamepadfacebuttonright: 1,
@@ -535,6 +571,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     this.discordEventSource = null;
     this.discordEventHandlers = [];
     this.discordAttachment = 0;
+    this.discordReadySnapshotAttachment = 0;
   }
   attachRuntime(runtime) {
     this.runtime = runtime;
@@ -554,6 +591,8 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
         this.discordEventSource?.removeEventListener?.(type, handler);
       }
       this.discordEventHandlers = [
+        ['statechange', ({ detail = {} }) => this.emitDiscordActivityState(activity, detail, attachment)],
+        ['warning', ({ detail = {} }) => this.emitDiscordActivityWarning(detail)],
         ['thermalstate', ({ detail = {} }) => this.runtime?.call('DiscordActivityThermalStateChanged', null, detail)],
         ['orientation', ({ detail = {} }) => this.runtime?.call('DiscordActivityOrientationChanged', null, detail)],
         ['layoutmode', ({ detail = {} }) => this.runtime?.call('DiscordActivityLayoutModeChanged', null, detail)],
@@ -570,19 +609,64 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
       ];
       this.discordEventSource = activity;
       for (const [type, handler] of this.discordEventHandlers) activity.addEventListener?.(type, handler);
-      if (activity.mode === 'ready') {
-        this.runtime?.call('DiscordActivityPresenceChanged', null, {
-          presenceJson: blueprintJson(activity.getPresenceState?.() || {}),
-        });
-        if (Array.isArray(activity.entitlements)) this.emitDiscordEntitlements(activity.entitlements);
-        Promise.resolve(activity.getParticipants?.()).then((participants) => {
-          if (participants && attachment === this.discordAttachment) this.emitDiscordParticipants(participants);
-        }).catch(() => {});
-      }
+      Promise.resolve().then(() => {
+        if (attachment === this.discordAttachment && activity === this.discordEventSource) {
+          this.emitDiscordActivityState(activity, activity.publicState || { mode: activity.mode }, attachment);
+        }
+      });
     };
     attach(this.discordActivity());
     const ready = this.eventTarget?.UE5HTML5?.activityReady;
     if (ready?.then) ready.then(attach).catch(() => {});
+  }
+  emitDiscordActivityState(activity, detail = {}, attachment = this.discordAttachment) {
+    const mode = String(detail.mode || activity?.mode || 'idle').toLowerCase();
+    const stateName = DISCORD_ACTIVITY_STATE_NAMES[mode] || 'Unknown';
+    this.runtime?.call('DiscordActivityConnectionStateChanged', null, { stateName });
+    if (mode === 'ready') {
+      this.runtime?.call('DiscordActivityReady', null, {});
+      this.emitDiscordReadySnapshots(activity, attachment);
+    } else if (mode === 'standalone') {
+      this.runtime?.call('DiscordActivityUnavailable', null, {
+        reason: activityUnavailableReason(detail.reason || activity?.publicState?.reason),
+      });
+    } else if (mode === 'error') {
+      this.runtime?.call('DiscordActivityError', null, {
+        errorCode: activityPublicCode(
+          detail.errorCode || activity?.publicState?.errorCode,
+          'ACTIVITY_CONNECTION_FAILED',
+        ),
+        errorMessage: 'Discord Activity connection failed. Check browser diagnostics for details.',
+      });
+    }
+  }
+  emitDiscordReadySnapshots(activity, attachment) {
+    if (attachment !== this.discordAttachment || this.discordReadySnapshotAttachment === attachment) return;
+    this.discordReadySnapshotAttachment = attachment;
+    this.runtime?.call('DiscordActivityPresenceChanged', null, {
+      presenceJson: blueprintJson(activity?.getPresenceState?.() || {}),
+    });
+    if (Array.isArray(activity?.entitlements)) this.emitDiscordEntitlements(activity.entitlements);
+    Promise.resolve(activity?.getParticipants?.()).then((participants) => {
+      if (participants && attachment === this.discordAttachment) this.emitDiscordParticipants(participants);
+    }).catch(() => {});
+  }
+  emitDiscordActivityWarning(detail = {}) {
+    const command = activityWarningCommand(detail.command);
+    const eventSubscriptionFailed = Boolean(detail.event);
+    const errorCode = activityPublicCode(detail.error?.code || detail.error?.status, '');
+    let warningCode = 'RecoverableOperation';
+    let warningMessage = 'A recoverable Discord Activity operation failed.';
+    if (command) {
+      warningCode = `UnsupportedCommand:${command}`;
+      warningMessage = `This Discord client does not support ${command}.`;
+    } else if (eventSubscriptionFailed) {
+      warningCode = 'EventSubscription';
+      warningMessage = 'A Discord event could not be subscribed.';
+    } else if (errorCode) {
+      warningCode = `RecoverableError:${errorCode}`;
+    }
+    this.runtime?.call('DiscordActivityWarning', null, { warningCode, warningMessage });
   }
   emitDiscordParticipants(participants = {}) {
     const list = Array.isArray(participants) ? participants : participants.participants || [];
@@ -820,6 +904,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
   }
   dispose() {
     ++this.discordAttachment;
+    this.discordReadySnapshotAttachment = 0;
     for (const [type, handler] of this.discordEventHandlers) {
       this.discordEventSource?.removeEventListener?.(type, handler);
     }

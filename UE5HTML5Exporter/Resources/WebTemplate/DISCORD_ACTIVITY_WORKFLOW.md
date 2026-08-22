@@ -188,6 +188,11 @@ The nodes return safe unavailable/default values during native Unreal play. Afte
 
 For automatic client display events, open **Class Settings → Implemented Interfaces**, add **UE5 HTML5 Discord Activity Listener**, and implement any of these interface events:
 
+- `Discord Activity Connection State Changed` — `Idle`, `Checking`, `Connecting`, `Ready`, `Unavailable`, `Error`, or `Disposed`
+- `Discord Activity Ready` — authorization, authentication, and private Realtime are ready for gameplay nodes
+- `Discord Activity Unavailable` — safe reason code such as `ConfigurationDisabled`, `ConfigurationUnavailable`, or `OutsideDiscord`
+- `Discord Activity Error` — normalized error code plus a fixed privacy-safe operator message
+- `Discord Activity Warning` — recoverable unsupported-command/event code plus a privacy-safe message
 - `Discord Activity Broadcast Received` — authenticated game event name, JSON payload, and replay flag
 - `Discord Activity Presence Changed` — complete opaque connection-state JSON
 - `Discord Activity Participants Changed` — current Discord participant JSON and count
@@ -196,7 +201,9 @@ For automatic client display events, open **Class Settings → Implemented Inter
 - `Discord Activity Orientation Changed` — `Portrait` or `Landscape`
 - `Discord Activity Layout Mode Changed` — `Focused`, `PictureInPicture`, or `Grid`
 
-The first four events remove the need to register JavaScript callbacks for normal multiplayer and storefront UI. Initial Presence, participants, and verified entitlements are delivered after the Blueprint runtime attaches, then updated automatically. Presence contains the exporter's random per-connection key and `{ connected: true }`; it does not contain a game-owned user profile. Participant data comes transiently from Discord's Embedded App SDK and is not stored by the exporter. Do not copy raw participant identifiers into saved game state unless the game has a separately documented need and privacy policy.
+The lifecycle events remove readiness polling from normal Blueprint flow. Use `Ready` to enable multiplayer/menu actions, `Unavailable` for the ordinary browser or disabled-backend fallback, `Error` for a retry screen, and `Warning` for optional features that an older Discord client does not support. Error objects, stack traces, tokens, user IDs, topics, and server payloads are never forwarded to Blueprint diagnostics; only normalized codes and fixed/bounded messages cross the bridge.
+
+The multiplayer events remove the need to register JavaScript callbacks for normal lobby and storefront UI. Initial Presence, participants, and verified entitlements are delivered whenever the runtime reaches `Ready`, including when Blueprints attached earlier during `Connecting`, then updated automatically. Presence contains the exporter's random per-connection key and `{ connected: true }`; it does not contain a game-owned user profile. Participant data comes transiently from Discord's Embedded App SDK and is not stored by the exporter. Do not copy raw participant identifiers into saved game state unless the game has a separately documented need and privacy policy.
 
 Display events expose both the exact Discord SDK integer and a readable name. Use thermal state to reduce particles, shadows, or tick frequency; use layout mode to simplify the HUD in picture-in-picture or grid; and use orientation to rearrange mobile controls. `Set Orientation Lock` accepts friendly enum values and optional picture-in-picture/grid overrides. These subscriptions and newer commands fail softly when an older Discord client does not expose them.
 

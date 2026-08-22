@@ -439,7 +439,11 @@ test('Discord display nodes and mobile lifecycle events map directly to Blueprin
   activity.dispatchEvent(new CustomEvent('layoutmode', {
     detail: { layoutMode: 2, layoutModeName: 'Grid' },
   }));
-  assert.deepEqual(eventCalls.filter(([name]) => name !== 'DiscordActivityPresenceChanged'), [
+  assert.deepEqual(eventCalls.filter(([name]) => [
+    'DiscordActivityThermalStateChanged',
+    'DiscordActivityOrientationChanged',
+    'DiscordActivityLayoutModeChanged',
+  ].includes(name)), [
     ['DiscordActivityThermalStateChanged', null, { thermalState: 3, thermalStateName: 'Critical' }],
     ['DiscordActivityOrientationChanged', null, { orientation: 0, orientationName: 'Portrait' }],
     ['DiscordActivityLayoutModeChanged', null, { layoutMode: 2, layoutModeName: 'Grid' }],
@@ -459,7 +463,12 @@ test('authenticated inbound Activity updates become transient Blueprint events',
   const eventTarget = new EventTarget();
   eventTarget.UE5HTML5 = { activity, activityReady: Promise.resolve(activity) };
   const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, eventTarget);
-  adapters.attachRuntime({ call: (...args) => eventCalls.push(args) });
+  let beginPlayComplete = false;
+  adapters.attachRuntime({ call: (...args) => {
+    assert.equal(beginPlayComplete, true, 'initial Activity state must follow Blueprint BeginPlay');
+    eventCalls.push(args);
+  } });
+  beginPlayComplete = true;
   await Promise.resolve();
   await Promise.resolve();
 
@@ -477,6 +486,8 @@ test('authenticated inbound Activity updates become transient Blueprint events',
   }));
 
   assert.deepEqual(eventCalls, [
+    ['DiscordActivityConnectionStateChanged', null, { stateName: 'Ready' }],
+    ['DiscordActivityReady', null, {}],
     ['DiscordActivityPresenceChanged', null, {
       presenceJson: '{"opaque-connection":[{"connected":true}]}',
     }],
@@ -501,5 +512,79 @@ test('authenticated inbound Activity updates become transient Blueprint events',
   ]);
   adapters.dispose();
   activity.dispatchEvent(new CustomEvent('broadcast', { detail: { event: 'late', payload: {} } }));
-  assert.equal(eventCalls.length, 7);
+  assert.equal(eventCalls.length, 9);
+});
+
+test('Discord lifecycle transitions and warnings reach Blueprint without raw diagnostics', async () => {
+  const activity = new EventTarget();
+  activity.mode = 'connecting';
+  activity.publicState = { mode: 'connecting' };
+  activity.entitlements = [{ skuId: 'premium' }];
+  activity.getPresenceState = () => ({ connection: [{ connected: true }] });
+  activity.getParticipants = async () => ({ participants: [{ id: 'opaque-player' }] });
+  const eventCalls = [];
+  const eventTarget = new EventTarget();
+  eventTarget.UE5HTML5 = { activity, activityReady: Promise.resolve(activity) };
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, eventTarget);
+  adapters.attachRuntime({ call: (...args) => eventCalls.push(args) });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  activity.dispatchEvent(new CustomEvent('warning', { detail: {
+    command: 'shareLink',
+    error: Object.assign(new Error('token=discord-access-token player@example.test'), { code: 4002 }),
+  } }));
+  activity.dispatchEvent(new CustomEvent('warning', { detail: {
+    command: 'player@example.test',
+    event: 'discord-access-token',
+    error: new Error('Bearer discord-access-token player@example.test'),
+  } }));
+  activity.dispatchEvent(new CustomEvent('statechange', { detail: {
+    mode: 'error',
+    errorCode: '401 invalid token',
+    error: new Error('Bearer discord-access-token player@example.test'),
+  } }));
+  activity.mode = 'ready';
+  activity.publicState = { mode: 'ready' };
+  activity.dispatchEvent(new CustomEvent('statechange', { detail: { mode: 'ready' } }));
+  await Promise.resolve();
+  await Promise.resolve();
+  activity.dispatchEvent(new CustomEvent('statechange', {
+    detail: { mode: 'standalone', reason: 'ConfigurationDisabled' },
+  }));
+
+  assert.deepEqual(eventCalls, [
+    ['DiscordActivityConnectionStateChanged', null, { stateName: 'Connecting' }],
+    ['DiscordActivityWarning', null, {
+      warningCode: 'UnsupportedCommand:shareLink',
+      warningMessage: 'This Discord client does not support shareLink.',
+    }],
+    ['DiscordActivityWarning', null, {
+      warningCode: 'EventSubscription',
+      warningMessage: 'A Discord event could not be subscribed.',
+    }],
+    ['DiscordActivityConnectionStateChanged', null, { stateName: 'Error' }],
+    ['DiscordActivityError', null, {
+      errorCode: 'ACTIVITY_CONNECTION_FAILED',
+      errorMessage: 'Discord Activity connection failed. Check browser diagnostics for details.',
+    }],
+    ['DiscordActivityConnectionStateChanged', null, { stateName: 'Ready' }],
+    ['DiscordActivityReady', null, {}],
+    ['DiscordActivityPresenceChanged', null, {
+      presenceJson: '{"connection":[{"connected":true}]}',
+    }],
+    ['DiscordActivityVerifiedEntitlementsChanged', null, {
+      entitlementsJson: '[{"skuId":"premium"}]', entitlementCount: 1,
+    }],
+    ['DiscordActivityParticipantsChanged', null, {
+      participantsJson: '{"participants":[{"id":"opaque-player"}]}', participantCount: 1,
+    }],
+    ['DiscordActivityConnectionStateChanged', null, { stateName: 'Unavailable' }],
+    ['DiscordActivityUnavailable', null, { reason: 'ConfigurationDisabled' }],
+  ]);
+  assert.doesNotMatch(JSON.stringify(eventCalls), /discord-access-token|player@example\.test/);
+
+  adapters.dispose();
+  activity.dispatchEvent(new CustomEvent('warning', { detail: { command: 'lateCommand' } }));
+  assert.equal(eventCalls.length, 12);
 });

@@ -35,6 +35,16 @@ function optionalText(value) {
   return text || undefined;
 }
 
+function publicActivityErrorCode(error) {
+  const candidate = error?.code ?? error?.status
+    ?? (error?.name && error.name !== 'Error' ? error.name : undefined);
+  const normalized = String(candidate || '').trim();
+  if (/^\d{3,6}$/.test(normalized) || /^[A-Z][A-Z0-9_]{1,63}$/.test(normalized)) {
+    return normalized;
+  }
+  return 'ACTIVITY_CONNECTION_FAILED';
+}
+
 function partySize(value, label) {
   const number = Number(value || 0);
   if (!Number.isSafeInteger(number) || number < 0) {
@@ -88,6 +98,7 @@ export class DiscordActivityBridge extends EventTarget {
     this.randomUUID = randomUUID || (() => `${Date.now()}-${Math.random()}`);
     this.configUrl = configUrl;
     this.mode = 'idle';
+    this.publicState = { mode: 'idle' };
     this.config = null;
     this.discord = null;
     this.discordAccessToken = null;
@@ -106,7 +117,12 @@ export class DiscordActivityBridge extends EventTarget {
 
   setMode(mode, detail = {}) {
     this.mode = mode;
-    this.dispatchEvent(activityEvent('statechange', { mode, ...detail }));
+    this.publicState = {
+      mode,
+      ...(optionalText(detail.reason) ? { reason: optionalText(detail.reason) } : {}),
+      ...(detail.error ? { errorCode: publicActivityErrorCode(detail.error) } : {}),
+    };
+    this.dispatchEvent(activityEvent('statechange', { mode, ...detail, ...this.publicState }));
   }
 
   async start() {
@@ -116,17 +132,20 @@ export class DiscordActivityBridge extends EventTarget {
     try {
       response = await this.fetchImpl(this.configUrl, { cache: 'no-store' });
     } catch {
-      this.setMode('standalone');
+      this.setMode('standalone', { reason: 'ConfigurationUnavailable' });
       return this;
     }
     if (!response.ok) {
-      this.setMode('standalone');
+      this.setMode('standalone', { reason: 'ConfigurationUnavailable' });
       return this;
     }
 
     this.config = await responseJson(response);
     if (!this.config.enabled || !isDiscordActivityContext(this.locationObject)) {
-      this.setMode('standalone', { configured: Boolean(this.config.enabled) });
+      this.setMode('standalone', {
+        configured: Boolean(this.config.enabled),
+        reason: this.config.enabled ? 'OutsideDiscord' : 'ConfigurationDisabled',
+      });
       return this;
     }
 

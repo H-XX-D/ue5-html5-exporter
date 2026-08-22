@@ -36,6 +36,12 @@ Broadcast uses the authenticated private Activity topic and is appropriate for g
 
 These event payloads are transient. The runtime does not write participant identity, Presence, Broadcast messages, or entitlements to local storage or Supabase. A project can explicitly save game-created state through the separate world/player save nodes.
 
+## Discord lifecycle events
+
+The listener interface emits `Connection State Changed`, `Ready`, `Unavailable`, `Error`, and `Warning` so a Blueprint can drive its loading, retry, offline, and optional-feature UI without polling JavaScript. The initial state is delivered after Blueprint `BeginPlay`; live transitions remain immediate. A transition to `Ready` also emits the initial Presence, participant, and verified-entitlement snapshots once per bridge attachment; this works even when the Blueprint runtime attached while authentication was still in progress.
+
+Diagnostics follow a strict privacy boundary. The bridge forwards normalized state/reason/error/command codes and fixed messages only. Raw SDK error objects, response bodies, stack traces, access tokens, user identifiers, private Realtime topics, and Supabase details stay out of Blueprint event arguments and are never persisted by this adapter.
+
 ## Replication and RPCs
 
 Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synchronized between tabs with `BroadcastChannel`. Add this optional field to the exported IR to use a server transport:
