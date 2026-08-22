@@ -1,6 +1,6 @@
 {
   "name": "ue5-html5-exporter",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,7 @@
     "dev": "vite --config web/vite.config.js",
     "install:plugin": "node scripts/install-plugin.mjs",
     "package:plugin": "node scripts/package-plugin.mjs",
+    "package:source": "node scripts/package-source-plugin.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {

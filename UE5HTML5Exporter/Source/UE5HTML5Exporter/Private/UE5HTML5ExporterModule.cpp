@@ -42,6 +42,50 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("ExportSelectionTooltip", "Export only selected actors as a ready-to-host WebGL site."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportInteractive, true)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5DiscordActivityReadiness",
+        LOCTEXT("DiscordActivityReadiness", "Check Discord Activity Readiness…"),
+        LOCTEXT("DiscordActivityReadinessTooltip", "Check whether this project can produce a complete Discord Activity handoff."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive)));
+}
+
+void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    const FUE5HTML5ReadinessReport Report = FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(World);
+
+    FString Message = Report.bReady
+        ? TEXT("READY TO EXPORT\n\nThis Unreal project can produce a complete Discord Activity handoff.\n")
+        : TEXT("NOT READY YET\n\nFix the blockers below, then run this check again.\n");
+
+    if (!Report.PassedChecks.IsEmpty())
+    {
+        Message += TEXT("\nPassed:\n");
+        for (const FString& Check : Report.PassedChecks)
+        {
+            Message += FString::Printf(TEXT("  + %s\n"), *Check);
+        }
+    }
+    if (!Report.Blockers.IsEmpty())
+    {
+        Message += TEXT("\nBlockers:\n");
+        for (const FString& Blocker : Report.Blockers)
+        {
+            Message += FString::Printf(TEXT("  - %s\n"), *Blocker);
+        }
+    }
+    if (!Report.Notes.IsEmpty())
+    {
+        Message += TEXT("\nHandoff notes:\n");
+        for (const FString& Note : Report.Notes)
+        {
+            Message += FString::Printf(TEXT("  * %s\n"), *Note);
+        }
+    }
+
+    FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
 }
 
 void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly)
@@ -86,7 +130,7 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly)
     }
 
     const FText Message = FText::Format(
-        LOCTEXT("ExportComplete", "Exported {0} actors to:\n{1}\n\nRun serve.py or any static HTTP server in that folder, then open the shown URL."),
+        LOCTEXT("ExportComplete", "Exported {0} actors to:\n{1}\n\nThe Unreal handoff is complete. Test locally with serve.py, or give the entire folder to the release operator; activity-handoff.json lists the remaining Discord hosting steps."),
         FText::AsNumber(Result.ActorCount),
         FText::FromString(Result.OutputDirectory));
     FMessageDialog::Open(EAppMsgType::Ok, Message);

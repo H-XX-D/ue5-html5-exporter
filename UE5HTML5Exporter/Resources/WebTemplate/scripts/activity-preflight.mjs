@@ -18,6 +18,7 @@ export const REQUIRED_EXPORT_FILES = [
   'assets/scene.glb',
   'logic/blueprints.json',
   'export-manifest.json',
+  'activity-handoff.json',
   'api/activity.mjs',
   'supabase/migrations/20260822094350_discord_activity_core.sql',
   'vercel.json',

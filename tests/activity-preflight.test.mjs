@@ -76,6 +76,18 @@ test('Activity package preflight checks artifacts and detects a browser-bundled 
   }
 });
 
+test('Activity package preflight requires the Unreal-to-release-operator handoff contract', () => {
+  assert.ok(REQUIRED_EXPORT_FILES.includes('activity-handoff.json'));
+  const root = exportFixture();
+  try {
+    rmSync(join(root, 'activity-handoff.json'));
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.ok(result.errors.includes('Export artifact is missing: activity-handoff.json'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('online preflight matches Discord app, Supabase signing key, migration, and private-table boundary', async () => {
   const env = validEnvironment();
   const calls = [];

@@ -17,6 +17,10 @@ import {
   parsePackageArgs,
   resolveRunUat,
 } from '../scripts/package-plugin.mjs';
+import {
+  packageSourcePlugin,
+  parseSourcePackageArgs,
+} from '../scripts/package-source-plugin.mjs';
 
 test('installer parses Windows paths without shell quoting assumptions', () => {
   const options = parseInstallArgs([
@@ -78,4 +82,41 @@ test('packager resolves native RunUAT launchers and target platform arguments', 
   assert.deepEqual(options.platforms, ['Win64', 'Linux']);
   assert.ok(invocation.args.includes('-TargetPlatforms=Win64+Linux'));
   assert.ok(invocation.args.includes(`-Package=${resolve(packageOutput)}`));
+});
+
+test('source packager creates a clean Windows teammate bundle without native intermediates', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-html5-source-package-'));
+  const source = join(root, 'Plugin');
+  const output = join(root, 'Bundle');
+  mkdirSync(join(source, 'Source'), { recursive: true });
+  mkdirSync(join(source, 'Resources', 'WebTemplate'), { recursive: true });
+  mkdirSync(join(source, 'Binaries'), { recursive: true });
+  mkdirSync(join(source, 'Intermediate'), { recursive: true });
+  writeFileSync(join(source, 'UE5HTML5Exporter.uplugin'), '{}');
+  writeFileSync(join(source, 'Source', 'portable.cpp'), 'source');
+  writeFileSync(join(source, 'Resources', 'WebTemplate', 'index.html'), '<html></html>');
+  writeFileSync(join(source, 'Binaries', 'native.bin'), 'native');
+  writeFileSync(join(source, 'Intermediate', 'object.o'), 'object');
+
+  const options = parseSourcePackageArgs(['--plugin', source, '--output', output]);
+  const result = packageSourcePlugin(options);
+  assert.equal(result.output, output);
+  assert.equal(readFileSync(join(output, 'UE5HTML5Exporter', 'Source', 'portable.cpp'), 'utf8'), 'source');
+  assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Binaries')), false);
+  assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Intermediate')), false);
+  assert.equal(existsSync(join(output, 'scripts', 'Install-UE5HTML5Exporter.ps1')), true);
+  assert.equal(existsSync(join(output, 'TEAM_INSTALL.md')), true);
+});
+
+test('source packager refuses Finder-style numbered duplicate files', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-html5-source-duplicate-'));
+  const source = join(root, 'Plugin');
+  mkdirSync(join(source, 'Resources', 'WebTemplate'), { recursive: true });
+  writeFileSync(join(source, 'UE5HTML5Exporter.uplugin'), '{}');
+  writeFileSync(join(source, 'Resources', 'WebTemplate', 'index.html'), '<html></html>');
+  writeFileSync(join(source, 'Resources', 'WebTemplate', 'index 2.html'), '<html></html>');
+  assert.throws(
+    () => packageSourcePlugin({ plugin: source, output: join(root, 'Bundle'), replace: false }),
+    /numbered duplicate files/,
+  );
 });

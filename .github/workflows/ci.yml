@@ -25,6 +25,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Create source teammate bundle
+        if: runner.os == 'Linux'
+        run: npm run package:source -- --output "$RUNNER_TEMP/UE5HTML5Exporter-Source"
+      - name: Upload source teammate bundle
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: UE5HTML5Exporter-Source
+          path: ${{ runner.temp }}/UE5HTML5Exporter-Source
+          if-no-files-found: error
       - name: Parse Windows PowerShell helpers
         if: runner.os == 'Windows'
         shell: pwsh

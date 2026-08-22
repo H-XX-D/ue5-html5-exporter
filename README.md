@@ -44,7 +44,7 @@ The web build is written into `UE5HTML5Exporter/Resources/WebTemplate`, where th
 
 The first compile must match your installed UE5 minor version. The plugin contains source, so Unreal Build Tool will build it for your engine.
 
-For a redistributable package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
+For a redistributable native package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. To make a portable source bundle that Unreal can compile for a teammate's installed engine, run `npm run package:source`. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
 
 ## Preview an export
 
@@ -59,6 +59,8 @@ Then open [http://localhost:8000](http://localhost:8000). Do not double-click `i
 Deploy by uploading the entire output folder to S3/CloudFront, GitHub Pages, Netlify, Vercel, Cloudflare Pages, or any ordinary static web server.
 
 For a Discord release, the export also contains a server-side Activity API, a default `vercel.json` deployment adapter, and the Supabase migration. Vercel is optional to Discord, but Supabase Storage is not used as the static HTML host. The frontend API URL can be changed with the `ue5-activity-api` meta tag in `index.html`. Follow [Discord Activity release workflow](docs/DISCORD_ACTIVITY_WORKFLOW.md). Without server configuration, the same output stays in standalone website mode.
+
+Before handing off a project, use **Tools → HTML5 Export → Check Discord Activity Readiness…** in Unreal. Every successful export includes `activity-handoff.json`, which separates completed Unreal work from the credentials, deployment, and two-player checks owned by the release operator.
 
 ## Discord nodes in Blueprint
 

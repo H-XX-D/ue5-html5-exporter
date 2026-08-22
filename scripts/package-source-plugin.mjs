@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const DEFAULT_PLUGIN = join(REPOSITORY_ROOT, 'UE5HTML5Exporter');
+
+export function parseSourcePackageArgs(argv) {
+  const options = { plugin: DEFAULT_PLUGIN, replace: false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--plugin') options.plugin = argv[++index];
+    else if (argument === '--output') options.output = argv[++index];
+    else if (argument === '--replace') options.replace = true;
+    else if (argument === '--help' || argument === '-h') options.help = true;
+    else throw new Error(`Unknown option: ${argument}`);
+  }
+  options.output ||= join(REPOSITORY_ROOT, 'dist', 'UE5HTML5Exporter-Source');
+  return options;
+}
+
+export function sourcePackageHelp() {
+  return `Create a portable source-only UE5HTML5Exporter teammate bundle.
+
+Usage:
+  node scripts/package-source-plugin.mjs [options]
+
+Options:
+  --plugin <directory>  Plugin source directory (default: repository plugin)
+  --output <directory>  Bundle output directory
+  --replace             Back up an existing output before packaging
+  -h, --help            Show this help
+
+The bundle contains the plugin, Windows installer, and handoff documentation.
+Unreal compiles the plugin for the teammate's installed engine version.`;
+}
+
+function requireFile(path, label) {
+  if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${label} was not found: ${path}`);
+}
+
+function requireDirectory(path, label) {
+  if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error(`${label} was not found: ${path}`);
+}
+
+function numberedDuplicateFiles(directory) {
+  const matches = [];
+  const visit = (current) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === 'Binaries' || entry.name === 'Intermediate' || entry.name === '.DS_Store') continue;
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (/ \d+(?=\.[^.]+$|$)/.test(entry.name)) matches.push(path);
+    }
+  };
+  visit(directory);
+  return matches;
+}
+
+export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
+  const plugin = resolve(rawOptions.plugin || DEFAULT_PLUGIN);
+  const output = resolve(rawOptions.output);
+  requireDirectory(plugin, 'Plugin directory');
+  requireFile(join(plugin, 'UE5HTML5Exporter.uplugin'), 'Plugin descriptor');
+  requireFile(join(plugin, 'Resources', 'WebTemplate', 'index.html'), 'Built web runtime');
+
+  const duplicates = numberedDuplicateFiles(plugin);
+  if (duplicates.length) {
+    throw new Error(`Refusing to package numbered duplicate files: ${duplicates.join(', ')}`);
+  }
+
+  let backup = null;
+  if (existsSync(output)) {
+    if (!rawOptions.replace) {
+      throw new Error(`Source package output already exists at ${output}. Re-run with --replace to back it up.`);
+    }
+    backup = `${output}.backup-${now.toISOString().replace(/[:.]/g, '-')}`;
+    if (existsSync(backup)) throw new Error(`Backup target already exists: ${backup}`);
+    renameSync(output, backup);
+  }
+
+  try {
+    mkdirSync(output, { recursive: true });
+    cpSync(plugin, join(output, 'UE5HTML5Exporter'), {
+      recursive: true,
+      errorOnExist: true,
+      filter(source) {
+        const name = basename(source);
+        return name !== '.DS_Store' && name !== 'Binaries' && name !== 'Intermediate';
+      },
+    });
+    mkdirSync(join(output, 'scripts'), { recursive: true });
+    cpSync(join(REPOSITORY_ROOT, 'scripts', 'Install-UE5HTML5Exporter.ps1'), join(output, 'scripts', 'Install-UE5HTML5Exporter.ps1'));
+    cpSync(join(REPOSITORY_ROOT, 'docs', 'TEAM_INSTALL.md'), join(output, 'TEAM_INSTALL.md'));
+    cpSync(join(REPOSITORY_ROOT, 'LICENSE'), join(output, 'LICENSE'));
+  } catch (error) {
+    if (existsSync(output)) rmSync(output, { recursive: true, force: true });
+    if (backup) renameSync(backup, output);
+    throw error;
+  }
+
+  return { plugin, output, backup };
+}
+
+function isMainModule() {
+  return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+}
+
+if (isMainModule()) {
+  try {
+    const options = parseSourcePackageArgs(process.argv.slice(2));
+    if (options.help) {
+      console.log(sourcePackageHelp());
+      process.exit(0);
+    }
+    const result = packageSourcePlugin(options);
+    console.log(`Created source teammate bundle at ${result.output}`);
+    if (result.backup) console.log(`Previous bundle backed up to ${result.backup}`);
+  } catch (error) {
+    console.error(`Source packaging failed: ${error.message}`);
+    process.exit(1);
+  }
+}

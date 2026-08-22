@@ -1,5 +1,18 @@
 # Team installation and Windows packaging
 
+## No-web-development teammate path
+
+The Unreal developer only needs to install the plugin, open the project, and use the **Tools → HTML5 Export** menu. Run **Check Discord Activity Readiness…** before exporting. A successful export is a complete handoff folder: `activity-handoff.json` tells the release operator what remains, while the Unreal developer can stay focused on the level and Blueprint gameplay.
+
+Create that portable source bundle from the repository with:
+
+```sh
+npm run build
+npm run package:source
+```
+
+Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HTML5Exporter-Source` artifact from a successful GitHub Actions CI run. The bundle intentionally excludes `Binaries` and `Intermediate`, so Unreal compiles it against the teammate's exact engine installation.
+
 The intended team workflow keeps Unreal developers inside Unreal. A release operator owns Discord, hosting, and Supabase configuration; level designers and Blueprint developers install the plugin and use familiar UE5 tools and nodes.
 
 ## Windows developer install
@@ -24,7 +37,7 @@ The installer refuses to overwrite an existing plugin. To update it while preser
 .\scripts\Install-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject" -SourceOnly -Replace
 ```
 
-`--replace` moves the existing folder to a timestamped `Project/.ue5html5-backups/` entry before copying. Backups stay recoverable without being rediscovered as duplicate Unreal plugins.
+`-Replace` moves the existing folder to a timestamped `Project/.ue5html5-backups/` entry before copying. Backups stay recoverable without being rediscovered as duplicate Unreal plugins.
 
 ## Produce a prebuilt Win64 package
 

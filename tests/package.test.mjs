@@ -78,6 +78,23 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /FUE5BlueprintGraphExporter::Export/);
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
+  assert.match(source, /activity-handoff\.json/);
+  assert.match(source, /ue5-discord-activity-handoff\/v1/);
+  for (const environmentName of [
+    'DISCORD_BOT_TOKEN', 'SUPABASE_PUBLISHABLE_KEY',
+    'SUPABASE_JWT_PRIVATE_KEY', 'ACTIVITY_STATE_SECRET',
+  ]) assert.match(source, new RegExp(environmentName));
+  assert.doesNotMatch(source, /ACTIVITY_SESSION_SECRET|SUPABASE_JWT_SECRET/);
+});
+
+test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
+  const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
+  const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
+  assert.match(module, /Check Discord Activity Readiness/);
+  assert.match(module, /CheckDiscordActivityReadinessInteractive/);
+  assert.match(library, /CheckDiscordActivityReadiness/);
+  assert.match(library, /GLTFExporter/);
+  assert.match(library, /release operator supplies Discord and Supabase configuration/);
 });
 
 test('Blueprint exporter preserves graph pins and writes browser IR', () => {
