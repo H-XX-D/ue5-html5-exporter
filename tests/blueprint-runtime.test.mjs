@@ -221,6 +221,61 @@ test('routes Enhanced Input mapping phases through matching exec pins', () => {
   adapters.dispose();
 });
 
+test('polls standard browser gamepads for UE Enhanced Input phases and stick axes', () => {
+  const buttons = Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }));
+  const gamepad = { connected: true, mapping: 'standard', axes: [0.6, -0.4, -0.25, 0.5], buttons };
+  let connected = [gamepad];
+  const eventTarget = {
+    navigator: { getGamepads: () => connected },
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const document = {
+    inputMappings: [
+      { action: 'IA_Move', context: '/Game/Input/IMC_Player', key: 'Gamepad_Left2D', valueType: 2, modifiers: ['InputModifierDeadZone'] },
+      { action: 'IA_Look', context: '/Game/Input/IMC_Player', key: 'Gamepad_Right2D', valueType: 2, modifiers: ['InputModifierDeadZone'] },
+      { action: 'IA_Jump', context: '/Game/Input/IMC_Player', key: 'Gamepad_FaceButton_Bottom', valueType: 0 },
+    ],
+  };
+  const calls = [];
+  const adapters = new BrowserRuntimeAdapters(new THREE.Group(), document, {}, eventTarget);
+  adapters.attachRuntime({ instances: [], call(action, actor, args) { calls.push({ action, actor, args }); } });
+
+  buttons[0] = { pressed: true, value: 1 };
+  adapters.tick(1 / 60);
+  const startedMove = calls.find((call) => call.action === 'IA_Move');
+  const startedLook = calls.find((call) => call.action === 'IA_Look');
+  assert.equal(startedMove.args.triggerEvent, 'Started');
+  assert.ok(startedMove.args.value.x > startedMove.args.value.y && startedMove.args.value.y > 0, 'left-stick Y must be converted from browser-down to UE-up');
+  assert.equal(startedMove.args.actionValue_X, startedMove.args.value.x);
+  assert.equal(startedMove.args.actionValue_Y, startedMove.args.value.y);
+  assert.equal(startedLook.args.triggerEvent, 'Started');
+  assert.ok(startedLook.args.value.x < 0 && startedLook.args.value.y < 0, 'right-stick axes must preserve X and invert browser Y');
+  assert.equal(startedLook.args.actionValue_X, startedLook.args.value.x);
+  assert.equal(startedLook.args.actionValue_Y, startedLook.args.value.y);
+  assert.equal(calls.find((call) => call.action === 'IA_Jump').args.triggerEvent, 'Started');
+
+  calls.length = 0;
+  adapters.tick(1 / 60);
+  assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), ['Triggered', 'Triggered', 'Triggered']);
+
+  calls.length = 0;
+  adapters.input.removeContext('/Game/Input/IMC_Player');
+  adapters.tick(1 / 60);
+  assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), ['Completed', 'Completed', 'Completed']);
+
+  calls.length = 0;
+  adapters.input.addContext('/Game/Input/IMC_Player');
+  adapters.tick(1 / 60);
+  assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), ['Started', 'Started', 'Started']);
+
+  calls.length = 0;
+  connected = [];
+  adapters.tick(1 / 60);
+  assert.deepEqual(calls.filter((call) => !call.action.startsWith('InputAction_')).map((call) => call.args.triggerEvent), ['Completed', 'Completed', 'Completed']);
+  adapters.dispose();
+});
+
 test('maps asynchronous Blueprint function output fields after the latent action completes', async () => {
   const nodes = [
     { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('save', 'execute')] })] },

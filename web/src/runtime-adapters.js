@@ -8,6 +8,71 @@ const normalizeInputKey = (value) => {
   return { spacebar: 'space', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright' }[key] || key;
 };
 
+const STANDARD_GAMEPAD_BUTTONS = Object.freeze({
+  gamepadfacebuttonbottom: 0,
+  gamepadfacebuttonright: 1,
+  gamepadfacebuttonleft: 2,
+  gamepadfacebuttontop: 3,
+  gamepadleftshoulder: 4,
+  gamepadrightshoulder: 5,
+  gamepadlefttrigger: 6,
+  gamepadlefttriggeraxis: 6,
+  gamepadrighttrigger: 7,
+  gamepadrighttriggeraxis: 7,
+  gamepadspecialleft: 8,
+  gamepadspecialright: 9,
+  gamepadleftthumbstick: 10,
+  gamepadrightthumbstick: 11,
+  gamepaddpadup: 12,
+  gamepaddpaddown: 13,
+  gamepaddpadleft: 14,
+  gamepaddpadright: 15,
+});
+
+const STANDARD_GAMEPAD_AXES = Object.freeze({
+  gamepadleftx: [0, 1],
+  gamepadlefty: [1, -1],
+  gamepadrightx: [2, 1],
+  gamepadrighty: [3, -1],
+});
+
+const STANDARD_GAMEPAD_DIRECTIONS = Object.freeze({
+  gamepadleftstickup: [1, -1],
+  gamepadleftstickdown: [1, 1],
+  gamepadleftstickleft: [0, -1],
+  gamepadleftstickright: [0, 1],
+  gamepadrightstickup: [3, -1],
+  gamepadrightstickdown: [3, 1],
+  gamepadrightstickleft: [2, -1],
+  gamepadrightstickright: [2, 1],
+});
+
+const inputMagnitude = (value) => typeof value === 'number'
+  ? Math.abs(value)
+  : Math.hypot(Number(value?.x || 0), Number(value?.y || 0));
+
+const applyDeadZone = (value, threshold = 0.2) => {
+  const magnitude = inputMagnitude(value);
+  if (magnitude <= threshold) return typeof value === 'number' ? 0 : { x: 0, y: 0 };
+  const scaledMagnitude = Math.min(1, (magnitude - threshold) / (1 - threshold));
+  if (typeof value === 'number') return Math.sign(value) * scaledMagnitude;
+  const scale = scaledMagnitude / magnitude;
+  return { x: Number(value?.x || 0) * scale, y: Number(value?.y || 0) * scale };
+};
+
+const inputActionArgs = (value, triggerEvent, context) => {
+  const vector = value && typeof value === 'object' ? value : null;
+  return {
+    value,
+    actionValue: value,
+    actionValue_X: vector ? Number(vector.x || 0) : Number(value || 0),
+    actionValue_Y: vector ? Number(vector.y || 0) : 0,
+    actionValue_Z: vector ? Number(vector.z || 0) : 0,
+    triggerEvent,
+    context,
+  };
+};
+
 export class RuntimeEventBus {
   constructor() { this.listeners = new Map(); }
   on(event, listener) {
@@ -91,6 +156,7 @@ class EnhancedInputAdapter {
     this.runtime = null;
     this.down = new Set();
     this.handlers = [];
+    this.gamepadState = new Map();
     this.activeContexts = new Set((blueprintIr.inputMappings || []).map((mapping) => normalize(mapping.context)).filter(Boolean));
   }
   attach(runtime) {
@@ -108,7 +174,7 @@ class EnhancedInputAdapter {
           const scalar = pressed ? Number(mapping.scale ?? 1) * (negated ? -1 : 1) : 0;
           const swizzled = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('swizzle'));
           const value = Number(mapping.valueType) === 2 ? { x: swizzled ? 0 : scalar, y: swizzled ? scalar : 0 } : scalar;
-          const args = { value, actionValue: value, triggerEvent, context: mapping.context };
+          const args = inputActionArgs(value, triggerEvent, mapping.context);
           this.runtime.call(mapping.action, null, args);
           this.runtime.call(`InputAction_${mapping.action}`, null, args);
         }
@@ -124,7 +190,7 @@ class EnhancedInputAdapter {
         if (mapping.context && !this.activeContexts.has(normalize(mapping.context))) continue;
         const negated = (mapping.modifiers || []).some((modifier) => normalize(modifier).includes('negate'));
         const value = { x: event.movementX, y: event.movementY * (negated ? -1 : 1) };
-        const args = { value, actionValue: value, triggerEvent: 'Triggered', context: mapping.context };
+        const args = inputActionArgs(value, 'Triggered', mapping.context);
         this.runtime.call(mapping.action, null, args);
         this.runtime.call(`InputAction_${mapping.action}`, null, args);
       }
@@ -135,7 +201,71 @@ class EnhancedInputAdapter {
   addContext(context) { this.activeContexts.add(normalize(context?.name || context)); }
   removeContext(context) { this.activeContexts.delete(normalize(context?.name || context)); }
   axis(positive, negative) { return Number(this.down.has(normalize(positive))) - Number(this.down.has(normalize(negative))); }
-  dispose() { for (const [type, listener] of this.handlers) this.eventTarget?.removeEventListener(type, listener); }
+  gamepads() {
+    const source = this.eventTarget?.navigator || globalThis.navigator;
+    if (typeof source?.getGamepads !== 'function') return [];
+    try { return Array.from(source.getGamepads() || []).filter((gamepad) => gamepad && gamepad.connected !== false); }
+    catch { return []; }
+  }
+  buttonValue(gamepad, index) {
+    const button = gamepad?.buttons?.[index];
+    if (typeof button === 'number') return button;
+    return Math.max(Number(button?.value || 0), button?.pressed ? 1 : 0);
+  }
+  rawGamepadValue(mapping, gamepad) {
+    const key = normalize(mapping.key);
+    if (key === 'gamepadleft2d') return { x: Number(gamepad?.axes?.[0] || 0), y: -Number(gamepad?.axes?.[1] || 0) };
+    if (key === 'gamepadright2d') return { x: Number(gamepad?.axes?.[2] || 0), y: -Number(gamepad?.axes?.[3] || 0) };
+    if (STANDARD_GAMEPAD_BUTTONS[key] !== undefined) return this.buttonValue(gamepad, STANDARD_GAMEPAD_BUTTONS[key]);
+    if (STANDARD_GAMEPAD_AXES[key]) {
+      const [axis, direction] = STANDARD_GAMEPAD_AXES[key];
+      return Number(gamepad?.axes?.[axis] || 0) * direction;
+    }
+    if (STANDARD_GAMEPAD_DIRECTIONS[key]) {
+      const [axis, direction] = STANDARD_GAMEPAD_DIRECTIONS[key];
+      return Math.max(0, Number(gamepad?.axes?.[axis] || 0) * direction);
+    }
+    return undefined;
+  }
+  gamepadValue(mapping, gamepads) {
+    let selected;
+    for (const gamepad of gamepads) {
+      const candidate = this.rawGamepadValue(mapping, gamepad);
+      if (candidate === undefined) continue;
+      if (selected === undefined || inputMagnitude(candidate) > inputMagnitude(selected)) selected = candidate;
+    }
+    if (selected === undefined) return undefined;
+    const modifiers = (mapping.modifiers || []).map(normalize);
+    const deadZoned = modifiers.some((modifier) => modifier.includes('deadzone')) ? applyDeadZone(selected) : selected;
+    const scale = Number(mapping.scale ?? 1);
+    return typeof deadZoned === 'number'
+      ? deadZoned * scale
+      : { x: deadZoned.x * scale, y: deadZoned.y * scale };
+  }
+  tick() {
+    if (!this.runtime) return;
+    const gamepads = this.gamepads();
+    for (const [index, mapping] of (this.blueprintIr.inputMappings || []).entries()) {
+      const raw = this.rawGamepadValue(mapping, gamepads[0]);
+      if (raw === undefined && !this.gamepadState.has(index)) continue;
+      const contextActive = !mapping.context || this.activeContexts.has(normalize(mapping.context));
+      const value = contextActive ? this.gamepadValue(mapping, gamepads) : undefined;
+      const current = value ?? (Number(mapping.valueType) === 2 ? { x: 0, y: 0 } : 0);
+      const active = inputMagnitude(current) > 0.0001;
+      const previous = this.gamepadState.get(index) || { active: false };
+      const triggerEvent = active ? (previous.active ? 'Triggered' : 'Started') : (previous.active ? 'Completed' : null);
+      if (triggerEvent) {
+        const args = inputActionArgs(current, triggerEvent, mapping.context);
+        this.runtime.call(mapping.action, null, args);
+        this.runtime.call(`InputAction_${mapping.action}`, null, args);
+      }
+      this.gamepadState.set(index, { active });
+    }
+  }
+  dispose() {
+    for (const [type, listener] of this.handlers) this.eventTarget?.removeEventListener(type, listener);
+    this.gamepadState.clear();
+  }
 }
 
 class CollisionAdapter {
@@ -391,7 +521,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
   registerFunction(name, implementation) { this.customFunctions.set(normalize(name), implementation); }
   attachGameplayController(controller) { this.gameplayController = controller; }
   variableChanged(instance, variable, value) { this.replication.changed(instance, variable, value); }
-  tick(delta) { this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
+  tick(delta) { this.input.tick(); this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
   discordActivity() { return this.eventTarget?.UE5HTML5?.activity || null; }
   callDiscordActivity(name, args) {
     const activity = this.discordActivity();

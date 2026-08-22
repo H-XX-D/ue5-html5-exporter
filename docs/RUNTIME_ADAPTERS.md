@@ -8,7 +8,9 @@ This is a compatibility runtime, not Unreal Engine running in WebAssembly. A rep
 
 Legacy project mappings and every `UInputMappingContext` asset are exported. Enhanced mappings retain context, action, key, value type, modifier class names, and trigger class names. The browser emits `Started`, `Triggered`, and `Completed`; Negate modifiers are applied. Blueprint calls to `AddMappingContext` and `RemoveMappingContext` activate or deactivate a context.
 
-Complex chord, hold, combo, dead-zone, and custom trigger semantics need a project adapter.
+The runtime polls the browser's standard Gamepad API on every frame. UE face buttons, shoulders, triggers, special buttons, thumbstick clicks, D-pad buttons, `Gamepad_Left2D`, `Gamepad_Right2D`, component axes, and stick-direction keys map to the standard browser layout. Browser-positive-down stick Y is converted to UE-positive-up, disconnected devices emit `Completed`, and exported `InputModifierDeadZone` mappings receive a radial 0.2 dead zone. When several controllers are connected, each mapping uses the controller with the strongest current value.
+
+Custom dead-zone parameters are not present in the current IR, so the browser uses the default 0.2 threshold. Complex chord, hold, combo, custom scalar, and custom trigger semantics need a project adapter.
 
 ## Desktop and mobile first-person input
 
@@ -18,7 +20,7 @@ Touch-capable devices automatically receive a virtual movement stick, drag-to-lo
 
 The controller first dispatches the stock UE5 First Person events `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` into the exported Blueprint VM, including `Axis`, `Axis_X`, and `Axis_Y` values. When a project implements one of those events, its Blueprint branch owns the behavior. When it does not, the controller uses its built-in portable fallback. This prevents the Blueprint and fallback paths from applying movement or look input twice.
 
-This automatic layer makes the standard UE5 first-person template playable without authoring a second web UI. Project-specific gestures, remappable mobile layouts, gamepad UI, haptics, and complex Enhanced Input trigger semantics still require a project adapter.
+This automatic layer makes the standard UE5 first-person template playable without authoring a second web UI. Project-specific gestures, remappable mobile layouts, controller-remapping UI, haptics, and complex Enhanced Input trigger semantics still require a project adapter.
 
 ## Replication and RPCs
 

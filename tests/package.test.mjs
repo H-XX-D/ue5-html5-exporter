@@ -73,6 +73,9 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(viewer, /discordactivitystartpurchase/);
   assert.match(viewer, /discordactivitysetrichpresence/);
   assert.match(viewer, /discordactivitysharelink/);
+  assert.match(viewer, /getGamepads/);
+  assert.match(viewer, /gamepadfacebuttonbottom/);
+  assert.match(viewer, /gamepadleft2d/);
   assert.match(activity, /startPurchase/);
   assert.match(activity, /setRichPresence/);
   assert.match(activity, /shareLink/);
