@@ -16,6 +16,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Commandlet support for CI or batch export
 - Output that works on any static host
 - Discord Activity Blueprint nodes plus Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
+- A dry-run-first cross-platform release command that links the explicitly selected Supabase/Vercel projects, migrates, verifies, and deploys without printing server secrets
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 
 ## Build the plugin
@@ -59,6 +60,8 @@ Then open [http://localhost:8000](http://localhost:8000). Do not double-click `i
 Deploy by uploading the entire output folder to S3/CloudFront, GitHub Pages, Netlify, Vercel, Cloudflare Pages, or any ordinary static web server.
 
 For a Discord release, the export also contains a server-side Activity API, a default `vercel.json` deployment adapter, and the Supabase migration. Vercel is optional to Discord, but Supabase Storage is not used as the static HTML host. The frontend API URL can be changed with the `ue5-activity-api` meta tag in `index.html`. Follow [Discord Activity release workflow](docs/DISCORD_ACTIVITY_WORKFLOW.md). Without server configuration, the same output stays in standalone website mode.
+
+Inside an exported folder, `npm run release:activity -- --env-file .env.activity.local --supabase-project-ref YOUR_REF --vercel-project YOUR_PROJECT` prints the complete release plan without changing either service. Add `--apply` only after reviewing the selected projects. Windows, macOS, and Linux use the same command.
 
 Before handing off a project, use **Tools → HTML5 Export → Check Discord Activity Readiness…** in Unreal. Every successful export includes `activity-handoff.json`, which separates completed Unreal work from the credentials, deployment, and two-player checks owned by the release operator.
 

@@ -48,6 +48,7 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/.env.example',
     'Resources/WebTemplate/DISCORD_ACTIVITY_WORKFLOW.md',
     'Resources/WebTemplate/scripts/activity-preflight.mjs',
+    'Resources/WebTemplate/scripts/activity-release.mjs',
   ]) assert.ok(existsSync(new URL(path, plugin)), `${path} is missing; run npm run build`);
 
   const migrationDirectory = new URL('Resources/WebTemplate/supabase/migrations/', plugin);
@@ -60,6 +61,7 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.equal(deploymentPackage.scripts.preflight, 'node scripts/activity-preflight.mjs');
   assert.equal(deploymentPackage.scripts['preflight:package'], 'node scripts/activity-preflight.mjs --package-only');
   assert.equal(deploymentPackage.scripts['preflight:online'], 'node scripts/activity-preflight.mjs --online');
+  assert.equal(deploymentPackage.scripts['release:activity'], 'node scripts/activity-release.mjs');
   const runtimeFiles = readdirSync(new URL('Resources/WebTemplate/runtime/', plugin));
   const viewerFile = runtimeFiles.find((name) => /^viewer-[A-Za-z0-9_-]+\.js$/.test(name));
   const activityFile = runtimeFiles.find((name) => /^discord-activity-[A-Za-z0-9_-]+\.js$/.test(name));

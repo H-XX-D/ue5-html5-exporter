@@ -20,6 +20,7 @@ export const REQUIRED_EXPORT_FILES = [
   'export-manifest.json',
   'activity-handoff.json',
   'api/activity.mjs',
+  'scripts/activity-release.mjs',
   'supabase/migrations/20260822094350_discord_activity_core.sql',
   'vercel.json',
   'package.json',

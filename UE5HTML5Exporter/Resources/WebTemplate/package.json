@@ -8,7 +8,8 @@
   "scripts": {
     "preflight": "node scripts/activity-preflight.mjs",
     "preflight:package": "node scripts/activity-preflight.mjs --package-only",
-    "preflight:online": "node scripts/activity-preflight.mjs --online"
+    "preflight:online": "node scripts/activity-preflight.mjs --online",
+    "release:activity": "node scripts/activity-release.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.3",

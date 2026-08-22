@@ -28,7 +28,8 @@ namespace
             TEXT("package.json"),
             TEXT(".env.example"),
             TEXT("DISCORD_ACTIVITY_WORKFLOW.md"),
-            TEXT("scripts/activity-preflight.mjs")
+            TEXT("scripts/activity-preflight.mjs"),
+            TEXT("scripts/activity-release.mjs")
         };
         return Files;
     }
@@ -57,6 +58,7 @@ namespace
         Activity->SetStringField(TEXT("persistenceAdapter"), TEXT("supabase"));
         Activity->SetStringField(TEXT("configurationStatus"), TEXT("release-operator-required"));
         Activity->SetStringField(TEXT("workflow"), TEXT("DISCORD_ACTIVITY_WORKFLOW.md"));
+        Activity->SetStringField(TEXT("releaseTool"), TEXT("scripts/activity-release.mjs"));
         Root->SetObjectField(TEXT("discordActivity"), Activity);
 
         TArray<TSharedPtr<FJsonValue>> RequiredEnvironment;
@@ -71,11 +73,11 @@ namespace
         Root->SetArrayField(TEXT("releaseEnvironment"), RequiredEnvironment);
 
         TArray<TSharedPtr<FJsonValue>> ReleaseSteps;
-        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install and npm run preflight:package in this folder.")));
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Select a Discord test Activity and a Supabase project; do not reuse an existing production app by accident.")));
-        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Apply the included Supabase migration and configure server-only environment values.")));
-        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Deploy to an HTTPS host and map the public URL in the Discord Developer Portal.")));
-        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm run preflight:online and test with two Discord participants.")));
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Re-run the release tool with --apply to migrate Supabase, configure Vercel, verify services, and create a deployment.")));
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Copy the two printed URL mappings into the Discord Developer Portal.")));
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Launch the deployment inside Discord and test with two participants.")));
         Root->SetArrayField(TEXT("releaseSteps"), ReleaseSteps);
 
         TSharedRef<FJsonObject> Privacy = MakeShared<FJsonObject>();

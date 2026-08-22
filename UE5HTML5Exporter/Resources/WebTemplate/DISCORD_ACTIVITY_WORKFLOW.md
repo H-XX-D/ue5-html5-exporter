@@ -39,6 +39,34 @@ Supabase is the persistence/Realtime layer, not the static game host: Supabase S
 
 The migration explicitly revokes browser access to both state tables and grants only the server-side secret role access to the atomic save functions. Realtime authorization accepts short-lived `authenticated` JWTs only when their opaque `activity_topic` claim exactly matches the private channel being joined. Raw Discord IDs, names, avatars, email, OAuth tokens, entitlements, and billing data are not stored. Rotating `ACTIVITY_STATE_SECRET` invalidates all Activity session cookies and changes the opaque state keys, so plan a state migration before rotating it in production.
 
+### Guided cross-platform release
+
+The exported folder includes one Node.js 22 release command that runs unchanged in PowerShell, Terminal, or a Linux shell. It is dry-run-only unless `--apply` is present, checks that `SUPABASE_URL` matches the explicitly selected project ref, and refuses to silently switch an existing Vercel link.
+
+Create a gitignored environment file from `.env.example`, then review the exact project plan:
+
+```bash
+npm install
+npm run release:activity -- \
+  --env-file .env.activity.local \
+  --supabase-project-ref YOUR_PROJECT_REF \
+  --vercel-project YOUR_VERCEL_PROJECT
+```
+
+On Windows PowerShell, enter the same command on one line. `--generate-state-secret` generates `ACTIVITY_STATE_SECRET` in memory when the file omits it. The generated value is sent directly to Vercel as sensitive input and is never printed or written back to the file.
+
+After reviewing the dry-run, add `--apply`. The tool then:
+
+1. verifies the exported package and complete private configuration;
+2. verifies both CLIs are installed;
+3. links the exact Vercel and Supabase projects;
+4. runs `supabase db push --dry-run` before applying pending migrations;
+5. sends sensitive Vercel variables through process stdin rather than command arguments;
+6. runs the read-only Discord/Supabase online identity and security preflight;
+7. creates a Vercel Preview deployment and prints the two Discord URL mappings.
+
+For production, `--environment production --apply` creates a staged deployment with `--skip-domain`; the tool never promotes production automatically. Use `--no-migrate` or `--no-deploy` when an operator intentionally owns that step separately.
+
 ## 2. Vercel
 
 From the UE5-exported folder:
@@ -48,6 +76,8 @@ node --version
 npm run preflight:package
 vercel
 ```
+
+The guided `npm run release:activity` command above performs these checks and Vercel/Supabase steps together. The manual commands in this section remain available for troubleshooting and custom hosts.
 
 `preflight:package` verifies that Unreal produced every required scene, Blueprint, API, migration, and deployment artifact. It also scans browser-visible text for any server secret already present in the shell environment. Run the full environment check before deploying by exposing the Vercel values to that one command (or by using a temporary, gitignored environment file):
 

@@ -15,6 +15,8 @@ Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HT
 
 The intended team workflow keeps Unreal developers inside Unreal. A release operator owns Discord, hosting, and Supabase configuration; level designers and Blueprint developers install the plugin and use familiar UE5 tools and nodes.
 
+The release operator does not need to assemble hosting commands by hand. Every export includes `scripts/activity-release.mjs`; `npm run release:activity` prints a dry-run plan, and an explicit `--apply` performs the selected Supabase/Vercel setup and creates a Preview deployment. The same Node.js 22 command runs on Windows, macOS, and Linux, and secret values are sent to Vercel through stdin rather than command arguments.
+
 ## Windows developer install
 
 Requirements:
