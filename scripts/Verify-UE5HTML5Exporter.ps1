@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$EngineRoot,
+
+    [string]$LauncherManifest,
+
+    [string]$VsWhere,
 
     [Parameter(Mandatory = $true)]
     [string]$Project,
@@ -18,12 +21,28 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$enginePath = (Resolve-Path -LiteralPath $EngineRoot).Path
+$module = Join-Path $PSScriptRoot 'UE5HTML5Tools.psm1'
+if (-not (Test-Path -LiteralPath $module -PathType Leaf)) {
+    throw "Windows tooling module was not found: $module"
+}
+Import-Module $module -Force
 $projectPath = (Resolve-Path -LiteralPath $Project).Path
-$pluginPath = (Resolve-Path -LiteralPath $Plugin).Path
 if ([System.IO.Path]::GetExtension($projectPath) -ne '.uproject') {
     throw "Expected a .uproject file: $projectPath"
 }
+$projectDescriptor = Get-Content -LiteralPath $projectPath -Raw | ConvertFrom-Json
+$engineAssociation = [string]$projectDescriptor.EngineAssociation
+$workstationParameters = @{ RequireVisualStudio = $true; RequireNode = $true }
+if ($EngineRoot) { $workstationParameters.EngineRoot = $EngineRoot }
+if ($LauncherManifest) { $workstationParameters.LauncherManifest = $LauncherManifest }
+if ($VsWhere) { $workstationParameters.VsWhere = $VsWhere }
+if ($engineAssociation) { $workstationParameters.EngineAssociation = $engineAssociation }
+$workstation = Get-UE5HTML5WorkstationReport @workstationParameters
+if (-not $workstation.ready) {
+    throw "Windows workstation is not ready:`n- $($workstation.blockers -join "`n- ")"
+}
+$enginePath = $workstation.engineRoot
+$pluginPath = (Resolve-Path -LiteralPath $Plugin).Path
 if ($Map -notmatch '^/Game/') {
     throw "Map must be an Unreal content path beginning with /Game/: $Map"
 }
@@ -83,6 +102,10 @@ $report = [ordered]@{
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     platform = 'Win64'
     exporterVersion = $descriptor.VersionName
+    engineVersion = $workstation.engineVersion
+    visualStudioVersion = $workstation.visualStudio.version
+    windowsSdkVersion = $workstation.windowsSdkVersion
+    nodeVersion = $workstation.nodeVersion
     projectFile = [System.IO.Path]::GetFileName($projectPath)
     map = $Map
     pluginPackageArtifact = 'UE5HTML5Exporter-Win64'

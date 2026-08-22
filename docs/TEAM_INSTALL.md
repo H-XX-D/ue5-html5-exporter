@@ -22,10 +22,22 @@ The release operator does not need to assemble hosting commands by hand. Every e
 Requirements:
 
 - Unreal Engine 5.3 or newer with the built-in **glTF Exporter** plugin
-- Visual Studio 2022 with **Game development with C++**, the matching Windows SDK, and Unreal tools
+- For UE 5.8 source builds: Visual Studio 2022 17.14+ or Visual Studio 2026 18.0+, **Game development with C++**, Visual Studio Tools for Unreal Engine, and Windows SDK 10.0.22621+
 - Node.js 22.12 or newer only when rebuilding/testing the browser runtime; ordinary source or prebuilt plugin installation uses PowerShell
 
-From PowerShell in this repository:
+From PowerShell in this repository or source bundle, the recommended one-command setup is:
+
+```powershell
+.\scripts\Setup-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject"
+```
+
+The setup tool reads the project's `EngineAssociation`, discovers the matching Epic Launcher installation, checks the supported Visual Studio workload and Windows SDK when a source compile is needed, and installs the plugin. It refuses to select a newer engine minor version silently. Use `-CheckOnly` for a non-mutating workstation doctor or `-CheckOnly -Json` for automation:
+
+```powershell
+.\scripts\Setup-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject" -CheckOnly
+```
+
+An explicit `-EngineRoot` remains available when intentionally upgrading an Unreal project. To install manually without the doctor:
 
 ```powershell
 .\scripts\Install-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject" -SourceOnly
@@ -43,7 +55,7 @@ The installer refuses to overwrite an existing plugin. To update it while preser
 
 ## Produce a prebuilt Win64 package
 
-Build on Windows using the same UE minor version as the team:
+Build on Windows using the same UE minor version as the team. `-EngineRoot` is optional when Epic Launcher metadata is available:
 
 ```powershell
 .\scripts\Package-UE5HTML5Exporter.ps1 -EngineRoot "C:\Program Files\Epic Games\UE_5.8" -Platform Win64 -Output "C:\UEPlugins\UE5HTML5Exporter-UE5.8-Win64"
@@ -56,6 +68,8 @@ Give that output folder to teammates. They can install it without `--source-only
 ```
 
 A prebuilt plugin is tied to its UE minor version and target operating system. Package UE 5.7 and UE 5.8 separately. macOS cannot prove a Win64 Unreal binary; the repository's manually triggered Windows workflow requires a self-hosted runner labeled `Windows` and `ue5` with Unreal already installed.
+
+The workflow and local scripts use the same workstation report. The workflow may leave `engine_root` blank to discover the newest valid Epic Launcher installation; a real project certification instead follows that project's engine association.
 
 ## Certify the complete Windows handoff
 

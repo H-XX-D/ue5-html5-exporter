@@ -40,10 +40,18 @@ jobs:
         shell: pwsh
         run: |
           $allErrors = @()
-          foreach ($script in @('Install-UE5HTML5Exporter.ps1', 'Package-UE5HTML5Exporter.ps1', 'Verify-UE5HTML5Exporter.ps1')) {
+          foreach ($script in @('UE5HTML5Tools.psm1', 'Setup-UE5HTML5Exporter.ps1', 'Install-UE5HTML5Exporter.ps1', 'Package-UE5HTML5Exporter.ps1', 'Verify-UE5HTML5Exporter.ps1', 'Test-WindowsTooling.ps1')) {
             $tokens = $null
             $parseErrors = $null
             [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\$script", [ref]$tokens, [ref]$parseErrors) | Out-Null
             $allErrors += $parseErrors
           }
           if ($allErrors.Count) { $allErrors | Format-List | Out-String | Write-Error }
+      - name: Run Windows workstation contract tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\Test-WindowsTooling.ps1
+      - name: Run Windows PowerShell 5.1 compatibility tests
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\Test-WindowsTooling.ps1

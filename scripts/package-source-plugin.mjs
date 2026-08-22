@@ -41,7 +41,7 @@ Options:
   --replace             Back up an existing output before packaging
   -h, --help            Show this help
 
-The bundle contains the plugin, Windows installer, and handoff documentation.
+The bundle contains the plugin, Windows workstation doctor/installer, and handoff documentation.
 Unreal compiles the plugin for the teammate's installed engine version.`;
 }
 
@@ -87,6 +87,8 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
     });
     mkdirSync(join(output, 'scripts'), { recursive: true });
     for (const script of [
+      'UE5HTML5Tools.psm1',
+      'Setup-UE5HTML5Exporter.ps1',
       'Install-UE5HTML5Exporter.ps1',
       'Package-UE5HTML5Exporter.ps1',
       'Verify-UE5HTML5Exporter.ps1',

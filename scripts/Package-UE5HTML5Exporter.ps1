@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string]$EngineRoot,
+
+    [string]$LauncherManifest,
 
     [ValidateSet('Win64', 'Mac', 'Linux')]
     [string[]]$Platform = @('Win64'),
@@ -16,7 +17,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$enginePath = (Resolve-Path -LiteralPath $EngineRoot).Path
+$module = Join-Path $PSScriptRoot 'UE5HTML5Tools.psm1'
+if (-not (Test-Path -LiteralPath $module -PathType Leaf)) {
+    throw "Windows tooling module was not found: $module"
+}
+Import-Module $module -Force
+$resolver = @{}
+if ($EngineRoot) { $resolver.EngineRoot = $EngineRoot }
+if ($LauncherManifest) { $resolver.LauncherManifest = $LauncherManifest }
+$enginePath = Resolve-UE5EngineRoot @resolver
 $pluginPath = (Resolve-Path -LiteralPath $Plugin).Path
 $runUat = Join-Path $enginePath 'Engine\Build\BatchFiles\RunUAT.bat'
 if (-not (Test-Path -LiteralPath $runUat -PathType Leaf)) {

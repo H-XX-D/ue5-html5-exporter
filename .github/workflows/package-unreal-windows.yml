@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       engine_root:
-        description: Unreal Engine root on the self-hosted Windows runner
-        required: true
-        default: C:\Program Files\Epic Games\UE_5.8
+        description: Optional Unreal Engine root; blank auto-discovers the newest Epic Launcher install
+        required: false
+        default: ''
       project_path:
         description: Optional .uproject path on the runner for full export certification
         required: false
@@ -31,20 +31,50 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Check Windows Unreal workstation
+        shell: pwsh
+        env:
+          UE_ENGINE_ROOT: ${{ inputs.engine_root }}
+          UE_PROJECT_PATH: ${{ inputs.project_path }}
+        run: |
+          $arguments = @{ RequireVisualStudio = $true; RequireNode = $true }
+          if ($env:UE_ENGINE_ROOT) { $arguments.EngineRoot = $env:UE_ENGINE_ROOT }
+          if ($env:UE_PROJECT_PATH) {
+            $project = Get-Content -LiteralPath $env:UE_PROJECT_PATH -Raw | ConvertFrom-Json
+            if ($project.EngineAssociation) { $arguments.EngineAssociation = [string]$project.EngineAssociation }
+          }
+          Import-Module .\scripts\UE5HTML5Tools.psm1 -Force
+          $report = Get-UE5HTML5WorkstationReport @arguments
+          $report | ConvertTo-Json -Depth 6
+          if (-not $report.ready) { throw "Windows workstation is not ready: $($report.blockers -join '; ')" }
       - name: Build Win64 Unreal plugin
         if: inputs.project_path == ''
         shell: pwsh
-        run: npm run package:plugin -- --engine "${{ inputs.engine_root }}" --platform Win64 --output "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-$env:GITHUB_RUN_ID"
+        env:
+          UE_ENGINE_ROOT: ${{ inputs.engine_root }}
+        run: |
+          $arguments = @{
+            Platform = 'Win64'
+            Output = "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-$env:GITHUB_RUN_ID"
+          }
+          if ($env:UE_ENGINE_ROOT) { $arguments.EngineRoot = $env:UE_ENGINE_ROOT }
+          .\scripts\Package-UE5HTML5Exporter.ps1 @arguments
       - name: Certify Win64 plugin with a real Unreal project export
         if: inputs.project_path != ''
         shell: pwsh
-        run: >-
-          .\scripts\Verify-UE5HTML5Exporter.ps1
-          -EngineRoot "${{ inputs.engine_root }}"
-          -Project "${{ inputs.project_path }}"
-          -Map "${{ inputs.map_path }}"
-          -PackageOutput "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-$env:GITHUB_RUN_ID"
-          -ExportOutput "$env:RUNNER_TEMP\UE5HTML5Exporter-Certified-Export-$env:GITHUB_RUN_ID"
+        env:
+          UE_ENGINE_ROOT: ${{ inputs.engine_root }}
+          UE_PROJECT_PATH: ${{ inputs.project_path }}
+          UE_MAP_PATH: ${{ inputs.map_path }}
+        run: |
+          $arguments = @{
+            Project = $env:UE_PROJECT_PATH
+            Map = $env:UE_MAP_PATH
+            PackageOutput = "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-$env:GITHUB_RUN_ID"
+            ExportOutput = "$env:RUNNER_TEMP\UE5HTML5Exporter-Certified-Export-$env:GITHUB_RUN_ID"
+          }
+          if ($env:UE_ENGINE_ROOT) { $arguments.EngineRoot = $env:UE_ENGINE_ROOT }
+          .\scripts\Verify-UE5HTML5Exporter.ps1 @arguments
       - uses: actions/upload-artifact@v4
         with:
           name: UE5HTML5Exporter-Win64

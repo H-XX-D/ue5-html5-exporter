@@ -110,6 +110,8 @@ test('source packager creates a clean Windows teammate bundle without native int
   assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Binaries')), false);
   assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Intermediate')), false);
   assert.equal(existsSync(join(output, 'scripts', 'Install-UE5HTML5Exporter.ps1')), true);
+  assert.equal(existsSync(join(output, 'scripts', 'Setup-UE5HTML5Exporter.ps1')), true);
+  assert.equal(existsSync(join(output, 'scripts', 'UE5HTML5Tools.psm1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'Package-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'Verify-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'TEAM_INSTALL.md')), true);

@@ -39,6 +39,12 @@ The web build is written into `UE5HTML5Exporter/Resources/WebTemplate`, where th
    npm run install:plugin -- --project "/path/to/YourGame.uproject" --source-only
    ```
 
+   On Windows, teammates can instead use the source bundle's one-command doctor and installer. It discovers the matching Epic Launcher engine for the project and validates the compiler toolchain:
+
+   ```powershell
+   .\scripts\Setup-UE5HTML5Exporter.ps1 -Project "C:\Games\MyGame\MyGame.uproject"
+   ```
+
 3. Regenerate project files if your project uses C++.
 4. Open the project. When prompted, enable/rebuild **UE5 to HTML5 Exporter** and **glTF Exporter**, then restart the Editor.
 5. Open a level and use **Tools → HTML5 Export**.

@@ -212,9 +212,19 @@ test('Unreal module declares editor dependencies for exported adapter assets', (
 });
 
 test('Windows teammates have native PowerShell install and packaging helpers', () => {
+  const tools = readFileSync(new URL('../scripts/UE5HTML5Tools.psm1', import.meta.url), 'utf8');
+  const setup = readFileSync(new URL('../scripts/Setup-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const install = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const verify = readFileSync(new URL('../scripts/Verify-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
+  assert.match(tools, /LauncherInstalled\.dat/);
+  assert.match(tools, /Microsoft\.VisualStudio\.Workload\.NativeGame/);
+  assert.match(tools, /10\.0\.22621\.0/);
+  assert.match(tools, /17\.14/);
+  assert.match(tools, /18\.0/);
+  assert.match(setup, /Get-UE5HTML5WorkstationReport/);
+  assert.match(setup, /CheckOnly/);
+  assert.match(setup, /Install-UE5HTML5Exporter\.ps1/);
   assert.match(install, /\.ue5html5-backups/);
   assert.match(install, /UE5HTML5Exporter\.uplugin/);
   assert.match(pack, /RunUAT\.bat/);
@@ -223,6 +233,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /-CheckOnly/);
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
+  assert.match(verify, /Get-UE5HTML5WorkstationReport/);
+  assert.match(verify, /visualStudioVersion/);
   assert.match(verify, /Package-UE5HTML5Exporter\.ps1/);
   assert.match(verify, /Install-UE5HTML5Exporter\.ps1/);
   assert.match(verify, /projectFile/);
