@@ -1,0 +1,2 @@
+# Vite bundles upstream shader templates that intentionally contain trailing spaces.
+UE5HTML5Exporter/Resources/WebTemplate/runtime/viewer.js whitespace=-trailing-space

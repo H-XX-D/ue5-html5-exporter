@@ -1,0 +1,23 @@
+{
+  "FileVersion": 3,
+  "Version": 2,
+  "VersionName": "0.2.0",
+  "FriendlyName": "UE5 to HTML5 Exporter",
+  "Description": "Exports an Unreal Engine level and a supported subset of Blueprint gameplay to a ready-to-host WebGL game.",
+  "Category": "Importers & Exporters",
+  "CreatedBy": "Open-source contributors",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "UE5HTML5Exporter",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    { "Name": "GLTFExporter", "Enabled": true },
+    { "Name": "EnhancedInput", "Enabled": true }
+  ]
+}

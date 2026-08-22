@@ -1,0 +1,10 @@
+node_modules/
+web/dist/
+.DS_Store
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+Binaries/
+Intermediate/
+Saved/

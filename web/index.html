@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070b10" />
+    <title>UE5 Web Export</title>
+  </head>
+  <body>
+    <main id="viewport" aria-label="3D scene">
+      <canvas id="scene"></canvas>
+      <header class="topbar">
+        <div>
+          <span class="eyebrow">UE5 / WEBGL</span>
+          <h1 id="title">Scene export</h1>
+        </div>
+        <div class="actions">
+          <button id="logic-button" type="button" aria-controls="logic-panel">Logic: loading…</button>
+          <label class="file-button">Open GLB<input id="file" type="file" accept=".glb,.gltf" /></label>
+          <button id="reset" type="button">Reset view</button>
+          <button id="fullscreen" type="button" aria-label="Toggle fullscreen">Fullscreen</button>
+        </div>
+      </header>
+      <section id="loading" class="loading" aria-live="polite">
+        <div class="spinner"></div>
+        <strong id="loading-label">Loading scene…</strong>
+        <div class="progress"><i id="progress"></i></div>
+      </section>
+      <section id="error" class="error" hidden>
+        <strong>Could not load the scene</strong>
+        <p id="error-message"></p>
+      </section>
+      <aside id="logic-panel" class="logic-panel" hidden>
+        <div class="panel-heading">
+          <div><span class="eyebrow">BLUEPRINT VM</span><h2>Converted logic</h2></div>
+          <button id="logic-close" type="button" aria-label="Close logic report">Close</button>
+        </div>
+        <div id="logic-summary" class="logic-summary">Waiting for scene…</div>
+        <div id="logic-details" class="logic-details"></div>
+      </aside>
+      <div id="blueprint-log" class="blueprint-log" aria-live="polite"></div>
+      <footer class="hud">
+        <span id="stats">Preparing renderer…</span>
+        <label id="animation-wrap" hidden>Animation
+          <select id="animation"></select>
+        </label>
+        <span>Drag to orbit · Scroll to zoom · Right-drag to pan</span>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

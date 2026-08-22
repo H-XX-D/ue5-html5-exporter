@@ -1,0 +1,52 @@
+{
+  "schema": "ue-blueprint-ir/v1",
+  "runtime": "ue5-html5-blueprint-vm/1",
+  "programs": [
+    {
+      "name": "BP_BrowserVerification",
+      "path": "/Game/Tests/BP_BrowserVerification",
+      "actors": [
+        {
+          "label": "Verified browser fixture",
+          "objectName": "Verified_browser_fixture",
+          "path": "/Game/Tests/Verified_browser_fixture",
+          "initialState": { "Ready": { "value": "True", "category": "bool" } }
+        }
+      ],
+      "graphs": [
+        {
+          "name": "EventGraph",
+          "id": "test-graph",
+          "nodes": [
+            {
+              "id": "begin",
+              "class": "K2Node_Event",
+              "kind": "event",
+              "title": "Event BeginPlay",
+              "event": "ReceiveBeginPlay",
+              "supported": true,
+              "pins": [
+                { "id": "then", "name": "then", "direction": "output", "category": "exec", "subcategory": "", "default": "", "links": [{ "node": "print", "pin": "execute" }] }
+              ]
+            },
+            {
+              "id": "print",
+              "class": "K2Node_CallFunction",
+              "kind": "callFunction",
+              "title": "Print String",
+              "function": "PrintString",
+              "supported": true,
+              "pure": false,
+              "pins": [
+                { "id": "execute", "name": "execute", "direction": "input", "category": "exec", "subcategory": "", "default": "", "links": [{ "node": "begin", "pin": "then" }] },
+                { "id": "message", "name": "InString", "direction": "input", "category": "string", "subcategory": "", "default": "Blueprint runtime online", "links": [] },
+                { "id": "then2", "name": "then", "direction": "output", "category": "exec", "subcategory": "", "default": "", "links": [] }
+              ]
+            }
+          ]
+        }
+      ],
+      "compatibility": { "unsupported": [], "unsupportedCount": 0 }
+    }
+  ]
+}
