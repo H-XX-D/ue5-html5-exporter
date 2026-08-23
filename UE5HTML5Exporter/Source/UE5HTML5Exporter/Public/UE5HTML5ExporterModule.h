@@ -12,6 +12,7 @@ public:
 private:
     void RegisterMenus();
     void OpenDiscordActivitySettings();
+    void OpenDiscordActivityInstallPage();
     void ImportDiscordActivityProjectTargets();
     void ExportDiscordActivityProjectTargets();
     void OpenCustomWebAdapters();

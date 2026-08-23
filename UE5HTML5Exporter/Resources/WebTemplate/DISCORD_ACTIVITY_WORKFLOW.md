@@ -177,7 +177,7 @@ vercel promote DEPLOYMENT_URL
 
 1. Select the verified Discord application whose Application ID matches `DISCORD_CLIENT_ID`.
 2. Enable **Activities**, then enable both **Guild Install** and **User Install** so the Activity can launch in servers, DMs, and group DMs.
-   Keep Discord's provided install link. The release plan prints the exact URL as `discordInstallUrl`; it has the form `https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID`. Choose **Add to My Apps** for user access or **Add to Server** for guild access. An unpublished Activity remains limited to its owner, developer-team members, and approved testers, so grant development access before asking a teammate to use the link.
+   Keep Discord's provided install link. The release plan prints the exact URL as `discordInstallUrl`; it has the form `https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID`. From Unreal, **Tools → HTML5 Export → Open Discord Activity Install Page…** opens the same URL using the configured public Application ID. Choose **Add to My Apps** for user access or **Add to Server** for guild access. Approval and any resulting authorization stay in Discord; Unreal receives no token. An unpublished Activity remains limited to its owner, developer-team members, and approved testers, so grant development access before asking a teammate to use the link.
 3. Add the required root URL mapping:
 
    ```text

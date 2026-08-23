@@ -173,6 +173,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::OpenDiscordActivitySettings)));
 
     Section.AddMenuEntry(
+        "UE5HTML5DiscordActivityInstallPage",
+        LOCTEXT("DiscordActivityInstallPage", "Open Discord Activity Install Page…"),
+        LOCTEXT("DiscordActivityInstallPageTooltip", "Open Discord's official Add to My Apps / Add to Server page for this project's public Application ID. This does not authorize the app automatically."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::OpenDiscordActivityInstallPage)));
+
+    Section.AddMenuEntry(
         "UE5HTML5ImportDiscordActivityProjectTargets",
         LOCTEXT("ImportDiscordActivityProjectTargets", "Import Public Discord Activity Targets…"),
         LOCTEXT("ImportDiscordActivityProjectTargetsTooltip", "Import the allowlisted public Discord, Vercel, and Supabase project identity from a teammate JSON file. Credentials are rejected."),
@@ -212,6 +219,34 @@ void FUE5HTML5ExporterModule::OpenDiscordActivitySettings()
 {
     ISettingsModule& SettingsModule = FModuleManager::LoadModuleChecked<ISettingsModule>(TEXT("Settings"));
     SettingsModule.ShowViewer(TEXT("Project"), TEXT("Plugins"), TEXT("UE5HTML5DiscordActivity"));
+}
+
+void FUE5HTML5ExporterModule::OpenDiscordActivityInstallPage()
+{
+    const UUE5HTML5DiscordActivitySettings* Settings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+    FString InstallUrl;
+    FString Error;
+    if (!Settings->TryGetDiscordInstallUrl(InstallUrl, Error))
+    {
+        const FString Message = Error + TEXT("\n\nChoose Yes to open the project settings now.");
+        if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
+        {
+            OpenDiscordActivitySettings();
+        }
+        return;
+    }
+
+    FString LaunchError;
+    FPlatformProcess::LaunchURL(*InstallUrl, nullptr, &LaunchError);
+    if (!LaunchError.IsEmpty())
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            FText::FromString(FString::Printf(
+                TEXT("Could not open the Discord Activity install page:\n%s\n\n%s"),
+                *InstallUrl,
+                *LaunchError)));
+    }
 }
 
 void FUE5HTML5ExporterModule::ImportDiscordActivityProjectTargets()

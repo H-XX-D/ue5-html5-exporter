@@ -33,6 +33,22 @@ namespace
         return true;
     }
 
+    bool IsValidDiscordApplicationId(const FString& Value)
+    {
+        if (Value.Len() < 17 || Value.Len() > 20)
+        {
+            return false;
+        }
+        for (const TCHAR Character : Value)
+        {
+            if (Character < TEXT('0') || Character > TEXT('9'))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void AddTargetValidationErrors(
         const FString& DiscordApplicationId,
         const FString& DiscordPublicKey,
@@ -41,8 +57,7 @@ namespace
         const FString& ProductionUrl,
         TArray<FString>& OutErrors)
     {
-        if (!DiscordApplicationId.IsEmpty()
-            && (DiscordApplicationId.Len() < 17 || DiscordApplicationId.Len() > 20 || !DiscordApplicationId.IsNumeric()))
+        if (!DiscordApplicationId.IsEmpty() && !IsValidDiscordApplicationId(DiscordApplicationId))
         {
             OutErrors.Add(TEXT("Discord Application ID must contain 17 to 20 digits."));
         }
@@ -153,6 +168,26 @@ void UUE5HTML5DiscordActivitySettings::ValidateTargets(TArray<FString>& OutError
         SupabaseProjectRef,
         ProductionUrl,
         OutErrors);
+}
+
+bool UUE5HTML5DiscordActivitySettings::TryGetDiscordInstallUrl(FString& OutUrl, FString& OutError) const
+{
+    OutUrl.Reset();
+    OutError.Reset();
+    if (DiscordApplicationId.IsEmpty())
+    {
+        OutError = TEXT("Set the public Discord Application ID in Discord Activity Project Settings first.");
+        return false;
+    }
+    if (!IsValidDiscordApplicationId(DiscordApplicationId))
+    {
+        OutError = TEXT("Discord Application ID must contain 17 to 20 digits before its install page can be opened.");
+        return false;
+    }
+    OutUrl = FString::Printf(
+        TEXT("https://discord.com/oauth2/authorize?client_id=%s"),
+        *DiscordApplicationId);
+    return true;
 }
 
 bool UUE5HTML5DiscordActivitySettings::ImportPublicTargets(const FString& Filename, FString& OutError)

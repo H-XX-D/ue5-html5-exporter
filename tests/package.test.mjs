@@ -226,11 +226,15 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
   const fpsSetup = read('Source/UE5HTML5Exporter/Private/UE5HTML5BrowserFPSSetup.cpp');
   const fpsSetupTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BrowserFPSSetupTests.cpp');
+  const installUrlTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5DiscordActivitySettingsTests.cpp');
   const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
   assert.match(module, /Check Discord Activity Readiness/);
   assert.match(module, /Export Discord Activity/);
   assert.match(module, /NEEDS BLUEPRINT ADAPTERS/);
   assert.match(module, /CheckDiscordActivityReadinessInteractive/);
+  assert.match(module, /Open Discord Activity Install Page/);
+  assert.match(module, /OpenDiscordActivityInstallPage/);
+  assert.match(module, /FPlatformProcess::LaunchURL/);
   assert.match(module, /Check Blueprint Web Compatibility/);
   assert.match(module, /CheckBlueprintCompatibilityInteractive/);
   assert.match(module, /Open Custom Web Adapters Folder/);
@@ -262,6 +266,9 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(fpsSetupTest, /Repeated setup creates no duplicate/);
   assert.match(fpsSetupTest, /Undo removes the created target/);
   assert.match(fpsSetupTest, /Redo restores exactly one target/);
+  assert.match(installUrlTest, /UE5HTML5Exporter\.Editor\.DiscordInstallUrl/);
+  assert.match(installUrlTest, /A non-digit Application ID is rejected/);
+  assert.match(installUrlTest, /oauth2\/authorize\?client_id=1540833293098819795/);
   assert.match(module, /browser-certification\.json/);
   assert.match(module, /certify-browser\.cmd/);
   assert.match(module, /certify-browser\.command/);
@@ -305,6 +312,9 @@ test('Unreal Project Settings expose only non-secret Discord Activity targets', 
   assert.match(implementation, /ValidateTargets/);
   assert.match(implementation, /HasCompleteTargetSet/);
   assert.match(implementation, /GetMissingRequiredTargets/);
+  assert.match(header, /TryGetDiscordInstallUrl/);
+  assert.match(implementation, /https:\/\/discord\.com\/oauth2\/authorize\?client_id=%s/);
+  assert.match(implementation, /IsValidDiscordApplicationId/);
   assert.match(header, /ImportPublicTargets/);
   assert.match(header, /ExportPublicTargets/);
   assert.match(implementation, /ue5-discord-activity-project-targets\/v1/);

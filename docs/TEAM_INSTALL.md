@@ -34,9 +34,10 @@ The Unreal teammate never needs the Discord client secret or bot token, a Supaba
 
 1. Create or select one Discord application, one Vercel project, and one Supabase project for the game.
 2. Enter their public identifiers under **Discord Activity Project Settings…**, then choose **Export Public Discord Activity Targets…** and review the JSON before sharing it.
-3. Receive the Unreal export and confirm its `activity-handoff.json` reports the expected project identities and Blueprint coverage.
-4. Run the included release assistant. Review the dry-run plan, then approve apply only when the named projects are correct.
-5. Complete Discord URL mappings and open the final Activity in two clients signed into different Discord accounts. On both clients choose **Logic → Run two-client check**, then retain the generated `discord-live-certification.json`. Separately confirm Broadcast/Presence, world save, player save, revision conflict, reconnect, mobile behavior, and entitlements as applicable; the automated certificate covers only authenticated same-instance membership.
+3. Choose **Open Discord Activity Install Page…** to open Discord's official **Add to My Apps / Add to Server** flow for the configured public Application ID. Approval remains in Discord; Unreal receives no authorization token.
+4. Receive the Unreal export and confirm its `activity-handoff.json` reports the expected project identities and Blueprint coverage.
+5. Run the included release assistant. Review the dry-run plan, then approve apply only when the named projects are correct.
+6. Complete Discord URL mappings and open the final Activity in two clients signed into different Discord accounts. On both clients choose **Logic → Run two-client check**, then retain the generated `discord-live-certification.json`. Separately confirm Broadcast/Presence, world save, player save, revision conflict, reconnect, mobile behavior, and entitlements as applicable; the automated certificate covers only authenticated same-instance membership.
 
 Supabase Pro is fully suitable for this workflow and gives the production project paid capacity and operational features. It does not replace the HTTPS static host: Supabase remains the private persistence/Realtime layer, while Vercel or another iframe-compatible HTTPS host serves the exported game and Activity API.
 

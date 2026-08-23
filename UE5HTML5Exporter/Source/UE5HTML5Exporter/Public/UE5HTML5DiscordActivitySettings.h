@@ -48,6 +48,7 @@ public:
     bool HasCompleteTargetSet() const;
     void GetMissingRequiredTargets(TArray<FString>& OutMissingTargets) const;
     void ValidateTargets(TArray<FString>& OutErrors) const;
+    bool TryGetDiscordInstallUrl(FString& OutUrl, FString& OutError) const;
     bool ImportPublicTargets(const FString& Filename, FString& OutError);
     bool ExportPublicTargets(const FString& Filename, FString& OutError) const;
 };
