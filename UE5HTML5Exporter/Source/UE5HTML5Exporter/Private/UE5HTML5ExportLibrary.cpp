@@ -20,6 +20,8 @@
 
 namespace
 {
+    constexpr int64 BytesPerMiB = 1024 * 1024;
+
     const TArray<FString>& RequiredActivityTemplateFiles()
     {
         static const TArray<FString> Files = {
@@ -44,6 +46,105 @@ namespace
         TArray<FString> Matches;
         IFileManager::Get().FindFiles(Matches, *FPaths::Combine(Directory, Pattern), true, false);
         return !Matches.IsEmpty();
+    }
+
+    FString BrowserRelativePath(const FString& OutputDirectory, const FString& FilePath)
+    {
+        FString RelativePath = FPaths::ConvertRelativePathToFull(FilePath);
+        FString Root = FPaths::ConvertRelativePathToFull(OutputDirectory);
+        FPaths::NormalizeDirectoryName(Root);
+        Root += TEXT("/");
+        FPaths::MakePathRelativeTo(RelativePath, *Root);
+        RelativePath.ReplaceInline(TEXT("\\"), TEXT("/"));
+        return RelativePath;
+    }
+
+    int64 MeasureBrowserFile(
+        const FString& OutputDirectory,
+        const FString& FilePath,
+        FUE5HTML5ExportResult& Result)
+    {
+        const int64 Size = IFileManager::Get().FileSize(*FilePath);
+        if (Size < 0)
+        {
+            return 0;
+        }
+        const FString RelativePath = BrowserRelativePath(OutputDirectory, FilePath);
+        if (Size > Result.LargestBrowserArtifactBytes
+            || (Size == Result.LargestBrowserArtifactBytes
+                && (Result.LargestBrowserArtifactPath.IsEmpty() || RelativePath < Result.LargestBrowserArtifactPath)))
+        {
+            Result.LargestBrowserArtifactBytes = Size;
+            Result.LargestBrowserArtifactPath = RelativePath;
+        }
+        return Size;
+    }
+
+    int64 MeasureBrowserDirectory(
+        const FString& OutputDirectory,
+        const FString& RelativeDirectory,
+        FUE5HTML5ExportResult& Result)
+    {
+        TArray<FString> Files;
+        IFileManager::Get().FindFilesRecursive(
+            Files,
+            *FPaths::Combine(OutputDirectory, RelativeDirectory),
+            TEXT("*"),
+            true,
+            false,
+            false);
+        Files.Sort();
+        int64 Total = 0;
+        for (const FString& File : Files)
+        {
+            Total += MeasureBrowserFile(OutputDirectory, File, Result);
+        }
+        return Total;
+    }
+
+    void MeasureBrowserPayload(const FString& OutputDirectory, FUE5HTML5ExportResult& Result)
+    {
+        const UUE5HTML5DiscordActivitySettings* ProjectSettings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+        Result.BrowserPayloadBudgetBytes = static_cast<int64>(FMath::Max(1, ProjectSettings->BrowserPayloadBudgetMiB)) * BytesPerMiB;
+        Result.IndexBytes = MeasureBrowserFile(OutputDirectory, FPaths::Combine(OutputDirectory, TEXT("index.html")), Result);
+        Result.RuntimeBytes = MeasureBrowserDirectory(OutputDirectory, TEXT("runtime"), Result);
+        Result.AssetBytes = MeasureBrowserDirectory(OutputDirectory, TEXT("assets"), Result);
+        Result.SceneBytes = MeasureBrowserFile(OutputDirectory, FPaths::Combine(OutputDirectory, TEXT("assets/scene.glb")), Result);
+        Result.LogicBytes = MeasureBrowserDirectory(OutputDirectory, TEXT("logic"), Result);
+        Result.BrowserPayloadBytes = Result.IndexBytes + Result.RuntimeBytes + Result.AssetBytes + Result.LogicBytes;
+        Result.bBrowserPayloadExceedsAdvisoryBudget = Result.BrowserPayloadBytes > Result.BrowserPayloadBudgetBytes;
+    }
+
+    TSharedRef<FJsonObject> BuildAssetDelivery(const FUE5HTML5ExportResult& Result)
+    {
+        TSharedRef<FJsonObject> Delivery = MakeShared<FJsonObject>();
+        Delivery->SetStringField(
+            TEXT("status"),
+            Result.bBrowserPayloadExceedsAdvisoryBudget
+                ? TEXT("exceeds-advisory-budget")
+                : TEXT("within-advisory-budget"));
+        Delivery->SetBoolField(TEXT("advisoryOnly"), true);
+        Delivery->SetNumberField(TEXT("browserPayloadBytes"), Result.BrowserPayloadBytes);
+        Delivery->SetNumberField(TEXT("advisoryBudgetBytes"), Result.BrowserPayloadBudgetBytes);
+        Delivery->SetNumberField(TEXT("indexBytes"), Result.IndexBytes);
+        Delivery->SetNumberField(TEXT("runtimeBytes"), Result.RuntimeBytes);
+        Delivery->SetNumberField(TEXT("assetBytes"), Result.AssetBytes);
+        Delivery->SetNumberField(TEXT("sceneBytes"), Result.SceneBytes);
+        Delivery->SetNumberField(TEXT("logicBytes"), Result.LogicBytes);
+        Delivery->SetStringField(TEXT("largestArtifactPath"), Result.LargestBrowserArtifactPath);
+        Delivery->SetNumberField(TEXT("largestArtifactBytes"), Result.LargestBrowserArtifactBytes);
+        TArray<TSharedPtr<FJsonValue>> MeasuredPaths;
+        for (const FString& Path : {
+            FString(TEXT("index.html")), FString(TEXT("runtime/**")),
+            FString(TEXT("assets/**")), FString(TEXT("logic/**")) })
+        {
+            MeasuredPaths.Add(MakeShared<FJsonValueString>(Path));
+        }
+        Delivery->SetArrayField(TEXT("measuredPaths"), MeasuredPaths);
+        Delivery->SetStringField(
+            TEXT("details"),
+            TEXT("Exporter advisory only; this is not a Discord platform limit or a performance certification. Test load time, frame rate, memory, and thermal behavior on real Discord desktop and mobile clients."));
+        return Delivery;
     }
 
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
@@ -110,6 +211,7 @@ namespace
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
         Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
+        Root->SetObjectField(TEXT("assetDelivery"), BuildAssetDelivery(Result));
 
         TArray<TSharedPtr<FJsonValue>> ReleaseSteps;
         if (!ProjectSettings->HasCompleteTargetSet())
@@ -144,7 +246,7 @@ namespace
     bool WriteManifest(const FString& OutputDirectory, UWorld* World, const TSet<AActor*>& SelectedActors, FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v2"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v3"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         Root->SetBoolField(TEXT("selectionOnly"), !SelectedActors.IsEmpty());
         Root->SetNumberField(TEXT("actorCount"), Result.ActorCount);
@@ -181,6 +283,7 @@ namespace
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
         Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
+        Root->SetObjectField(TEXT("assetDelivery"), BuildAssetDelivery(Result));
 
         TArray<TSharedPtr<FJsonValue>> Unsupported;
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Blueprint nodes listed as unsupported in logic/blueprints.json")));
@@ -384,6 +487,15 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         return Result;
     }
 
+    MeasureBrowserPayload(Result.OutputDirectory, Result);
+    if (Result.bBrowserPayloadExceedsAdvisoryBudget)
+    {
+        Result.Warnings.Add(FString::Printf(
+            TEXT("Primary browser payload is %.1f MiB, above the project advisory budget of %.1f MiB. This is not a Discord platform limit; review asset size and test real desktop and mobile clients."),
+            static_cast<double>(Result.BrowserPayloadBytes) / BytesPerMiB,
+            static_cast<double>(Result.BrowserPayloadBudgetBytes) / BytesPerMiB));
+    }
+
     if (!WriteManifest(Result.OutputDirectory, World, SelectedActors, Result))
     {
         Result.Error = TEXT("The scene exported, but export-manifest.json could not be written.");
@@ -404,6 +516,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("Before deployment, run `npm run preflight:package`, then `npm run preflight:online` with the server environment loaded.\n")
         TEXT("Give the entire folder to the release operator; `activity-handoff.json` records whether Blueprint adapters remain and lists the release steps.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
+        TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
         TEXT("Replace native project functions with `window.UE5HTML5.registerFunction(name, implementation)`.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));
 

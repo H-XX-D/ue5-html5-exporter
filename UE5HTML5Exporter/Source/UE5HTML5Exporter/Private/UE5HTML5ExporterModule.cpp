@@ -293,15 +293,25 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
             Result.BlueprintNodeCount);
     }
 
+    const FString AssetDelivery = FString::Printf(
+        TEXT("Primary browser payload: %.1f MiB of %.1f MiB project advisory budget%s.\n")
+        TEXT("Largest artifact: %s (%.1f MiB). This budget is not a Discord platform limit or performance certification."),
+        static_cast<double>(Result.BrowserPayloadBytes) / 1024.0 / 1024.0,
+        static_cast<double>(Result.BrowserPayloadBudgetBytes) / 1024.0 / 1024.0,
+        Result.bBrowserPayloadExceedsAdvisoryBudget ? TEXT(" — REVIEW RECOMMENDED") : TEXT(""),
+        *Result.LargestBrowserArtifactPath,
+        static_cast<double>(Result.LargestBrowserArtifactBytes) / 1024.0 / 1024.0);
+
     const FString NextAction = bDiscordGuided
         ? TEXT("Start the Discord Activity release assistant now?\n\nIt opens in a terminal and begins with a non-mutating dry run. Private credentials remain outside Unreal.")
         : TEXT("Open the export folder now?");
     const FString Message = FString::Printf(
-        TEXT("Exported %d actors to:\n%s\n\n%s\n\n")
+        TEXT("Exported %d actors to:\n%s\n\n%s\n\n%s\n\n")
         TEXT("activity-handoff.json contains the release-operator steps.\n\n%s"),
         Result.ActorCount,
         *Result.OutputDirectory,
         *Compatibility,
+        *AssetDelivery,
         *NextAction);
     if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
     {

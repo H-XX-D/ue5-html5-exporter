@@ -545,7 +545,7 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       errors.push(`Hosted export manifest returned HTTP ${manifestResponse.status}.`);
     } else {
       const manifest = await manifestResponse.json();
-      if (manifest.schema !== 'ue5-html5-export/v2') {
+      if (!['ue5-html5-export/v2', 'ue5-html5-export/v3'].includes(manifest.schema)) {
         errors.push('Hosted export manifest has an unexpected schema.');
       } else {
         checks.push(`Hosted Unreal export manifest is valid (${Number(manifest.actorCount || 0)} actors).`);

@@ -12,7 +12,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - `logic/blueprints.json` containing event graphs, typed pins, links, variables, and actor bindings
 - A browser Blueprint VM for gameplay flow plus adapters for Enhanced Input, replicated state/RPC transport, delegates/interfaces, latent tasks, physics events, GAS-style state, Behavior Trees, UMG, and particles
 - Responsive WebGL viewer with orbit controls, animation playback, drag-and-drop GLB loading, progress, and errors
-- `export-manifest.json` plus per-Blueprint/node compatibility warnings
+- `export-manifest.json` plus per-Blueprint/node compatibility warnings and exact browser payload measurements
 - Commandlet support for CI or batch export
 - Output that works on any static host
 - Discord Activity Blueprint nodes plus automatic connection/error, multiplayer, participant, entitlement, layout/orientation/thermal events, Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
@@ -23,6 +23,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Automatic mobile FPS movement/look/jump/fire controls that execute the stock `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` Blueprint branches before using a browser fallback
 - A readiness chain that rejects incomplete Unreal targets, missing Discord launch commands, Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing the portal checklist and URL mappings
 - A double-click Windows installer that selects a `.uproject`, checks the exact Unreal/compiler toolchain, installs the plugin, and launches the project without requiring command-line or web-development knowledge
+- A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
 
 ## Build the plugin
 
@@ -77,6 +78,14 @@ Inside an exported folder, the Windows, macOS, and Linux release launchers read 
 For the lowest-friction path, first choose **Tools → HTML5 Export → Discord Activity Project Settings…** and enter this game's public target identity. These values are saved in the Unreal project's `DefaultGame.ini`, so the same Discord/Vercel/Supabase targets follow the project across Windows, Linux, and macOS. Then choose **Export Discord Activity…**. Unreal now treats the target set as configured only when all four required public values are present; an incomplete set opens the same Project Settings page and names every missing field before export. The guided command reports exact supported/unsupported Blueprint-node counts and offers to start the operating system's release assistant directly from Unreal. The assistant opens in a terminal and remains dry-run-only until the release operator explicitly adds `--apply`; secrets never enter Unreal Project Settings. Every export includes `activity-handoff.json`; it says `unreal-export-complete` only when every exported Blueprint node is covered, otherwise it says `unreal-export-needs-blueprint-adapters` and points to the exact nodes in `logic/blueprints.json`. The release command reads the public targets from that handoff and rejects conflicting CLI arguments or environment identities.
 
 During gameplay development, choose **Tools → HTML5 Export → Export & Preview Discord Blueprint Logic**. Unreal exports to `Saved/UE5HTML5/DiscordActivityPreview`, starts its bundled Python on loopback, and opens the browser in explicit mock mode. Discord lifecycle, participant, Broadcast, Rich Presence/share, purchase, and world/player persistence Blueprint paths can run without a Discord application or backend. Preview saves remain in browser-local game storage and use the production revision-conflict contract. The mock cannot prove OAuth, Discord's proxy, Supabase Realtime, purchases, mobile clients, or deployment headers; the final guided release and two-client Discord test remain required.
+
+### Asset delivery and performance budget
+
+Every new export records the exact bytes for `index.html`, `runtime/**`, `assets/**`, and `logic/**` in both `export-manifest.json` and `activity-handoff.json`. The Unreal completion dialog and commandlet show the total, the configured budget, and the largest browser artifact. Package preflight recalculates the files instead of trusting the manifest, so a modified GLB or runtime bundle cannot retain stale size claims.
+
+The default project advisory budget is 64 MiB. Change it under **Project Settings → Plugins → UE5 HTML5 Discord Activity → Browser Export** when the game has a deliberately different release target. Exceeding it produces a review warning rather than blocking export.
+
+This budget is an exporter/team policy, not a Discord upload limit and not a performance certification. A small download can still perform poorly because of triangles, textures after GPU upload, shader/material cost, draw calls, Blueprint tick work, device memory, or thermal throttling. Test time-to-first-interaction, frame rate, memory, controls, and thermal behavior in real Discord desktop and mobile clients before release. Discord explicitly notes that an Activity shares CPU, RAM, and GPU with the Discord client and recommends prioritizing time-to-first-interaction and testing phones, tablets, and desktop machines.
 
 Only public target identity belongs in Unreal Project Settings: Discord Application ID, Discord Public Key, Vercel Project Name, Supabase Project Ref, and an optional public production URL. The guided launcher retrieves Supabase API keys through the authenticated CLI, prompts without echo for Discord credentials and the intentionally imported Supabase signing JWK, and generates the Activity state secret in memory. Their application copies remain Vercel-only. Deployment and two-client checks also remain owned by the release operator.
 
@@ -134,6 +143,8 @@ On Windows, use `UnrealEditor-Cmd.exe`.
 | UE post-processing/custom shaders | Not transferred or approximated by PBR conversion |
 
 The exported page has a **Logic** button showing converted programs, actor instances, node totals, and unsupported nodes. Browser code can trigger events and exported Blueprint functions with `window.UE5HTML5.call(eventName, actorName, args)`.
+
+The footer also shows the measured primary browser payload from `export-manifest.json`. `delivery review` means the package exceeds its Unreal project advisory budget; it does not mean Discord rejected the package.
 
 These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, and compiled C++ still need project-specific web implementations. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
 

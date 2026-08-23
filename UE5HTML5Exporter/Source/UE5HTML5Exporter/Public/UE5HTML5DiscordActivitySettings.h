@@ -37,6 +37,13 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Non-Secret Project Targets")
     FString ProductionUrl;
 
+    /**
+     * Advisory browser payload budget for index.html, runtime, assets, and Blueprint logic.
+     * This is a project-defined release budget, not a Discord platform limit.
+     */
+    UPROPERTY(Config, EditAnywhere, Category = "Browser Export", meta = (ClampMin = "1", ClampMax = "4096", UIMin = "1", UIMax = "512", Units = "MiB"))
+    int32 BrowserPayloadBudgetMiB = 64;
+
     bool HasAnyTarget() const;
     bool HasCompleteTargetSet() const;
     void GetMissingRequiredTargets(TArray<FString>& OutMissingTargets) const;

@@ -49,13 +49,16 @@ const SERVER_SECRET_NAMES = [
   'ACTIVITY_STATE_SECRET',
 ];
 
-const PUBLIC_TEXT_ROOTS = ['index.html', 'runtime', 'logic', 'activity-handoff.json'];
+const PUBLIC_TEXT_ROOTS = ['index.html', 'runtime', 'logic', 'export-manifest.json', 'activity-handoff.json'];
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const DISCORD_PRIMARY_ENTRY_POINT = 4;
 const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
 const HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v4';
+const MANIFEST_SCHEMAS = new Set(['ue5-html5-export/v2', 'ue5-html5-export/v3']);
+const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
+const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
   ['discordApplicationId', 'Discord Application ID'],
   ['discordPublicKey', 'Discord Public Key'],
@@ -102,6 +105,110 @@ function readJsonArtifact(root, path, errors) {
   } catch {
     errors.push(`Export artifact contains invalid JSON: ${path}`);
     return null;
+  }
+}
+
+function browserArtifactFiles(root) {
+  const files = [];
+  const addFile = (path) => {
+    if (existsSync(path) && statSync(path).isFile()) files.push(path);
+  };
+  const addDirectory = (path) => {
+    if (!existsSync(path) || !statSync(path).isDirectory()) return;
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) addDirectory(child);
+      else if (entry.isFile()) files.push(child);
+    }
+  };
+  addFile(join(root, 'index.html'));
+  for (const directory of ['runtime', 'assets', 'logic']) addDirectory(join(root, directory));
+  return files.sort((left, right) => relative(root, left).localeCompare(relative(root, right)));
+}
+
+function browserPayloadMetrics(root) {
+  const sizes = new Map();
+  let largestArtifactPath = '';
+  let largestArtifactBytes = 0;
+  for (const file of browserArtifactFiles(root)) {
+    const path = relative(root, file).split('\\').join('/');
+    const size = statSync(file).size;
+    sizes.set(path, size);
+    if (size > largestArtifactBytes
+        || (size === largestArtifactBytes && (!largestArtifactPath || path < largestArtifactPath))) {
+      largestArtifactPath = path;
+      largestArtifactBytes = size;
+    }
+  }
+  const sumPrefix = (prefix) => [...sizes]
+    .filter(([path]) => path.startsWith(`${prefix}/`))
+    .reduce((total, [, size]) => total + size, 0);
+  const indexBytes = sizes.get('index.html') || 0;
+  const runtimeBytes = sumPrefix('runtime');
+  const assetBytes = sumPrefix('assets');
+  const logicBytes = sumPrefix('logic');
+  return {
+    browserPayloadBytes: indexBytes + runtimeBytes + assetBytes + logicBytes,
+    indexBytes,
+    runtimeBytes,
+    assetBytes,
+    sceneBytes: sizes.get('assets/scene.glb') || 0,
+    logicBytes,
+    largestArtifactPath,
+    largestArtifactBytes,
+  };
+}
+
+function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
+  const required = manifest.schema === ASSET_DELIVERY_SCHEMA;
+  const manifestDelivery = manifest.assetDelivery;
+  const handoffDelivery = handoff.assetDelivery;
+  if (!manifestDelivery && !handoffDelivery && !required) {
+    warnings.push('Legacy v2 export has no exact browser payload metrics; export again with the current plugin before performance review.');
+    return;
+  }
+  if (!manifestDelivery || typeof manifestDelivery !== 'object' || Array.isArray(manifestDelivery)) {
+    errors.push('export-manifest.json.assetDelivery must be an object for schema v3.');
+    return;
+  }
+  if (!handoffDelivery || typeof handoffDelivery !== 'object' || Array.isArray(handoffDelivery)) {
+    errors.push('activity-handoff.json.assetDelivery must match the manifest.');
+    return;
+  }
+  const actual = browserPayloadMetrics(root);
+  const budget = manifestDelivery.advisoryBudgetBytes;
+  if (!Number.isSafeInteger(budget) || budget <= 0) {
+    errors.push('assetDelivery.advisoryBudgetBytes must be a positive safe integer.');
+    return;
+  }
+  if (manifestDelivery.advisoryOnly !== true || handoffDelivery.advisoryOnly !== true) {
+    errors.push('assetDelivery.advisoryOnly must be true; the budget is not a Discord platform limit.');
+  }
+  if (JSON.stringify(manifestDelivery.measuredPaths) !== JSON.stringify(ASSET_DELIVERY_PATHS)
+      || JSON.stringify(handoffDelivery.measuredPaths) !== JSON.stringify(ASSET_DELIVERY_PATHS)) {
+    errors.push(`assetDelivery.measuredPaths must equal ${JSON.stringify(ASSET_DELIVERY_PATHS)}.`);
+  }
+  for (const [name, value] of Object.entries(actual)) {
+    if (manifestDelivery[name] !== value) {
+      errors.push(`export-manifest.json.assetDelivery.${name} does not match the exported files.`);
+    }
+    if (handoffDelivery[name] !== value) {
+      errors.push(`activity-handoff.json.assetDelivery.${name} does not match the exported files.`);
+    }
+  }
+  if (handoffDelivery.advisoryBudgetBytes !== budget) {
+    errors.push('Asset advisory budget mismatch between manifest and handoff.');
+  }
+  const expectedStatus = actual.browserPayloadBytes > budget
+    ? 'exceeds-advisory-budget'
+    : 'within-advisory-budget';
+  if (manifestDelivery.status !== expectedStatus || handoffDelivery.status !== expectedStatus) {
+    errors.push(`assetDelivery.status must be ${expectedStatus}.`);
+  }
+  if (expectedStatus === 'exceeds-advisory-budget') {
+    const payloadMiB = (actual.browserPayloadBytes / 1024 / 1024).toFixed(1);
+    const budgetMiB = (budget / 1024 / 1024).toFixed(1);
+    warnings.push(`Primary browser payload is ${payloadMiB} MiB, above the ${budgetMiB} MiB project advisory budget; optimize assets and test real Discord clients.`);
   }
 }
 
@@ -181,13 +288,14 @@ function validateUnrealHandoff(root, errors, warnings) {
   const logic = readJsonArtifact(root, 'logic/blueprints.json', errors);
   if (!manifest || !handoff || !logic) return;
 
-  if (manifest.schema !== 'ue5-html5-export/v2') {
+  if (!MANIFEST_SCHEMAS.has(manifest.schema)) {
     errors.push('export-manifest.json has an unsupported schema.');
   }
   if (handoff.schema !== HANDOFF_SCHEMA) {
     errors.push(`activity-handoff.json must use ${HANDOFF_SCHEMA}. Export again with the current plugin.`);
   }
   validateProjectTargets(handoff.projectTargets, errors);
+  validateAssetDelivery(root, manifest, handoff, errors, warnings);
   if (logic.schema !== 'ue-blueprint-ir/v1' || !Array.isArray(logic.programs)) {
     errors.push('logic/blueprints.json has an unsupported schema.');
   }

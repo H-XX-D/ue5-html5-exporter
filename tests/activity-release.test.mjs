@@ -584,7 +584,7 @@ test('public deployment probe validates hosted export and enabled Activity API',
       requests.push({ pathname: url.pathname, redirect: options.redirect });
       if (url.pathname === '/') return new Response('<html></html>', { status: 200 });
       if (url.pathname === '/export-manifest.json') {
-        return Response.json({ schema: 'ue5-html5-export/v2', actorCount: 69 });
+        return Response.json({ schema: 'ue5-html5-export/v3', actorCount: 69 });
       }
       if (url.pathname === '/api/activity') return Response.json({ enabled: true, clientId: 'public' });
       return new Response(null, { status: 404 });

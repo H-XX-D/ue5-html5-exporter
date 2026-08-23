@@ -61,6 +61,9 @@ let blueprintDocument = null;
 let runtimeAdapters = null;
 let firstPersonController = null;
 let activityBridge = null;
+let exportManifest = null;
+let sceneStats = 'Preparing renderer…';
+let deliveryStats = '';
 const pendingCustomFunctions = new Map();
 
 const looksLikeDiscordActivity = window.location.hostname.toLowerCase().endsWith('.discordsays.com')
@@ -87,7 +90,39 @@ window.UE5HTML5 = {
   get gameplay() { return firstPersonController; },
   get activity() { return activityBridge; },
   get activityReady() { return activityPromise; },
+  get exportManifest() { return exportManifest; },
 };
+
+function formatBytes(bytes) {
+  const units = ['B', 'KiB', 'MiB', 'GiB'];
+  let value = Number(bytes) || 0;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function updateStats() {
+  stats.textContent = [sceneStats, deliveryStats].filter(Boolean).join(' · ');
+}
+
+async function loadExportManifest() {
+  try {
+    const response = await fetch('./export-manifest.json', { cache: 'no-store' });
+    if (!response.ok) return;
+    exportManifest = await response.json();
+    const delivery = exportManifest?.assetDelivery;
+    if (!delivery || !Number.isSafeInteger(delivery.browserPayloadBytes)) return;
+    const review = delivery.status === 'exceeds-advisory-budget';
+    deliveryStats = `${formatBytes(delivery.browserPayloadBytes)} primary payload${review ? ' · delivery review' : ''}`;
+    stats.dataset.delivery = review ? 'review' : 'within-budget';
+    updateStats();
+  } catch (error) {
+    console.warn('Export manifest unavailable:', error);
+  }
+}
 
 async function startDiscordActivity({ previewMode = false } = {}) {
   activityStatus.hidden = false;
@@ -288,7 +323,8 @@ function load(url, label = 'scene.glb') {
     frameObject(content);
     configureAnimations(gltf.animations);
     const info = countScene(content);
-    stats.textContent = `${info.meshes.toLocaleString()} meshes · ${info.triangles.toLocaleString()} triangles · WebGL ${renderer.capabilities.isWebGL2 ? '2' : '1'}`;
+    sceneStats = `${info.meshes.toLocaleString()} meshes · ${info.triangles.toLocaleString()} triangles · WebGL ${renderer.capabilities.isWebGL2 ? '2' : '1'}`;
+    updateStats();
     document.querySelector('#title').textContent = gltf.scene.name || label.replace(/\.(glb|gltf)$/i, '');
     loading.hidden = true;
     await configureBlueprintLogic();
@@ -302,7 +338,8 @@ function load(url, label = 'scene.glb') {
       ? 'Serve this folder over HTTP; browsers block module-based viewers opened directly with file://.'
       : 'Make sure assets/scene.glb exists and was uploaded with the rest of the export.';
     errorMessage.textContent = `${error.message || error}. ${hint}`;
-    stats.textContent = 'Scene unavailable';
+    sceneStats = 'Scene unavailable';
+    updateStats();
   });
 }
 
@@ -339,4 +376,5 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 
+loadExportManifest();
 load('./assets/scene.glb');

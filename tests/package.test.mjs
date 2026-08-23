@@ -131,6 +131,10 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /projectTargets/);
   assert.match(source, /missingRequiredTargets/);
   assert.match(source, /blueprintCompatibility/);
+  assert.match(source, /ue5-html5-export\/v3/);
+  assert.match(source, /assetDelivery/);
+  assert.match(source, /browserPayloadBytes/);
+  assert.match(source, /not a Discord platform limit or a performance certification/);
   assert.match(source, /unreal-export-needs-blueprint-adapters/);
   for (const environmentName of [
     'DISCORD_BOT_TOKEN', 'SUPABASE_PUBLISHABLE_KEY',
@@ -176,7 +180,7 @@ test('Unreal Project Settings expose only non-secret Discord Activity targets', 
   const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
   for (const field of [
     'DiscordApplicationId', 'DiscordPublicKey', 'VercelProjectName',
-    'SupabaseProjectRef', 'ProductionUrl',
+    'SupabaseProjectRef', 'ProductionUrl', 'BrowserPayloadBudgetMiB',
   ]) assert.match(header, new RegExp(field));
   for (const forbidden of [
     'DiscordClientSecret', 'DiscordBotToken', 'SupabaseSecretKey',
@@ -252,6 +256,9 @@ test('viewer exposes errors and animation selection', () => {
   assert.match(source, /renderer\.setAnimationLoop/);
   assert.match(source, /BlueprintRuntime/);
   assert.match(source, /BrowserRuntimeAdapters/);
+  assert.match(source, /loadExportManifest/);
+  assert.match(source, /primary payload/);
+  assert.match(source, /delivery review/);
 });
 
 test('browser adapters cover gameplay integration families', () => {

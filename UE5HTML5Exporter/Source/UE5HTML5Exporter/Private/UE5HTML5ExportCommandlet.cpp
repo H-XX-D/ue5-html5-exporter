@@ -73,5 +73,14 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
         Result.SupportedBlueprintNodeCount,
         Result.BlueprintNodeCount,
         Result.UnsupportedBlueprintNodeCount);
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT("Primary browser payload: %.1f MiB / %.1f MiB advisory budget; largest artifact %s (%.1f MiB); review recommended: %s."),
+        static_cast<double>(Result.BrowserPayloadBytes) / 1024.0 / 1024.0,
+        static_cast<double>(Result.BrowserPayloadBudgetBytes) / 1024.0 / 1024.0,
+        *Result.LargestBrowserArtifactPath,
+        static_cast<double>(Result.LargestBrowserArtifactBytes) / 1024.0 / 1024.0,
+        Result.bBrowserPayloadExceedsAdvisoryBudget ? TEXT("yes") : TEXT("no"));
     return 0;
 }

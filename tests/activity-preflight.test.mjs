@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { test } from 'node:test';
 
 import {
@@ -28,6 +28,64 @@ function validEnvironment() {
   };
 }
 
+function fixturePayloadMetrics(root) {
+  const sizes = new Map();
+  const add = (path) => {
+    if (!statSync(path).isFile()) return;
+    sizes.set(relative(root, path).split('\\').join('/'), statSync(path).size);
+  };
+  const visit = (path) => {
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile()) add(child);
+    }
+  };
+  add(join(root, 'index.html'));
+  for (const directory of ['runtime', 'assets', 'logic']) visit(join(root, directory));
+  const entries = [...sizes].sort(([left], [right]) => left.localeCompare(right));
+  const sumPrefix = (prefix) => entries
+    .filter(([path]) => path.startsWith(`${prefix}/`))
+    .reduce((total, [, size]) => total + size, 0);
+  const largest = entries.reduce(
+    (current, entry) => entry[1] > current[1] || (entry[1] === current[1] && entry[0] < current[0]) ? entry : current,
+    ['', 0],
+  );
+  const indexBytes = sizes.get('index.html') || 0;
+  const runtimeBytes = sumPrefix('runtime');
+  const assetBytes = sumPrefix('assets');
+  const logicBytes = sumPrefix('logic');
+  return {
+    browserPayloadBytes: indexBytes + runtimeBytes + assetBytes + logicBytes,
+    indexBytes,
+    runtimeBytes,
+    assetBytes,
+    sceneBytes: sizes.get('assets/scene.glb') || 0,
+    logicBytes,
+    largestArtifactPath: largest[0],
+    largestArtifactBytes: largest[1],
+  };
+}
+
+function writeAssetDelivery(root, advisoryBudgetBytes = 64 * 1024 * 1024) {
+  const metrics = fixturePayloadMetrics(root);
+  const delivery = {
+    status: metrics.browserPayloadBytes > advisoryBudgetBytes ? 'exceeds-advisory-budget' : 'within-advisory-budget',
+    advisoryOnly: true,
+    ...metrics,
+    advisoryBudgetBytes,
+    measuredPaths: ['index.html', 'runtime/**', 'assets/**', 'logic/**'],
+    details: 'Exporter advisory only; test real clients.',
+  };
+  for (const filename of ['export-manifest.json', 'activity-handoff.json']) {
+    const path = join(root, filename);
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    value.assetDelivery = delivery;
+    writeFileSync(path, JSON.stringify(value));
+  }
+  return delivery;
+}
+
 function exportFixture() {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-preflight-'));
   for (const path of REQUIRED_EXPORT_FILES) {
@@ -36,7 +94,7 @@ function exportFixture() {
     writeFileSync(target, path.endsWith('.json') ? '{}' : 'fixture');
   }
   writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
-    schema: 'ue5-html5-export/v2',
+    schema: 'ue5-html5-export/v3',
     blueprintCompatibility: {
       status: 'compatible', blueprintCount: 1, nodeCount: 2, supportedNodeCount: 2, unsupportedNodeCount: 0,
     },
@@ -73,6 +131,7 @@ function exportFixture() {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, 'fixture');
   }
+  writeAssetDelivery(root);
   return root;
 }
 
@@ -212,6 +271,48 @@ test('Activity package preflight keeps a partial public target set explicitly in
     writeFileSync(handoffPath, JSON.stringify(handoff));
     const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
     assert.ok(result.errors.some((error) => error.includes('configured must be false')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight rejects stale browser payload metrics', () => {
+  const root = exportFixture();
+  try {
+    writeFileSync(join(root, 'runtime/viewer-fixture0.js'), 'fixture grew after Unreal wrote its manifest');
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.ok(result.errors.some((error) => error.includes('runtimeBytes does not match')));
+    assert.ok(result.errors.some((error) => error.includes('browserPayloadBytes does not match')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight warns without blocking above the project advisory budget', () => {
+  const root = exportFixture();
+  try {
+    writeAssetDelivery(root, 1);
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.warnings.some((warning) => warning.includes('above the 0.0 MiB project advisory budget')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Activity package preflight accepts legacy v2 exports with an explicit metrics warning', () => {
+  const root = exportFixture();
+  try {
+    for (const filename of ['export-manifest.json', 'activity-handoff.json']) {
+      const path = join(root, filename);
+      const value = JSON.parse(readFileSync(path, 'utf8'));
+      delete value.assetDelivery;
+      if (filename === 'export-manifest.json') value.schema = 'ue5-html5-export/v2';
+      writeFileSync(path, JSON.stringify(value));
+    }
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.warnings.some((warning) => warning.includes('Legacy v2 export')));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

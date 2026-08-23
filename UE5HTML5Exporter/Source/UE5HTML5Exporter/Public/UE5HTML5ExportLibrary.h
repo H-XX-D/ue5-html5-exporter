@@ -16,6 +16,16 @@ struct FUE5HTML5ExportResult
     int32 BlueprintNodeCount = 0;
     int32 SupportedBlueprintNodeCount = 0;
     int32 UnsupportedBlueprintNodeCount = 0;
+    int64 BrowserPayloadBytes = 0;
+    int64 BrowserPayloadBudgetBytes = 0;
+    int64 IndexBytes = 0;
+    int64 RuntimeBytes = 0;
+    int64 AssetBytes = 0;
+    int64 SceneBytes = 0;
+    int64 LogicBytes = 0;
+    FString LargestBrowserArtifactPath;
+    int64 LargestBrowserArtifactBytes = 0;
+    bool bBrowserPayloadExceedsAdvisoryBudget = false;
 };
 
 struct FUE5HTML5ReadinessReport
