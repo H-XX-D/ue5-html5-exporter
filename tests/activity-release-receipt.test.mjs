@@ -68,7 +68,9 @@ test('release receipt verifier probes immutable and stable URLs and writes priva
   const root = mkdtempSync(join(tmpdir(), 'ue5-release-verification-'));
   try {
     const path = writeActivityReleaseVerification(root, result.verification);
-    assert.equal(statSync(path).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(path).mode & 0o777, 0o600);
+    }
     const written = JSON.parse(readFileSync(path, 'utf8'));
     assert.equal(written.publicUrl, 'https://game.example');
     assert.doesNotMatch(JSON.stringify(written), /client.?secret|bot.?token|private.?key|email/i);
