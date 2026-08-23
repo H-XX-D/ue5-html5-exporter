@@ -33,7 +33,7 @@ Requirements:
 
 - Unreal Engine 5.3 or newer with the built-in **glTF Exporter** plugin
 - For UE 5.8 source builds: Visual Studio 2022 17.14+ or Visual Studio 2026 18.0+, **Game development with C++**, Visual Studio Tools for Unreal Engine, and Windows SDK 10.0.22621+
-- Node.js 22.12 or newer only when rebuilding/testing the browser runtime; ordinary source or prebuilt plugin installation uses PowerShell
+- Node.js 22.12 or newer only when rebuilding/testing the browser runtime; ordinary plugin installation uses PowerShell, and the exported Windows release launcher can explicitly install a verified portable runtime under Local AppData
 
 From the downloaded source bundle, double-click `Install-UE5HTML5Exporter.cmd`. Choose the game's `.uproject` file in the Windows file picker. The launcher runs the workstation doctor, installs the plugin, and opens the selected project; it does not ask for Discord, Vercel, Supabase, player, or billing information. You can also drag a `.uproject` file onto the launcher. When updating an existing installation, it asks before moving the current plugin into the project's recoverable `.ue5html5-backups` folder.
 
@@ -103,7 +103,7 @@ The verified export receives `workstation-certification.json`, including the Blu
 | Level or asset designer | Yes | No | No |
 | Blueprint gameplay developer | Yes | No | Only the supplied Discord Blueprint nodes |
 | Plugin maintainer | Yes | Yes | Test configuration only |
-| Release operator | Optional | Yes | Yes |
+| Release operator | Optional | Supplied automatically by the Windows launcher; required for manual/CI use | Yes |
 
 The exported folder is static-host compatible. Vercel is the included deployment adapter because it serves both the game and confidential Activity API from one project. Supabase stores game-created state and provides private Realtime channels. Discord provides identity, purchases, Rich Presence, share links, and distribution. Unreal teammates access those features through supplied Blueprint nodes rather than writing Embedded App SDK code.
 

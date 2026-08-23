@@ -68,11 +68,22 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/release-discord-activity.cmd',
     'Resources/WebTemplate/release-discord-activity.command',
     'Resources/WebTemplate/release-discord-activity.sh',
+    'Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1',
   ]) assert.ok(existsSync(new URL(path, plugin)), `${path} is missing; run npm run build`);
 
-  assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /activity-release-assistant\.mjs --guided/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /Start-DiscordActivityRelease\.ps1/);
   assert.match(read('Resources/WebTemplate/release-discord-activity.command'), /activity-release-assistant\.mjs --guided/);
   assert.match(read('Resources/WebTemplate/release-discord-activity.sh'), /activity-release-assistant\.mjs --guided/);
+  const windowsReleaseBootstrap = read('Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1');
+  assert.match(windowsReleaseBootstrap, /\$PinnedNodeVersion = '22\.23\.2'/);
+  assert.match(windowsReleaseBootstrap, /https:\/\/nodejs\.org\/dist\/v\$PinnedNodeVersion/);
+  assert.match(windowsReleaseBootstrap, /Get-FileHash -LiteralPath \$archive -Algorithm SHA256/);
+  assert.match(windowsReleaseBootstrap, /1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97/);
+  assert.match(windowsReleaseBootstrap, /fec025a6da31757e3b6af84c5a1628e9d38442ca99a2161091d78f2fcfa35ef3/);
+  assert.match(windowsReleaseBootstrap, /LocalApplicationData/);
+  assert.match(windowsReleaseBootstrap, /No administrator access or system PATH change is required/);
+  assert.match(windowsReleaseBootstrap, /Set-Content -LiteralPath \$resolvedPathFile -Value \$node/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /activity-release-assistant\.mjs --guided %\*/);
 
   const migrationDirectory = new URL('Resources/WebTemplate/supabase/migrations/', plugin);
   assert.ok(existsSync(migrationDirectory));

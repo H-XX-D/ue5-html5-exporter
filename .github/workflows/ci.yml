@@ -76,6 +76,10 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\$script", [ref]$tokens, [ref]$parseErrors) | Out-Null
             $allErrors += $parseErrors
           }
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\UE5HTML5Exporter\Resources\WebTemplate\scripts\Start-DiscordActivityRelease.ps1", [ref]$tokens, [ref]$parseErrors) | Out-Null
+          $allErrors += $parseErrors
           if ($allErrors.Count) { $allErrors | Format-List | Out-String | Write-Error }
       - name: Run Windows workstation contract tests
         if: runner.os == 'Windows'

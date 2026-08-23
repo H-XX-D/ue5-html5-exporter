@@ -30,6 +30,7 @@ export const REQUIRED_EXPORT_FILES = [
   'release-discord-activity.cmd',
   'release-discord-activity.command',
   'release-discord-activity.sh',
+  'scripts/Start-DiscordActivityRelease.ps1',
   'scripts/activity-release-assistant.mjs',
   'scripts/activity-release.mjs',
   'supabase/migrations/20260822094350_discord_activity_core.sql',
