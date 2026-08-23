@@ -287,15 +287,18 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /release-discord-activity\.sh/);
   assert.match(module, /non-mutating dry run/);
   assert.match(module, /Private credentials remain outside Unreal/);
-  assert.match(module, /Discord features detected from Blueprints/);
-  assert.match(module, /Required Discord authorization/);
-  assert.match(module, /identify only/);
+  assert.match(library, /Discord features detected from Blueprints/);
+  assert.match(library, /Required Discord authorization/);
+  assert.match(library, /identify only/);
   assert.match(library, /rpc\.activities\.write/);
   assert.match(library, /PopulateDiscordRequirements/);
   assert.match(library, /RequiredDiscordOAuthScopes/);
-  assert.match(module, /no client secret, bot token, email, billing information, or Discord player profile is written into the export/);
-  assert.match(commandlet, /Discord features detected from Blueprints/);
-  assert.match(commandlet, /Required Discord authorization/);
+  assert.match(library, /no client secret, bot token, email, billing information, or Discord player profile is written into the export/);
+  assert.match(library, /DISCORD ACTIVITY ACCESS/);
+  assert.match(library, /Summary\.UsedFunctions/);
+  assert.match(module, /Report\.DiscordFeatures/);
+  assert.match(module, /FormatDiscordAccessSummary/);
+  assert.match(commandlet, /FormatDiscordAccessSummary/);
   assert.match(module, /open Project Settings and fill the missing public targets/);
   assert.match(library, /CheckDiscordActivityReadiness/);
   assert.match(library, /GLTFExporter/);
@@ -346,11 +349,17 @@ test('Unreal Project Settings expose only non-secret Discord Activity targets', 
 
 test('Unreal commandlet exposes the same readiness policy for workstation automation', () => {
   const commandlet = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportCommandlet.cpp');
+  const rootReadme = read('../README.md');
+  const workflow = read('../docs/DISCORD_ACTIVITY_WORKFLOW.md');
+  const bundledWorkflow = read('Resources/WebTemplate/DISCORD_ACTIVITY_WORKFLOW.md');
   assert.match(commandlet, /FParse::Param\(\*Params, TEXT\("CheckOnly"\)\)/);
   assert.match(commandlet, /FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness\(World\)/);
   assert.match(commandlet, /Discord Activity readiness check passed/);
   assert.match(commandlet, /Readiness blocker/);
   assert.match(commandlet, /BlueprintCheckOnly/);
+  assert.doesNotMatch(rootReadme, /CheckBlueprintsOnly/);
+  assert.doesNotMatch(workflow, /CheckBlueprintsOnly/);
+  assert.doesNotMatch(bundledWorkflow, /CheckBlueprintsOnly/);
   assert.match(commandlet, /FailOnUnsupported/);
   assert.match(commandlet, /AnalyzeBlueprintCompatibility/);
   assert.match(commandlet, /return 6/);

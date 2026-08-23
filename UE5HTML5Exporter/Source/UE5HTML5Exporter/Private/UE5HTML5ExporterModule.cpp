@@ -64,52 +64,6 @@ namespace
 #endif
     }
 
-    FString DiscordFeatureDisplayName(const FString& Feature)
-    {
-        if (Feature == TEXT("activity-core")) return TEXT("Activity readiness");
-        if (Feature == TEXT("display-controls")) return TEXT("display and orientation controls");
-        if (Feature == TEXT("external-links")) return TEXT("external links");
-        if (Feature == TEXT("hardware-acceleration")) return TEXT("hardware acceleration prompt");
-        if (Feature == TEXT("image-sharing")) return TEXT("image sharing");
-        if (Feature == TEXT("invitations")) return TEXT("invite dialog");
-        if (Feature == TEXT("launch-sharing")) return TEXT("share links and launch context");
-        if (Feature == TEXT("locale")) return TEXT("locale");
-        if (Feature == TEXT("monetization")) return TEXT("store and entitlements");
-        if (Feature == TEXT("participants")) return TEXT("participants");
-        if (Feature == TEXT("persistence")) return TEXT("game-state persistence");
-        if (Feature == TEXT("realtime")) return TEXT("realtime broadcast");
-        if (Feature == TEXT("rich-presence")) return TEXT("Rich Presence");
-        return Feature;
-    }
-
-    FString DiscordAccessSummary(const FUE5HTML5ExportResult& Result)
-    {
-        TArray<FString> FeatureNames;
-        for (const FString& Feature : Result.DiscordFeatures)
-        {
-            FeatureNames.Add(DiscordFeatureDisplayName(Feature));
-        }
-
-        const FString Features = FeatureNames.IsEmpty()
-            ? TEXT("none (no optional Discord feature nodes were detected)")
-            : FString::Join(FeatureNames, TEXT(", "));
-        const FString Authorization = Result.RequiredDiscordOAuthScopes.Num() == 1
-            && Result.RequiredDiscordOAuthScopes[0] == TEXT("identify")
-                ? TEXT("identify only")
-                : FString::Join(Result.RequiredDiscordOAuthScopes, TEXT(" + "));
-        const FString AutomaticSetup = Result.DiscordFeatures.Contains(TEXT("rich-presence"))
-            ? TEXT("\nRelease assistant: Rich Presence configuration will be enabled automatically.")
-            : TEXT("");
-
-        return FString::Printf(
-            TEXT("Discord features detected from Blueprints: %s.\n")
-            TEXT("Required Discord authorization: %s.%s\n")
-            TEXT("Privacy boundary: no client secret, bot token, email, billing information, or Discord player profile is written into the export."),
-            *Features,
-            *Authorization,
-            *AutomaticSetup);
-    }
-
     bool LaunchDiscordActivityReleaseAssistant(const FString& OutputDirectory)
     {
         const FString Launcher = DiscordActivityReleaseLauncher(OutputDirectory);
@@ -476,7 +430,11 @@ void FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive()
             Message += FString::Printf(TEXT("  ... and %d more in the report.\n"), Report.UnsupportedNodes.Num() - VisibleCount);
         }
     }
-    Message += TEXT("\nThis fast check does not export scene assets or certify browser runtime behavior.\n\nOpen the complete report folder now?");
+    Message += TEXT("\n");
+    Message += FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
+        Report.DiscordFeatures,
+        Report.RequiredDiscordOAuthScopes);
+    Message += TEXT("\n\nThis fast check does not export scene assets or certify browser runtime behavior.\n\nOpen the complete report folder now?");
     if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
     {
         FPlatformProcess::ExploreFolder(*Report.OutputDirectory);
@@ -586,7 +544,9 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
         Result.bBrowserPayloadExceedsAdvisoryBudget ? TEXT(" — REVIEW RECOMMENDED") : TEXT(""),
         *Result.LargestBrowserArtifactPath,
         static_cast<double>(Result.LargestBrowserArtifactBytes) / 1024.0 / 1024.0);
-    const FString DiscordAccess = DiscordAccessSummary(Result);
+    const FString DiscordAccess = FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
+        Result.DiscordFeatures,
+        Result.RequiredDiscordOAuthScopes);
 
     const FString NextAction = bDiscordGuided
         ? TEXT("Start the Discord Activity release assistant now?\n\nIt opens in a terminal, begins with a non-mutating dry run, then asks before applying that exact plan. Private credentials remain outside Unreal.")
@@ -666,7 +626,9 @@ void FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive()
             TEXT("The browser uses Discord's official SDK mock plus local-only game-state storage. ")
             TEXT("It does not contact Discord, Vercel, or Supabase and does not replace a final in-Discord test.\n\nExport: %s"),
             *Compatibility,
-            *DiscordAccessSummary(Result),
+            *FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
+                Result.DiscordFeatures,
+                Result.RequiredDiscordOAuthScopes),
             *Result.OutputDirectory)));
 }
 

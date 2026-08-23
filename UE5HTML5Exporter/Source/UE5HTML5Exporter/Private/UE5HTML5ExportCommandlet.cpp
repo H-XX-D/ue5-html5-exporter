@@ -137,6 +137,13 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
         {
             UE_LOG(LogTemp, Warning, TEXT("Unsupported Blueprint node: %s"), *Node);
         }
+        UE_LOG(
+            LogTemp,
+            Display,
+            TEXT("%s"),
+            *FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
+                Report.DiscordFeatures,
+                Report.RequiredDiscordOAuthScopes));
         UE_LOG(LogTemp, Display, TEXT("Blueprint compatibility report: %s"), *Report.ReportPath);
         if (bFailOnUnsupported && Report.UnsupportedNodeCount > 0)
         {
@@ -175,12 +182,9 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
     UE_LOG(
         LogTemp,
         Display,
-        TEXT("Discord features detected from Blueprints: %s."),
-        Result.DiscordFeatures.IsEmpty() ? TEXT("none") : *FString::Join(Result.DiscordFeatures, TEXT(", ")));
-    UE_LOG(
-        LogTemp,
-        Display,
-        TEXT("Required Discord authorization: %s. Private credentials and player profile data are not written into the export."),
-        *FString::Join(Result.RequiredDiscordOAuthScopes, TEXT(" + ")));
+        TEXT("%s"),
+        *FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
+            Result.DiscordFeatures,
+            Result.RequiredDiscordOAuthScopes));
     return 0;
 }

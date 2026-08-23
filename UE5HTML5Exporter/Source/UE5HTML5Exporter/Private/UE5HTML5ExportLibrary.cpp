@@ -398,24 +398,55 @@ namespace
         return FString();
     }
 
-    void PopulateDiscordRequirements(FUE5HTML5ExportResult& Result)
+    void DeriveDiscordRequirements(
+        const TSet<FString>& UsedBlueprintFunctions,
+        TArray<FString>& OutFeatures,
+        TArray<FString>& OutRequiredOAuthScopes,
+        TArray<FString>& OutRequiredEnvironment)
     {
         TSet<FString> Features;
-        for (const FString& Function : Result.UsedBlueprintFunctions)
+        for (const FString& Function : UsedBlueprintFunctions)
         {
             const FString Feature = DiscordFeatureForFunction(Function);
             if (!Feature.IsEmpty()) Features.Add(Feature);
         }
 
-        Result.DiscordFeatures = Features.Array();
-        Result.DiscordFeatures.Sort();
-        Result.RequiredDiscordOAuthScopes = { TEXT("identify") };
-        Result.RequiredDiscordEnvironment.Reset();
-        if (Result.DiscordFeatures.Contains(TEXT("rich-presence")))
+        OutFeatures = Features.Array();
+        OutFeatures.Sort();
+        OutRequiredOAuthScopes = { TEXT("identify") };
+        OutRequiredEnvironment.Reset();
+        if (OutFeatures.Contains(TEXT("rich-presence")))
         {
-            Result.RequiredDiscordOAuthScopes.Add(TEXT("rpc.activities.write"));
-            Result.RequiredDiscordEnvironment.Add(TEXT("DISCORD_ENABLE_RICH_PRESENCE"));
+            OutRequiredOAuthScopes.Add(TEXT("rpc.activities.write"));
+            OutRequiredEnvironment.Add(TEXT("DISCORD_ENABLE_RICH_PRESENCE"));
         }
+    }
+
+    void PopulateDiscordRequirements(FUE5HTML5ExportResult& Result)
+    {
+        DeriveDiscordRequirements(
+            Result.UsedBlueprintFunctions,
+            Result.DiscordFeatures,
+            Result.RequiredDiscordOAuthScopes,
+            Result.RequiredDiscordEnvironment);
+    }
+
+    FString DiscordFeatureDisplayName(const FString& Feature)
+    {
+        if (Feature == TEXT("activity-core")) return TEXT("Activity readiness");
+        if (Feature == TEXT("display-controls")) return TEXT("display and orientation controls");
+        if (Feature == TEXT("external-links")) return TEXT("external links");
+        if (Feature == TEXT("hardware-acceleration")) return TEXT("hardware acceleration prompt");
+        if (Feature == TEXT("image-sharing")) return TEXT("image sharing");
+        if (Feature == TEXT("invitations")) return TEXT("invite dialog");
+        if (Feature == TEXT("launch-sharing")) return TEXT("share links and launch context");
+        if (Feature == TEXT("locale")) return TEXT("locale");
+        if (Feature == TEXT("monetization")) return TEXT("store and entitlements");
+        if (Feature == TEXT("participants")) return TEXT("participants");
+        if (Feature == TEXT("persistence")) return TEXT("game-state persistence");
+        if (Feature == TEXT("realtime")) return TEXT("realtime broadcast");
+        if (Feature == TEXT("rich-presence")) return TEXT("Rich Presence");
+        return Feature;
     }
 
     bool RequiresDiscordRichPresence(const FUE5HTML5ExportResult& Result)
@@ -685,6 +716,36 @@ bool FUE5HTML5ExportLibrary::EnsureProjectAdapterFiles(FString& OutDirectory, FS
     return true;
 }
 
+FString FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
+    const TArray<FString>& DiscordFeatures,
+    const TArray<FString>& RequiredDiscordOAuthScopes)
+{
+    TArray<FString> FeatureNames;
+    for (const FString& Feature : DiscordFeatures)
+    {
+        FeatureNames.Add(DiscordFeatureDisplayName(Feature));
+    }
+
+    const FString Features = FeatureNames.IsEmpty()
+        ? TEXT("none (no optional Discord feature nodes were detected)")
+        : FString::Join(FeatureNames, TEXT(", "));
+    const FString Authorization = RequiredDiscordOAuthScopes.Num() == 1
+        && RequiredDiscordOAuthScopes[0] == TEXT("identify")
+            ? TEXT("identify only")
+            : FString::Join(RequiredDiscordOAuthScopes, TEXT(" + "));
+    const FString AutomaticSetup = DiscordFeatures.Contains(TEXT("rich-presence"))
+        ? TEXT("\nRelease assistant: Rich Presence configuration will be enabled automatically.")
+        : TEXT("");
+
+    return FString::Printf(
+        TEXT("Discord features detected from Blueprints: %s.\n")
+        TEXT("Required Discord authorization: %s.%s\n")
+        TEXT("Privacy boundary: no client secret, bot token, email, billing information, or Discord player profile is written into the export."),
+        *Features,
+        *Authorization,
+        *AutomaticSetup);
+}
+
 FUE5HTML5ReadinessReport FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(UWorld* World)
 {
     FUE5HTML5ReadinessReport Report;
@@ -833,6 +894,11 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
     Report.SupportedNodeCount = Summary.SupportedNodeCount;
     Report.UnsupportedNodeCount = Summary.UnsupportedNodeCount;
     Report.UnsupportedNodes = Summary.UnsupportedNodes;
+    DeriveDiscordRequirements(
+        Summary.UsedFunctions,
+        Report.DiscordFeatures,
+        Report.RequiredDiscordOAuthScopes,
+        Report.RequiredDiscordEnvironment);
     Report.ReportPath = FPaths::Combine(Report.OutputDirectory, TEXT("BLUEPRINT_COMPATIBILITY.txt"));
 
     FString Text = FString::Printf(
@@ -858,6 +924,10 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
     {
         Text += TEXT("Project-adapter coverage requires browser registration checks plus local Discord preview and gameplay validation.\n\n");
     }
+
+    Text += TEXT("DISCORD ACTIVITY ACCESS\n-----------------------\n");
+    Text += FormatDiscordAccessSummary(Report.DiscordFeatures, Report.RequiredDiscordOAuthScopes);
+    Text += TEXT("\n\n");
 
     if (Report.UnsupportedNodes.IsEmpty())
     {

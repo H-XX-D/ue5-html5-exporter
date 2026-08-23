@@ -68,12 +68,18 @@ struct FUE5HTML5BlueprintCompatibilityReport
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
     TArray<FString> UnsupportedNodes;
+    TArray<FString> DiscordFeatures;
+    TArray<FString> RequiredDiscordOAuthScopes;
+    TArray<FString> RequiredDiscordEnvironment;
 };
 
 class FUE5HTML5ExportLibrary
 {
 public:
     static bool EnsureProjectAdapterFiles(FString& OutDirectory, FString& OutError);
+    static FString FormatDiscordAccessSummary(
+        const TArray<FString>& DiscordFeatures,
+        const TArray<FString>& RequiredDiscordOAuthScopes);
     static FUE5HTML5ReadinessReport CheckDiscordActivityReadiness(UWorld* World);
     static FUE5HTML5BlueprintCompatibilityReport AnalyzeBlueprintCompatibility(UWorld* World, const FString& OutputDirectory);
     static FUE5HTML5ExportResult ExportWorld(UWorld* World, const FString& OutputDirectory, const TSet<AActor*>& SelectedActors);
