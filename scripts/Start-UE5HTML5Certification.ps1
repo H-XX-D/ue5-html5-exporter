@@ -66,7 +66,7 @@ if ($Map -notmatch '^/Game/') {
 }
 
 $confirmation = [System.Windows.Forms.MessageBox]::Show(
-    "This will build the Win64 plugin, back up any installed copy, install the new package, run the native Unreal FPS setup/Undo test, export $Map, and open the default browser to certify cold/warm asset loading plus FPS shooting, score, depletion, and respawn.`n`nKeep the browser open until it reports PASS.`n`nContinue?",
+    "This will build the Win64 plugin, back up any installed copy, install the new package, run the native Unreal FPS setup/Undo test, export $Map, and open the default browser to certify cold/warm asset loading, advisory runtime-ready/frame pacing, FPS shooting, score, depletion, and respawn.`n`nKeep the browser open until it reports PASS.`n`nContinue?",
     'Certify UE5HTML5Exporter for Win64',
     [System.Windows.Forms.MessageBoxButtons]::YesNo,
     [System.Windows.Forms.MessageBoxIcon]::Question

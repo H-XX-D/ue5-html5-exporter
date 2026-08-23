@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
-const CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v1';
+const CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v2';
 const CERTIFICATION_QUERY = 'ue5_certify';
 const CERTIFICATION_TOKEN_QUERY = 'ue5_certify_token';
 const CERTIFICATION_ENDPOINT = '/__ue5html5_certification__';
-const CERTIFICATION_STORAGE_KEY = 'ue5html5-browser-certification-v1';
+const CERTIFICATION_STORAGE_KEY = 'ue5html5-browser-certification-v2';
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 function clone(value) {
@@ -17,6 +17,57 @@ function requireCondition(condition, message) {
 
 function errorText(error) {
   return error?.message || String(error);
+}
+
+function roundMetric(value) {
+  return Number(Number(value).toFixed(3));
+}
+
+function percentile(sortedValues, fraction) {
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(sortedValues.length * fraction) - 1));
+  return sortedValues[index];
+}
+
+export async function measureFramePacing({
+  requestFrame = globalThis.requestAnimationFrame?.bind(globalThis),
+  sampleFrames = 120,
+} = {}) {
+  requireCondition(typeof requestFrame === 'function', 'Frame-pacing certification requires requestAnimationFrame.');
+  requireCondition(Number.isInteger(sampleFrames) && sampleFrames >= 30 && sampleFrames <= 600,
+    'Frame-pacing certification requires 30 to 600 sampled frames.');
+
+  const timestamps = [];
+  await new Promise((resolve, reject) => {
+    const capture = (timestamp) => {
+      if (!Number.isFinite(timestamp)) {
+        reject(new Error('requestAnimationFrame returned an invalid timestamp.'));
+        return;
+      }
+      timestamps.push(timestamp);
+      if (timestamps.length > sampleFrames) {
+        resolve();
+        return;
+      }
+      requestFrame(capture);
+    };
+    requestFrame(capture);
+  });
+
+  const intervals = timestamps.slice(1).map((timestamp, index) => timestamp - timestamps[index]);
+  requireCondition(intervals.length === sampleFrames && intervals.every((value) => Number.isFinite(value) && value > 0),
+    'Frame-pacing certification received invalid frame intervals.');
+  const durationMs = intervals.reduce((total, value) => total + value, 0);
+  const sorted = [...intervals].sort((left, right) => left - right);
+  return {
+    sampleCount: intervals.length,
+    durationMs: roundMetric(durationMs),
+    averageFramesPerSecond: roundMetric((intervals.length * 1000) / durationMs),
+    p50FrameMs: roundMetric(percentile(sorted, 0.50)),
+    p95FrameMs: roundMetric(percentile(sorted, 0.95)),
+    maxFrameMs: roundMetric(sorted[sorted.length - 1]),
+    framesOver33Ms: intervals.filter((value) => value > (1000 / 30)).length,
+    framesOver50Ms: intervals.filter((value) => value > 50).length,
+  };
 }
 
 export function isLoopbackCertification(locationObject = globalThis.location) {
@@ -131,6 +182,9 @@ export class BrowserCertification {
     documentObject = globalThis.document,
     now = () => new Date(),
     wait,
+    monotonicNow = globalThis.performance?.now?.bind(globalThis.performance),
+    requestFrame = globalThis.requestAnimationFrame?.bind(globalThis),
+    measureFrames = measureFramePacing,
   } = {}) {
     this.location = locationObject;
     this.storage = storage;
@@ -140,6 +194,9 @@ export class BrowserCertification {
     this.document = documentObject;
     this.now = now;
     this.wait = wait;
+    this.monotonicNow = monotonicNow;
+    this.requestFrame = requestFrame;
+    this.measureFrames = measureFrames;
     this.enabled = isLoopbackCertification(locationObject);
     this.events = [];
     this.assetCache = null;
@@ -262,6 +319,10 @@ export class BrowserCertification {
         coverage: this.assertDeliveryMode('cache-hit'),
       };
       requireCondition(runtime, 'The exported Blueprint runtime did not start.');
+      const runtimeReadyFromNavigationStartMs = Number(this.monotonicNow?.());
+      requireCondition(Number.isFinite(runtimeReadyFromNavigationStartMs) && runtimeReadyFromNavigationStartMs >= 0,
+        'Browser certification could not measure runtime-ready time.');
+      const framePacing = await this.measureFrames({ requestFrame: this.requestFrame });
       const gameplayResult = await runTargetPracticeCertification(gameplay, targetPractice, {
         wait: this.wait,
         now: this.wait ? () => this.now().getTime() : undefined,
@@ -283,11 +344,19 @@ export class BrowserCertification {
           blueprintReady: true,
           firstPersonEnabled: Boolean(gameplay?.enabled),
         },
+        performance: {
+          advisoryOnly: true,
+          context: 'local-browser-only',
+          runtimeReadyFromNavigationStartMs: roundMetric(runtimeReadyFromNavigationStartMs),
+          framePacing,
+          deviceMetadataCollected: false,
+        },
         targetPractice: gameplayResult,
         privacy: {
           credentialsAccessed: false,
           personalPlayerDataCollected: false,
-          scope: 'loopback browser runtime, asset delivery, and local target-practice behavior only',
+          deviceMetadataCollected: false,
+          scope: 'loopback browser runtime, asset delivery, timing-only performance, and local target-practice behavior only',
         },
         errors: [],
       };
@@ -316,7 +385,8 @@ export class BrowserCertification {
       privacy: {
         credentialsAccessed: false,
         personalPlayerDataCollected: false,
-        scope: 'loopback browser runtime, asset delivery, and local target-practice behavior only',
+        deviceMetadataCollected: false,
+        scope: 'loopback browser runtime, asset delivery, timing-only performance, and local target-practice behavior only',
       },
       errors: [errorText(error)],
     };

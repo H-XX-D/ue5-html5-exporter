@@ -5,6 +5,7 @@ import {
   BrowserCertification,
   CERTIFICATION_SCHEMA,
   isLoopbackCertification,
+  measureFramePacing,
   resourceModeCoverage,
   runTargetPracticeCertification,
 } from '../web/src/browser-certification.js';
@@ -96,6 +97,27 @@ test('asset delivery coverage requires every manifest resource in the requested 
   assert.ok(complete.every(({ passed }) => passed));
 });
 
+test('frame pacing records timing-only percentiles without device metadata', async () => {
+  let timestamp = 0;
+  let call = 0;
+  const result = await measureFramePacing({
+    sampleFrames: 30,
+    requestFrame(callback) {
+      const delta = call === 10 ? 40 : call === 20 ? 60 : (1000 / 60);
+      call += 1;
+      timestamp += delta;
+      callback(timestamp);
+    },
+  });
+
+  assert.equal(result.sampleCount, 30);
+  assert.equal(result.framesOver33Ms, 2);
+  assert.equal(result.framesOver50Ms, 1);
+  assert.equal(result.p95FrameMs, 40);
+  assert.equal(result.maxFrameMs, 60);
+  assert.ok(result.averageFramesPerSecond > 50 && result.averageFramesPerSecond < 60);
+});
+
 test('target-practice certification proves center-ray hits, score, depletion, and respawn', async () => {
   const fixture = targetFixture();
   const result = await runTargetPracticeCertification(fixture.gameplay, fixture.targetPractice, {
@@ -141,6 +163,17 @@ test('browser certification coordinates cold and warm reloads and submits a mach
     documentObject: null,
     reload: () => { reloads += 1; },
     now: () => new Date('2026-08-23T12:00:00.000Z'),
+    monotonicNow: () => 812.25,
+    measureFrames: async () => ({
+      sampleCount: 120,
+      durationMs: 2000,
+      averageFramesPerSecond: 60,
+      p50FrameMs: 16.667,
+      p95FrameMs: 17.1,
+      maxFrameMs: 22.5,
+      framesOver33Ms: 0,
+      framesOver50Ms: 0,
+    }),
   };
 
   const initial = new BrowserCertification(common);
@@ -179,7 +212,12 @@ test('browser certification coordinates cold and warm reloads and submits a mach
   assert.equal(report.status, 'passed');
   assert.equal(report.assetPack.cold.coverage.length, resources.length);
   assert.equal(report.assetPack.warm.coverage.length, resources.length);
+  assert.equal(report.performance.advisoryOnly, true);
+  assert.equal(report.performance.context, 'local-browser-only');
+  assert.equal(report.performance.runtimeReadyFromNavigationStartMs, 812.25);
+  assert.equal(report.performance.framePacing.averageFramesPerSecond, 60);
+  assert.equal(report.performance.deviceMetadataCollected, false);
   assert.equal(report.targetPractice.scoreDelta, 100);
   assert.deepEqual(submitted, report);
-  assert.equal(storage.getItem('ue5html5-browser-certification-v1'), null);
+  assert.equal(storage.getItem('ue5html5-browser-certification-v2'), null);
 });

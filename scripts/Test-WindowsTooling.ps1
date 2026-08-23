@@ -97,7 +97,7 @@ try {
     $browserCertificationPath = Join-Path $testRoot 'browser-certification.json'
     $assetPackVersion = "sha256:$('a' * 64)"
     $browserCertification = [ordered]@{
-        schema = 'ue5-html5-browser-certification/v1'
+        schema = 'ue5-html5-browser-certification/v2'
         status = 'passed'
         verifiedAtUtc = '2026-08-23T12:00:00.000Z'
         exporterVersion = '0.3.37'
@@ -116,13 +116,29 @@ try {
             ) }
         }
         runtime = @{ blueprintReady = $true; firstPersonEnabled = $true }
+        performance = @{
+            advisoryOnly = $true
+            context = 'local-browser-only'
+            runtimeReadyFromNavigationStartMs = 850.5
+            framePacing = @{
+                sampleCount = 120
+                durationMs = 2000
+                averageFramesPerSecond = 60
+                p50FrameMs = 16.667
+                p95FrameMs = 17.5
+                maxFrameMs = 25
+                framesOver33Ms = 0
+                framesOver50Ms = 0
+            }
+            deviceMetadataCollected = $false
+        }
         targetPractice = @{
             shots = 3
             scoreDelta = 100
             afterShots = @{ depletedTargets = 1 }
             afterRespawn = @{ activeTargets = 1 }
         }
-        privacy = @{ credentialsAccessed = $false; personalPlayerDataCollected = $false }
+        privacy = @{ credentialsAccessed = $false; personalPlayerDataCollected = $false; deviceMetadataCollected = $false }
     }
     $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
     $browserEvidence = Get-UE5HTML5BrowserCertificationEvidence `
@@ -133,6 +149,7 @@ try {
     Assert-True ($browserEvidence.status -eq 'passed') 'browser certification bridge must accept the complete matching report'
     Assert-True ($browserEvidence.assetPack.resourceCount -eq 2) 'browser certification bridge must preserve resource coverage evidence'
     Assert-True ($browserEvidence.targetPractice.scoreDelta -eq 100) 'browser certification bridge must preserve gameplay evidence'
+    Assert-True ($browserEvidence.performance.framePacing.averageFramesPerSecond -eq 60) 'browser certification bridge must preserve advisory frame-pacing evidence'
 
     $browserCertification.assetPack.warm.coverage[1].mode = 'network-cached'
     $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
@@ -145,6 +162,17 @@ try {
     } 'matching cold network-cached and warm cache-hit coverage' 'browser certification bridge must reject the wrong warm delivery mode'
 
     $browserCertification.assetPack.warm.coverage[1].mode = 'cache-hit'
+    $browserCertification.performance.framePacing.averageFramesPerSecond = 0
+    $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5BrowserCertificationEvidence `
+            -CertificationFile $browserCertificationPath `
+            -ExpectedExporterVersion '0.3.37' `
+            -ExpectedManifestSchema 'ue5-html5-export/v5' `
+            -ExpectedAssetPackVersion $assetPackVersion
+    } 'frame-pacing evidence' 'browser certification bridge must reject invalid frame-pacing evidence'
+
+    $browserCertification.performance.framePacing.averageFramesPerSecond = 60
     $browserCertification.status = 'failed'
     $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
     Assert-Throws {

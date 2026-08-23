@@ -53,7 +53,7 @@ class CertificationHandler(http.server.SimpleHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError):
             self.reject(400, "Certification report must be UTF-8 JSON")
             return
-        if not isinstance(report, dict) or report.get("schema") != "ue5-html5-browser-certification/v1":
+        if not isinstance(report, dict) or report.get("schema") != "ue5-html5-browser-certification/v2":
             self.reject(422, "Unsupported certification report schema")
             return
         if report.get("status") not in ("passed", "failed"):

@@ -161,7 +161,7 @@ The export pins Node.js 22 or later and includes:
 - `api/activity.mjs`: signed proxy-request validation, bounded Discord rate-limit retries, OAuth exchange, Activity Instance verification, entitlement checks, opaque topic tokens, and save/load.
 - `vercel.json`: no-cache API responses, content-hashed immutable runtime assets, and iframe-safe headers.
 - `assetPack` manifest/handoff fields: a SHA-256 resource index used by the viewer's origin-scoped Cache API adapter. Browser eviction or unavailable storage falls back to network loading; no native client install or service worker is required.
-- `certify-browser.*` plus **Export & Certify Browser FPS**: a loopback-only, token-bound cold-load/warm-cache/center-shot/score/respawn gate that writes `browser-certification.json`. It accesses no service credential or player data and does not replace hosted Discord, mobile, or two-client validation.
+- `certify-browser.*` plus **Export & Certify Browser FPS**: a loopback-only, token-bound cold-load/warm-cache/runtime-ready/frame-pacing/center-shot/score/respawn gate that writes `browser-certification.json`. Performance values are advisory and collect no device metadata, service credential, or player data; they do not replace hosted Discord, mobile, or two-client validation.
 - `package.json`: the server dependency needed by the Vercel Function.
 - `scripts/activity-preflight.mjs`: package, configuration, optional Realtime signing-key, accidental-secret, and optional online identity/access checks.
 - `scripts/activity-release.mjs`: dry-run/apply orchestration plus a post-deployment public, iframe, manifest, and API readiness probe.

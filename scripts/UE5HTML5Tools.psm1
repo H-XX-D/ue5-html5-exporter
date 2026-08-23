@@ -369,7 +369,7 @@ function Get-UE5HTML5BrowserCertificationEvidence {
         throw "Browser certification report is invalid JSON: $CertificationFile ($($_.Exception.Message))"
     }
 
-    if ([string]$report.schema -ne 'ue5-html5-browser-certification/v1') {
+    if ([string]$report.schema -ne 'ue5-html5-browser-certification/v2') {
         throw 'Browser certification report uses an unsupported schema.'
     }
     if ([string]$report.status -ne 'passed') {
@@ -416,13 +416,40 @@ function Get-UE5HTML5BrowserCertificationEvidence {
     if ($report.runtime.blueprintReady -ne $true -or $report.runtime.firstPersonEnabled -ne $true) {
         throw 'Browser certification does not prove Blueprint and first-person runtime readiness.'
     }
+    $runtimeReadyMs = [double]$report.performance.runtimeReadyFromNavigationStartMs
+    $frameSampleCount = [int]$report.performance.framePacing.sampleCount
+    $frameDurationMs = [double]$report.performance.framePacing.durationMs
+    $averageFps = [double]$report.performance.framePacing.averageFramesPerSecond
+    $p50FrameMs = [double]$report.performance.framePacing.p50FrameMs
+    $p95FrameMs = [double]$report.performance.framePacing.p95FrameMs
+    $maxFrameMs = [double]$report.performance.framePacing.maxFrameMs
+    $framesOver33Ms = [int]$report.performance.framePacing.framesOver33Ms
+    $framesOver50Ms = [int]$report.performance.framePacing.framesOver50Ms
+    if ($report.performance.advisoryOnly -ne $true -or
+        [string]$report.performance.context -ne 'local-browser-only' -or
+        $report.performance.deviceMetadataCollected -ne $false -or
+        $runtimeReadyMs -lt 0 -or
+        $frameSampleCount -lt 30 -or
+        $frameDurationMs -le 0 -or
+        $averageFps -le 0 -or
+        $p50FrameMs -le 0 -or
+        $p95FrameMs -lt $p50FrameMs -or
+        $maxFrameMs -lt $p95FrameMs -or
+        $framesOver33Ms -lt 0 -or
+        $framesOver33Ms -gt $frameSampleCount -or
+        $framesOver50Ms -lt 0 -or
+        $framesOver50Ms -gt $framesOver33Ms) {
+        throw 'Browser certification does not contain valid advisory local-browser runtime-ready and frame-pacing evidence.'
+    }
     if ([int]$report.targetPractice.shots -lt 1 -or
         [double]$report.targetPractice.scoreDelta -le 0 -or
         [int]$report.targetPractice.afterShots.depletedTargets -lt 1 -or
         [int]$report.targetPractice.afterRespawn.activeTargets -lt 1) {
         throw 'Browser certification does not prove target shots, positive score, depletion, and respawn.'
     }
-    if ($report.privacy.credentialsAccessed -ne $false -or $report.privacy.personalPlayerDataCollected -ne $false) {
+    if ($report.privacy.credentialsAccessed -ne $false -or
+        $report.privacy.personalPlayerDataCollected -ne $false -or
+        $report.privacy.deviceMetadataCollected -ne $false) {
         throw 'Browser certification privacy boundary is invalid.'
     }
 
@@ -444,9 +471,26 @@ function Get-UE5HTML5BrowserCertificationEvidence {
             depletedTargets = [int]$report.targetPractice.afterShots.depletedTargets
             respawnedActiveTargets = [int]$report.targetPractice.afterRespawn.activeTargets
         }
+        performance = [pscustomobject][ordered]@{
+            advisoryOnly = $true
+            context = 'local-browser-only'
+            runtimeReadyFromNavigationStartMs = $runtimeReadyMs
+            framePacing = [pscustomobject][ordered]@{
+                sampleCount = $frameSampleCount
+                durationMs = $frameDurationMs
+                averageFramesPerSecond = $averageFps
+                p50FrameMs = $p50FrameMs
+                p95FrameMs = $p95FrameMs
+                maxFrameMs = $maxFrameMs
+                framesOver33Ms = $framesOver33Ms
+                framesOver50Ms = $framesOver50Ms
+            }
+            deviceMetadataCollected = $false
+        }
         privacy = [pscustomobject][ordered]@{
             credentialsAccessed = $false
             personalPlayerDataCollected = $false
+            deviceMetadataCollected = $false
         }
     }
 }

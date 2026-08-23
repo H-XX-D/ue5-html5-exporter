@@ -233,7 +233,7 @@ test('Activity package preflight verifies the current reusable asset-pack contra
     const coverage = (mode) => pack.resources.map(({ path }) => ({ path, mode, passed: true }));
     const browserCertificationPath = join(root, 'browser-certification.json');
     const browserCertification = {
-      schema: 'ue5-html5-browser-certification/v1',
+      schema: 'ue5-html5-browser-certification/v2',
       status: 'passed',
       exporterVersion: currentManifest.exporterVersion,
       manifestSchema: currentManifest.schema,
@@ -244,13 +244,29 @@ test('Activity package preflight verifies the current reusable asset-pack contra
         warm: { coverage: coverage('cache-hit') },
       },
       runtime: { blueprintReady: true, firstPersonEnabled: true },
+      performance: {
+        advisoryOnly: true,
+        context: 'local-browser-only',
+        runtimeReadyFromNavigationStartMs: 850.5,
+        framePacing: {
+          sampleCount: 120,
+          durationMs: 2000,
+          averageFramesPerSecond: 60,
+          p50FrameMs: 16.667,
+          p95FrameMs: 17.5,
+          maxFrameMs: 25,
+          framesOver33Ms: 0,
+          framesOver50Ms: 0,
+        },
+        deviceMetadataCollected: false,
+      },
       targetPractice: {
         shots: 3,
         scoreDelta: 100,
         afterShots: { depletedTargets: 1 },
         afterRespawn: { activeTargets: 1 },
       },
-      privacy: { credentialsAccessed: false, personalPlayerDataCollected: false },
+      privacy: { credentialsAccessed: false, personalPlayerDataCollected: false, deviceMetadataCollected: false },
     };
     writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
 
@@ -261,6 +277,16 @@ test('Activity package preflight verifies the current reusable asset-pack contra
     }));
     assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
       .some((error) => error.includes('browser-certification.json asset-pack version')));
+    writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
+    writeFileSync(browserCertificationPath, JSON.stringify({
+      ...browserCertification,
+      performance: {
+        ...browserCertification.performance,
+        framePacing: { ...browserCertification.performance.framePacing, averageFramesPerSecond: 0 },
+      },
+    }));
+    assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
+      .some((error) => error.includes('frame-pacing evidence')));
     writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
     writeFileSync(join(root, 'assets/scene.glb'), 'tampered-scene');
     assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors

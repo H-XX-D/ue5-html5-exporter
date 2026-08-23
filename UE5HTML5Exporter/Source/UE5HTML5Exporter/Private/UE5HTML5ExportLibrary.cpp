@@ -900,7 +900,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     }
 
     const FString ExportReadme =
-        TEXT("# UE5 Web Export\n\nRun `python3 serve.py` for an ordinary browser preview, use the preview-discord-activity launcher to exercise Discord Blueprint logic with the official local SDK mock, or use the certify-browser launcher to prove cold/warm asset delivery and baseline FPS target behavior.\n\n")
+        TEXT("# UE5 Web Export\n\nRun `python3 serve.py` for an ordinary browser preview, use the preview-discord-activity launcher to exercise Discord Blueprint logic with the official local SDK mock, or use the certify-browser launcher to prove cold/warm asset delivery, advisory local runtime-ready/frame pacing, and baseline FPS target behavior.\n\n")
         TEXT("Upload this entire folder to any static host. Keep `index.html`, `runtime/`, and `assets/` together.\n")
         TEXT("For a Discord Activity, deploy this folder to an HTTPS host and follow `DISCORD_ACTIVITY_WORKFLOW.md`.\n")
         TEXT("The bundled Vercel adapter is the default; the Activity API endpoint is configurable in index.html.\n")
@@ -909,7 +909,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
         TEXT("Reusable scene and Blueprint data are integrity-checked and cached under this Activity origin. A changed asset-pack hash creates a new cache, and cache unavailability falls back to the network.\n")
-        TEXT("A passing `browser-certification.json` proves the local exported browser runtime, cache, center-ray target hit, score, and respawn only; real Discord/mobile/multi-client testing remains required.\n")
+        TEXT("A passing `browser-certification.json` proves the local exported browser runtime, cache, center-ray target hit, score, and respawn and records advisory timing-only performance without device metadata; real Discord/mobile/multi-client testing remains required.\n")
         TEXT("Create project-owned native replacements from Tools > HTML5 Export > Open Custom Web Adapters Folder, then declare them in custom-adapters.json and implement them with `window.UE5HTML5.registerFunction(name, implementation)`.\n")
         TEXT("Project-adapter coverage still requires local Discord preview and real gameplay validation.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));

@@ -78,7 +78,7 @@ const MANIFEST_SCHEMAS = new Set([
 ]);
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
 const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
-const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v1';
+const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v2';
 const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
 const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
@@ -167,6 +167,32 @@ function validateBrowserCertification(root, errors) {
   if (report.runtime?.blueprintReady !== true || report.runtime?.firstPersonEnabled !== true) {
     errors.push('browser-certification.json does not prove Blueprint and first-person runtime readiness.');
   }
+  const framePacing = report.performance?.framePacing;
+  if (report.performance?.advisoryOnly !== true
+      || report.performance?.context !== 'local-browser-only'
+      || report.performance?.deviceMetadataCollected !== false
+      || !Number.isFinite(report.performance?.runtimeReadyFromNavigationStartMs)
+      || report.performance.runtimeReadyFromNavigationStartMs < 0
+      || !Number.isInteger(framePacing?.sampleCount)
+      || framePacing.sampleCount < 30
+      || !Number.isFinite(framePacing?.durationMs)
+      || framePacing.durationMs <= 0
+      || !Number.isFinite(framePacing?.averageFramesPerSecond)
+      || framePacing.averageFramesPerSecond <= 0
+      || !Number.isFinite(framePacing?.p50FrameMs)
+      || framePacing.p50FrameMs <= 0
+      || !Number.isFinite(framePacing?.p95FrameMs)
+      || framePacing.p95FrameMs < framePacing.p50FrameMs
+      || !Number.isFinite(framePacing?.maxFrameMs)
+      || framePacing.maxFrameMs < framePacing.p95FrameMs
+      || !Number.isInteger(framePacing?.framesOver33Ms)
+      || framePacing.framesOver33Ms < 0
+      || framePacing.framesOver33Ms > framePacing.sampleCount
+      || !Number.isInteger(framePacing?.framesOver50Ms)
+      || framePacing.framesOver50Ms < 0
+      || framePacing.framesOver50Ms > framePacing.framesOver33Ms) {
+    errors.push('browser-certification.json does not contain valid advisory local-browser runtime-ready and frame-pacing evidence.');
+  }
   if (!Number.isInteger(report.targetPractice?.shots)
       || report.targetPractice.shots < 1
       || !Number.isFinite(report.targetPractice?.scoreDelta)
@@ -175,7 +201,9 @@ function validateBrowserCertification(root, errors) {
       || report.targetPractice?.afterRespawn?.activeTargets < 1) {
     errors.push('browser-certification.json does not prove target shots, positive score, depletion, and respawn.');
   }
-  if (report.privacy?.credentialsAccessed !== false || report.privacy?.personalPlayerDataCollected !== false) {
+  if (report.privacy?.credentialsAccessed !== false
+      || report.privacy?.personalPlayerDataCollected !== false
+      || report.privacy?.deviceMetadataCollected !== false) {
     errors.push('browser-certification.json privacy boundary is invalid.');
   }
 }

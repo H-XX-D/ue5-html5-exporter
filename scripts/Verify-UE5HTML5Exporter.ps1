@@ -152,7 +152,7 @@ if ($CertifyBrowser) {
         throw "Exported browser certification server was not found: $serveScript"
     }
     $unrealPython = Join-Path $enginePath 'Engine\Binaries\ThirdParty\Python3\Win64\python.exe'
-    Write-Host 'Opening the exported FPS in the default browser for cold-cache, warm-cache, shooting, score, depletion, and respawn certification.'
+    Write-Host 'Opening the exported FPS in the default browser for cold-cache, warm-cache, advisory runtime-ready/frame-pacing, shooting, score, depletion, and respawn certification.'
     if (Test-Path -LiteralPath $unrealPython -PathType Leaf) {
         & $unrealPython $serveScript --certify --certification-timeout $BrowserCertificationTimeoutSeconds
     }
@@ -216,7 +216,7 @@ $exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
 )
 $environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v4'
+    schema = 'ue5-html5-workstation-certification/v5'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     source = $source
     execution = [ordered]@{
@@ -259,7 +259,7 @@ $report = [ordered]@{
         credentialsAccessed = $false
         personalPlayerDataCollected = $false
         scope = if ($CertifyBrowser) {
-            'native plugin build, editor setup automation, readiness, export, package preflight, and loopback browser FPS certification only'
+            'native plugin build, editor setup automation, readiness, export, package preflight, and loopback browser FPS plus timing-only performance certification only'
         }
         else {
             'native plugin build, editor setup automation, readiness, export, and package preflight only'

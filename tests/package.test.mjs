@@ -133,7 +133,7 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(activity, /DiscordSDKMock/);
   assert.match(activity, /preview-player/);
   assert.match(viewer, /ue5_discord_preview/);
-  assert.match(viewer, /ue5-html5-browser-certification\/v1/);
+  assert.match(viewer, /ue5-html5-browser-certification\/v2/);
   assert.match(viewer, /ue5_certify/);
 
   const serve = read('Resources/WebTemplate/serve.py');
@@ -675,7 +675,10 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /workstation-certification\.sha256/);
-  assert.match(verify, /ue5-html5-workstation-certification\/v4/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v5/);
+  assert.match(tools, /runtimeReadyFromNavigationStartMs/);
+  assert.match(tools, /averageFramesPerSecond/);
+  assert.match(tools, /deviceMetadataCollected = \$false/);
   assert.match(verify, /UE5HTML5Exporter\.Editor\.BrowserFPSSetup/);
   assert.match(verify, /Automation RunTests/);
   assert.match(verify, /Automation Test Queue Empty/);
