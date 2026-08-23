@@ -19,6 +19,8 @@
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Exporters/Exporter.h"
+#include "Exporters/SoundExporterWAV.h"
 #include "GameMapsSettings.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
@@ -45,9 +47,12 @@
 #include "InputTriggers.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundWave.h"
 #include "UE5HTML5TargetComponent.h"
 #include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
@@ -76,6 +81,24 @@ namespace
             }
         }
         return Result;
+    }
+
+    bool IsPortableAudioFunction(const FString& FunctionName)
+    {
+        const FString Name = Normalize(FunctionName);
+        return Name == TEXT("playsound2d") || Name == TEXT("playsoundatlocation");
+    }
+
+    void RegisterSoundAsset(UObject* Object, FUE5BlueprintExportSummary& Summary)
+    {
+        if (USoundWave* SoundWave = Cast<USoundWave>(Object))
+        {
+            Summary.ReferencedSoundWaves.AddUnique(SoundWave);
+        }
+        else if (const USoundBase* Sound = Cast<USoundBase>(Object))
+        {
+            Summary.UnsupportedSoundAssets.AddUnique(Sound->GetPathName());
+        }
     }
 
     FString NodeKind(const UEdGraphNode* Node)
@@ -129,7 +152,7 @@ namespace
             TEXT("addmovementinput"), TEXT("jump"), TEXT("stopjumping"),
             TEXT("addcontrolleryawinput"), TEXT("addcontrollerpitchinput"),
             TEXT("islocalplayercontroller"), TEXT("getplatformname"), TEXT("shouldusetouchcontrols"),
-            TEXT("delayuntilnextframe")
+            TEXT("delayuntilnextframe"), TEXT("playsound2d"), TEXT("playsoundatlocation")
         };
         if (Exact.Contains(Name)) return true;
         static const TArray<FString> AdapterFamilies = {
@@ -284,7 +307,7 @@ namespace
         return FString();
     }
 
-    TSharedRef<FJsonObject> SerializePin(const UEdGraphPin* Pin)
+    TSharedRef<FJsonObject> SerializePin(const UEdGraphPin* Pin, FUE5BlueprintExportSummary& Summary)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         Json->SetStringField(TEXT("id"), Pin->PinId.ToString(EGuidFormats::DigitsWithHyphensLower));
@@ -301,6 +324,7 @@ namespace
         {
             DefaultValue = Pin->DefaultObject->GetPathName();
         }
+        RegisterSoundAsset(Pin->DefaultObject, Summary);
         if (DefaultValue.IsEmpty() && !Pin->DefaultTextValue.IsEmpty())
         {
             DefaultValue = Pin->DefaultTextValue.ToString();
@@ -347,6 +371,22 @@ namespace
         if (Kind == TEXT("callFunction"))
         {
             bBuiltInSupported = IsSupportedFunction(Function) || BlueprintFunctions.Contains(Normalize(Function));
+            if (bBuiltInSupported && IsPortableAudioFunction(Function))
+            {
+                const UEdGraphPin* SoundPin = nullptr;
+                for (const UEdGraphPin* Pin : Node->Pins)
+                {
+                    if (Pin && Pin->Direction == EGPD_Input && Normalize(Pin->PinName.ToString()) == TEXT("sound"))
+                    {
+                        SoundPin = Pin;
+                        break;
+                    }
+                }
+                if (SoundPin && SoundPin->DefaultObject && !SoundPin->DefaultObject->IsA<USoundWave>())
+                {
+                    bBuiltInSupported = false;
+                }
+            }
             bCustomAdapter = !bBuiltInSupported && CustomAdapterFunctions.Contains(Normalize(Function));
         }
         if (Kind == TEXT("event")) bBuiltInSupported = IsSupportedEvent(Node, Event);
@@ -411,7 +451,7 @@ namespace
         TArray<TSharedPtr<FJsonValue>> Pins;
         for (const UEdGraphPin* Pin : Node->Pins)
         {
-            if (Pin) Pins.Add(MakeShared<FJsonValueObject>(SerializePin(Pin)));
+            if (Pin) Pins.Add(MakeShared<FJsonValueObject>(SerializePin(Pin, Summary)));
         }
         Json->SetArrayField(TEXT("pins"), Pins);
 
@@ -467,7 +507,11 @@ namespace
         return Graphs;
     }
 
-    TSharedRef<FJsonObject> SerializeActor(const AActor* Actor, const UBlueprint* Blueprint, const FString& RuntimeRole = FString())
+    TSharedRef<FJsonObject> SerializeActor(
+        const AActor* Actor,
+        const UBlueprint* Blueprint,
+        FUE5BlueprintExportSummary& Summary,
+        const FString& RuntimeRole = FString())
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         const bool bRuntimeSpawned = !RuntimeRole.IsEmpty();
@@ -483,6 +527,10 @@ namespace
         {
             const FProperty* Property = Actor->GetClass()->FindPropertyByName(Variable.VarName);
             if (!Property) continue;
+            if (const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property))
+            {
+                RegisterSoundAsset(ObjectProperty->GetObjectPropertyValue_InContainer(Actor), Summary);
+            }
             FString Value;
             Property->ExportText_InContainer(0, Value, Actor, Actor, ExportParent(Actor), PPF_None);
             TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
@@ -707,13 +755,75 @@ namespace
         Json->SetArrayField(TEXT("children"), Children);
         return Json;
     }
+
+    bool ExportSoundAssets(
+        const FString& OutputDirectory,
+        bool bExportSupportingAssets,
+        FUE5BlueprintExportSummary& Summary,
+        const TSharedRef<FJsonObject>& Root)
+    {
+        TSharedRef<FJsonObject> AudioAssets = MakeShared<FJsonObject>();
+        AudioAssets->SetStringField(TEXT("schema"), TEXT("ue5-html5-audio-assets/v1"));
+        TArray<TSharedPtr<FJsonValue>> Sounds;
+        if (!bExportSupportingAssets)
+        {
+            AudioAssets->SetArrayField(TEXT("sounds"), Sounds);
+            Root->SetObjectField(TEXT("audioAssets"), AudioAssets);
+            return true;
+        }
+
+        Summary.ReferencedSoundWaves.Sort([](const USoundWave& Left, const USoundWave& Right)
+        {
+            return Left.GetPathName() < Right.GetPathName();
+        });
+        const FString AudioDirectory = FPaths::Combine(OutputDirectory, TEXT("assets/audio"));
+        if (Summary.ReferencedSoundWaves.Num() > 0 && !IFileManager::Get().MakeDirectory(*AudioDirectory, true))
+        {
+            Summary.Error = TEXT("Could not create assets/audio for referenced SoundWave files.");
+            return false;
+        }
+
+        USoundExporterWAV* Exporter = NewObject<USoundExporterWAV>();
+        for (USoundWave* SoundWave : Summary.ReferencedSoundWaves)
+        {
+            if (!SoundWave || !Exporter->SupportsObject(SoundWave))
+            {
+                Summary.Error = FString::Printf(
+                    TEXT("Referenced SoundWave '%s' cannot be exported as a mono/stereo WAV."),
+                    SoundWave ? *SoundWave->GetPathName() : TEXT("<null>"));
+                return false;
+            }
+            const FString SourcePath = SoundWave->GetPathName();
+            const FString FileName = FString::Printf(
+                TEXT("%s-%s.wav"),
+                *FMD5::HashAnsiString(*SourcePath).Left(12),
+                *FPaths::MakeValidFileName(SoundWave->GetName(), TEXT('_')));
+            const FString RelativePath = FString::Printf(TEXT("assets/audio/%s"), *FileName);
+            const FString Destination = FPaths::Combine(OutputDirectory, RelativePath);
+            if (UExporter::ExportToFile(SoundWave, Exporter, *Destination, false, false, false) != 1)
+            {
+                Summary.Error = FString::Printf(TEXT("Could not export referenced SoundWave '%s' to WAV."), *SourcePath);
+                return false;
+            }
+            TSharedRef<FJsonObject> Sound = MakeShared<FJsonObject>();
+            Sound->SetStringField(TEXT("source"), SourcePath);
+            Sound->SetStringField(TEXT("path"), RelativePath);
+            Sound->SetNumberField(TEXT("durationSeconds"), FMath::Max(0.0f, SoundWave->Duration));
+            Sound->SetNumberField(TEXT("channels"), SoundWave->NumChannels);
+            Sounds.Add(MakeShared<FJsonValueObject>(Sound));
+        }
+        AudioAssets->SetArrayField(TEXT("sounds"), Sounds);
+        Root->SetObjectField(TEXT("audioAssets"), AudioAssets);
+        return true;
+    }
 }
 
 FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
     UWorld* World,
     const TArray<AActor*>& Actors,
     const FString& OutputDirectory,
-    const TSet<FString>& CustomAdapterFunctions)
+    const TSet<FString>& CustomAdapterFunctions,
+    bool bExportSupportingAssets)
 {
     FUE5BlueprintExportSummary Summary;
     TMap<UBlueprint*, FBlueprintExportTarget> BlueprintTargets;
@@ -842,13 +952,13 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
         TArray<TSharedPtr<FJsonValue>> ActorValues;
         for (const AActor* Actor : Pair.Value.PlacedActors)
         {
-            ActorValues.Add(MakeShared<FJsonValueObject>(SerializeActor(Actor, Blueprint)));
+            ActorValues.Add(MakeShared<FJsonValueObject>(SerializeActor(Actor, Blueprint, Summary)));
         }
         for (const TPair<FString, UClass*>& RuntimeClass : Pair.Value.RuntimeClasses)
         {
             if (const AActor* DefaultActor = RuntimeClass.Value->GetDefaultObject<AActor>())
             {
-                ActorValues.Add(MakeShared<FJsonValueObject>(SerializeActor(DefaultActor, Blueprint, RuntimeClass.Key)));
+                ActorValues.Add(MakeShared<FJsonValueObject>(SerializeActor(DefaultActor, Blueprint, Summary, RuntimeClass.Key)));
                 ++Summary.ActorInstanceCount;
             }
         }
@@ -897,6 +1007,16 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
         ++Summary.BlueprintCount;
     }
     Root->SetArrayField(TEXT("programs"), Programs);
+    if (!ExportSoundAssets(OutputDirectory, bExportSupportingAssets, Summary, Root))
+    {
+        return Summary;
+    }
+    if (Summary.UnsupportedSoundAssets.Num() > 0)
+    {
+        Summary.Warnings.Add(FString::Printf(
+            TEXT("Audio adapter: %d referenced Sound Cue/procedural asset(s) require direct SoundWave literals or a project adapter."),
+            Summary.UnsupportedSoundAssets.Num()));
+    }
 
     const FString LogicDirectory = FPaths::Combine(OutputDirectory, TEXT("logic"));
     IFileManager::Get().MakeDirectory(*LogicDirectory, true);

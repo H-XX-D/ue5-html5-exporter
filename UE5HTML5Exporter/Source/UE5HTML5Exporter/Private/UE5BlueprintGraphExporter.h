@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class AActor;
+class USoundWave;
 class UWorld;
 
 struct FUE5BlueprintExportSummary
@@ -17,6 +18,8 @@ struct FUE5BlueprintExportSummary
     int32 UnsupportedNodeCount = 0;
     TArray<FString> UnsupportedNodes;
     TSet<FString> UsedFunctions;
+    TArray<USoundWave*> ReferencedSoundWaves;
+    TArray<FString> UnsupportedSoundAssets;
     FString Error;
     TArray<FString> Warnings;
 };
@@ -28,5 +31,6 @@ public:
         UWorld* World,
         const TArray<AActor*>& Actors,
         const FString& OutputDirectory,
-        const TSet<FString>& CustomAdapterFunctions = {});
+        const TSet<FString>& CustomAdapterFunctions = {},
+        bool bExportSupportingAssets = true);
 };

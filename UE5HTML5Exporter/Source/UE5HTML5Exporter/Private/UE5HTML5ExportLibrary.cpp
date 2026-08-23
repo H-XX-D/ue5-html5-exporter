@@ -966,7 +966,8 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         World,
         Actors,
         Report.OutputDirectory,
-        CustomAdapterFunctions);
+        CustomAdapterFunctions,
+        false);
     if (!Summary.bSuccess)
     {
         Report.Error = Summary.Error;

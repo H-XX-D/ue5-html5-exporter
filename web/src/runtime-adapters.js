@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AudioAdapter } from './audio-adapter.js';
 import { shouldUseTouchControls } from './first-person-controller.js';
 import { ThreeBlueprintAdapter } from './three-blueprint-adapter.js';
 
@@ -677,6 +678,12 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     this.abilities = new AbilitySystemAdapter();
     this.widgets = new WidgetAdapter(blueprintIr);
     this.particles = new ParticleAdapter(root);
+    this.audio = new AudioAdapter(blueprintIr?.audioAssets, {
+      fetchAsset: hooks.fetchAsset,
+      audioContextFactory: hooks.audioContextFactory,
+      eventTarget,
+      onWarning: hooks.audioWarning,
+    });
     this.behaviors = new BehaviorTreeAdapter(blueprintIr);
     this.timers = new Map();
     this.gameplayController = null;
@@ -965,6 +972,9 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     if (name === 'shouldusetouchcontrols') {
       return { handled: true, value: shouldUseTouchControls(this.eventTarget, this.eventTarget?.navigator) };
     }
+    if (name === 'playsound2d' || name === 'playsoundatlocation') {
+      return { handled: true, value: this.audio.play(args.sound, args) };
+    }
     if (name === 'getsubsystem') return { handled: true, value: this.input };
     if (name === 'delayuntilnextframe') return { handled: true, promise: new Promise((resolve) => requestAnimationFrame(() => resolve(true))) };
     if (this.replication.remoteCall(functionName, args, instance)) return { handled: true };
@@ -1030,6 +1040,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     this.replication.dispose();
     this.widgets.dispose();
     this.particles.dispose();
+    this.audio.dispose();
     for (const id of this.timers.values()) { clearTimeout(id); clearInterval(id); }
   }
 }

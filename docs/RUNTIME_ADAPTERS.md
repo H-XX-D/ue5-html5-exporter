@@ -116,6 +116,14 @@ Exact anchors, slots, DPI scaling, font/material rendering, animation timelines,
 
 `SpawnSystem*` and `SpawnEmitter*` create a bounded Three.js point system. Activate, reset, and deactivate calls are supported. The fallback preserves gameplay flow and a visible effect, but it does not execute Niagara graphs, modules, data interfaces, GPU simulations, or renderer-specific materials.
 
+## Audio
+
+Direct mono/stereo `SoundWave` assets referenced by exported Blueprint pin defaults or Blueprint object variables are written to `assets/audio/*.wav` and indexed under `audioAssets` in `logic/blueprints.json`. The files enter the same SHA-256 asset-pack manifest as the scene and logic data, so playback consumes verified cached bytes when available and retains the normal network fallback.
+
+Blueprint **Play Sound 2D** and **Play Sound at Location** calls use one shared browser Web Audio context. Volume multiplier, pitch multiplier, and start time are retained. The Blueprint execution wire continues immediately, matching the fire-and-forget UE nodes; audio download and decoding finish asynchronously. Browser autoplay policy can suspend sound until the first pointer, keyboard, or touch action, and the runtime resumes the context from that user gesture. Failure to unlock, download, decode, or play audio produces a warning without stopping gameplay.
+
+This first portable contract deliberately excludes Sound Cues, MetaSounds, procedural sources, sound classes/mixes, attenuation assets, concurrency rules, submix/DSP graphs, capture, and exact Unreal spatialization. **Play Sound at Location** currently plays the direct wave as 2D audio, so use a project adapter when positional sound is gameplay-significant. Test voice-call coexistence, levels, and mobile autoplay behavior in real Discord clients before release.
+
 ## User C++ replacements
 
 Native C++ cannot be translated safely from compiled Unreal modules. In Unreal, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. The plugin creates two source-controlled project files:

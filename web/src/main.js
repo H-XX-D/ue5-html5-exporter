@@ -307,6 +307,13 @@ async function configureBlueprintLogic() {
     runtimeAdapters = new BrowserRuntimeAdapters(content, blueprintDocument, {
       print: showBlueprintMessage,
       diagnostic: () => blueprintDocument && blueprintRuntime && showLogicReport(blueprintDocument, blueprintRuntime),
+      fetchAsset: (path) => assetPackCache?.has(path)
+        ? assetPackCache.fetch(path)
+        : fetch(new URL(path, window.location.href), { cache: 'no-store' }),
+      audioWarning: (message) => {
+        console.warn(`Portable audio: ${message}`);
+        showBlueprintMessage(`Audio: ${message}`);
+      },
     }, window);
     targetPractice = new TargetPracticeRuntime(content, blueprintDocument.gameplay?.targets, {
       state: (state) => {

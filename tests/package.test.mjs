@@ -503,6 +503,11 @@ test('browser adapters cover gameplay integration families', () => {
   assert.match(source, /DiscordActivityThermalStateChanged/);
   assert.match(source, /DiscordActivityBroadcastReceived/);
   assert.match(source, /DiscordActivityConnectionStateChanged/);
+  assert.match(source, /playsound2d/);
+  assert.match(source, /playsoundatlocation/);
+  const exporter = readFileSync(new URL('../UE5HTML5Exporter/Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.cpp', import.meta.url), 'utf8');
+  assert.match(exporter, /USoundExporterWAV/);
+  assert.match(exporter, /ue5-html5-audio-assets\/v1/);
 });
 
 test('first-person controller converts Unreal coordinates and consumes exported movement defaults', async () => {

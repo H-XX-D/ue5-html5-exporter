@@ -33,6 +33,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
 - A proxy-safe, origin-scoped browser asset pack: exported scene and Blueprint data are SHA-256 verified and Cache API-backed, while project adapter code uses the same pack-hash query with immutable HTTP caching; repeat launches reuse unchanged resources and storage failure falls back to the network
 - An explicit **Keep this game downloaded** control in the generated Logic panel that can request persistent origin storage without collecting quota/device data; denial leaves the verified cache and network fallback working normally
+- Direct mono/stereo `SoundWave` export to WAV plus browser playback for Blueprint **Play Sound 2D** and **Play Sound at Location** calls; audio uses the same verified reusable asset pack and remains non-fatal when browser audio is unavailable
 
 ## Build the plugin
 
@@ -189,6 +190,7 @@ Add `-FailOnUnsupported` when CI should exit with code `6` if any node still nee
 | AI/Behavior Trees | Tree assets exported; Wait and Blueprint task events run in a lightweight scheduler |
 | UMG | Widget trees exported to DOM; common containers, text, buttons, viewport, visibility, and text calls supported |
 | Niagara/Cascade | Spawn/activate/deactivate calls use a portable Three.js particle fallback |
+| Audio | Direct mono/stereo `SoundWave` literals and Blueprint variables export as WAV; `Play Sound 2D` and `Play Sound at Location` run through Web Audio, with at-location playback currently using a non-spatial 2D fallback |
 | User C++ gameplay | Project-owned `Config/UE5HTML5/custom-adapters.json` + `custom-adapters.js`, copied into every export and registered through `UE5HTML5.registerFunction` before Blueprint startup |
 | Discord Activity | Blueprint nodes/events backed by Embedded App SDK connection/auth lifecycle, privacy-safe diagnostics, inbound/outbound private Broadcast, opaque Presence, participant and verified-entitlement updates, layout/orientation/thermal updates, Rich Presence/share links, opaque HttpOnly Activity sessions, and atomic cross-device saves |
 | Other Blueprint nodes/functions | Preserved in IR and reported as unsupported |
@@ -200,7 +202,7 @@ For project C++ or a Blueprint function outside the built-in subset, choose **To
 
 The footer also shows the measured primary browser payload from `export-manifest.json`. `delivery review` means the package exceeds its Unreal project advisory budget; it does not mean Discord rejected the package.
 
-These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, and compiled C++ still need project-specific web implementations. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
+These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, Sound Cues/procedural audio graphs, and compiled C++ still need project-specific web implementations. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
 
 ## Development
 
