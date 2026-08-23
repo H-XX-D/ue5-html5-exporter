@@ -1,6 +1,6 @@
 {
   "name": "ue5-html5-exporter",
-  "version": "0.3.58",
+  "version": "0.3.59",
   "private": true,
   "type": "module",
   "scripts": {

@@ -25,6 +25,9 @@ const logicSummary = document.querySelector('#logic-summary');
 const logicDetails = document.querySelector('#logic-details');
 const blueprintLog = document.querySelector('#blueprint-log');
 const activityStatus = document.querySelector('#activity-status');
+const assetStorage = document.querySelector('#asset-storage');
+const assetStorageStatus = document.querySelector('#asset-storage-status');
+const assetStorageRequest = document.querySelector('#asset-storage-request');
 const fpsHud = document.querySelector('#fps-hud');
 const fpsPrompt = document.querySelector('#fps-prompt');
 const targetStatus = document.querySelector('#fps-target-status');
@@ -154,6 +157,31 @@ function formatBytes(bytes) {
 
 function updateStats() {
   stats.textContent = [sceneStats, deliveryStats].filter(Boolean).join(' · ');
+}
+
+function renderAssetStorage(detail = assetPackCache?.persistence) {
+  if (!assetPackCache || !detail) {
+    assetStorage.hidden = true;
+    return;
+  }
+  assetStorage.hidden = false;
+  assetStorage.dataset.mode = detail.mode;
+  const messages = {
+    unknown: 'Checking whether the browser protects this Activity origin from automatic storage eviction…',
+    checking: 'Checking whether cached assets are protected…',
+    requesting: 'Waiting for the browser storage decision…',
+    persistent: 'Protected. The browser will not automatically evict this Activity origin’s cached assets or game-created local saves.',
+    'best-effort': 'Cached for faster launches, but the browser may remove the files when storage is tight.',
+    denied: 'The browser kept normal cache mode. The game remains playable and can download the assets again.',
+    unsupported: 'This browser cannot protect the cache from automatic eviction. The game will use its normal download fallback.',
+    error: 'The browser could not change storage protection. The game will continue with its normal cache and download fallback.',
+  };
+  assetStorageStatus.textContent = messages[detail.mode] || detail.reason || 'Browser storage status is unavailable.';
+  assetStorageRequest.hidden = !assetPackCache.canRequestPersistence || detail.mode === 'persistent';
+  assetStorageRequest.disabled = detail.mode === 'checking' || detail.mode === 'requesting';
+  assetStorageRequest.textContent = detail.mode === 'denied' || detail.mode === 'error'
+    ? 'Try storage protection again'
+    : 'Protect cached assets';
 }
 
 async function loadExportManifest() {
@@ -428,6 +456,11 @@ document.querySelector('#reset').addEventListener('click', () => {
 document.querySelector('#fullscreen').addEventListener('click', () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
 logicButton.addEventListener('click', () => { logicPanel.hidden = !logicPanel.hidden; });
 document.querySelector('#logic-close').addEventListener('click', () => { logicPanel.hidden = true; });
+assetStorageRequest.addEventListener('click', async () => {
+  if (!assetPackCache) return;
+  assetStorageRequest.disabled = true;
+  await assetPackCache.requestPersistence();
+});
 animationSelect.addEventListener('change', () => playAnimation(Number(animationSelect.value)));
 document.querySelector('#file').addEventListener('change', (event) => {
   const file = event.target.files?.[0];
@@ -515,6 +548,9 @@ async function boot() {
     assetPackCache.addEventListener('statuschange', ({ detail }) => {
       document.documentElement.dataset.assetCache = detail.mode;
     });
+    assetPackCache.addEventListener('persistencechange', ({ detail }) => renderAssetStorage(detail));
+    renderAssetStorage();
+    void assetPackCache.checkPersistence();
   } catch (error) {
     console.warn('Exported asset-pack cache is unavailable:', error);
     assetPackCache = null;

@@ -42,6 +42,7 @@ export class AssetPackCache extends EventTarget {
     fetchImpl = globalThis.fetch?.bind(globalThis),
     cacheStorage = globalThis.caches,
     cryptoImpl = globalThis.crypto,
+    storageManager = globalThis.navigator?.storage,
   } = {}) {
     super();
     this.assetPack = assetPack;
@@ -49,11 +50,13 @@ export class AssetPackCache extends EventTarget {
     this.fetchImpl = fetchImpl;
     this.cacheStorage = cacheStorage;
     this.cryptoImpl = cryptoImpl;
+    this.storageManager = storageManager;
     this.resources = new Map();
     this.version = '';
     this.cacheName = '';
     this.enabled = false;
     this.lastStatus = { mode: 'disabled', path: '', reason: 'No asset-pack manifest.' };
+    this.persistence = { mode: 'disabled', reason: 'No asset-pack manifest.' };
 
     if (!assetPack) return;
     if (assetPack.schema !== ASSET_PACK_SCHEMA || assetPack.strategy !== 'origin-scoped-versioned-cache') {
@@ -85,6 +88,14 @@ export class AssetPackCache extends EventTarget {
     this.lastStatus = this.enabled
       ? { mode: 'ready', path: '', reason: '' }
       : { mode: 'network-only', path: '', reason: 'Cache API or Web Crypto is unavailable.' };
+    this.persistence = this.enabled && storageManager?.persisted
+      ? { mode: 'unknown', reason: '' }
+      : {
+          mode: 'unsupported',
+          reason: this.enabled
+            ? 'Persistent browser storage is unavailable.'
+            : 'The verified asset cache is unavailable.',
+        };
   }
 
   status(mode, path = '', reason = '') {
@@ -95,6 +106,58 @@ export class AssetPackCache extends EventTarget {
       cacheBustVersion: path && this.resources.has(path) ? `sha256:${this.version}` : '',
     };
     this.dispatchEvent(new CustomEvent('statuschange', { detail: this.lastStatus }));
+  }
+
+  persistenceStatus(mode, reason = '') {
+    this.persistence = { mode, reason };
+    this.dispatchEvent(new CustomEvent('persistencechange', { detail: this.persistence }));
+    return this.persistence;
+  }
+
+  get canRequestPersistence() {
+    return Boolean(this.enabled && this.storageManager?.persist);
+  }
+
+  async checkPersistence() {
+    if (!this.enabled) {
+      return this.persistenceStatus('unsupported', 'The verified asset cache is unavailable.');
+    }
+    if (!this.storageManager?.persisted) {
+      return this.persistenceStatus('unsupported', 'Persistent browser storage is unavailable.');
+    }
+    this.persistenceStatus('checking');
+    try {
+      const persistent = await this.storageManager.persisted();
+      return this.persistenceStatus(
+        persistent ? 'persistent' : 'best-effort',
+        persistent ? '' : 'The browser may automatically evict cached assets.',
+      );
+    } catch (error) {
+      return this.persistenceStatus('error', error.message || String(error));
+    }
+  }
+
+  async requestPersistence() {
+    if (!this.canRequestPersistence) {
+      return this.persistenceStatus('unsupported', 'Persistent browser storage is unavailable.');
+    }
+    if (this.storageManager?.persisted) {
+      try {
+        if (await this.storageManager.persisted()) return this.persistenceStatus('persistent');
+      } catch (error) {
+        return this.persistenceStatus('error', error.message || String(error));
+      }
+    }
+    this.persistenceStatus('requesting');
+    try {
+      const granted = await this.storageManager.persist();
+      return this.persistenceStatus(
+        granted ? 'persistent' : 'denied',
+        granted ? '' : 'The browser kept normal best-effort storage.',
+      );
+    } catch (error) {
+      return this.persistenceStatus('error', error.message || String(error));
+    }
   }
 
   has(pathValue) {

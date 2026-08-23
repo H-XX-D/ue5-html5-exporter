@@ -139,6 +139,95 @@ test('asset pack falls back to ordinary network loading when browser cache primi
   assert.equal(cache.lastStatus.mode, 'network-only');
 });
 
+test('asset pack checks existing persistent storage without prompting', async () => {
+  const body = Buffer.from('persistent-scene');
+  let requests = 0;
+  const cache = new AssetPackCache(manifest('assets/scene.glb', body), {
+    baseUrl: 'https://123.discordsays.com/',
+    cacheStorage: new MemoryCacheStorage(),
+    cryptoImpl: webcrypto,
+    fetchImpl: async () => new Response(body),
+    storageManager: {
+      persisted: async () => true,
+      persist: async () => { requests += 1; return true; },
+    },
+  });
+
+  assert.deepEqual(await cache.checkPersistence(), { mode: 'persistent', reason: '' });
+  assert.equal(requests, 0);
+});
+
+test('asset pack requests persistence only when explicitly invoked and keeps denial non-fatal', async () => {
+  const body = Buffer.from('best-effort-scene');
+  const events = [];
+  let requests = 0;
+  const cache = new AssetPackCache(manifest('assets/scene.glb', body), {
+    baseUrl: 'https://123.discordsays.com/',
+    cacheStorage: new MemoryCacheStorage(),
+    cryptoImpl: webcrypto,
+    fetchImpl: async () => new Response(body),
+    storageManager: {
+      persisted: async () => false,
+      persist: async () => { requests += 1; return false; },
+    },
+  });
+  cache.addEventListener('persistencechange', ({ detail }) => events.push(detail));
+
+  assert.deepEqual(await cache.checkPersistence(), {
+    mode: 'best-effort', reason: 'The browser may automatically evict cached assets.',
+  });
+  assert.equal(requests, 0);
+  assert.deepEqual(await cache.requestPersistence(), {
+    mode: 'denied', reason: 'The browser kept normal best-effort storage.',
+  });
+  assert.equal(requests, 1);
+  assert.equal(await (await cache.fetch('assets/scene.glb')).text(), 'best-effort-scene');
+  assert.deepEqual(events.map(({ mode }) => mode), ['checking', 'best-effort', 'requesting', 'denied']);
+});
+
+test('asset pack reports a granted persistence request without changing the cache contract', async () => {
+  const body = Buffer.from('protected-scene');
+  let persistent = false;
+  const cache = new AssetPackCache(manifest('assets/scene.glb', body), {
+    baseUrl: 'https://123.discordsays.com/',
+    cacheStorage: new MemoryCacheStorage(),
+    cryptoImpl: webcrypto,
+    fetchImpl: async () => new Response(body),
+    storageManager: {
+      persisted: async () => persistent,
+      persist: async () => { persistent = true; return true; },
+    },
+  });
+
+  assert.deepEqual(await cache.requestPersistence(), { mode: 'persistent', reason: '' });
+  assert.equal(cache.persistence.mode, 'persistent');
+  assert.equal(await (await cache.fetch('assets/scene.glb')).text(), 'protected-scene');
+  assert.equal(cache.lastStatus.mode, 'network-cached');
+});
+
+test('asset pack reports persistent storage as unsupported without collecting quota data', async () => {
+  const body = Buffer.from('unsupported-persistence-scene');
+  let estimates = 0;
+  const cache = new AssetPackCache(manifest('assets/scene.glb', body), {
+    baseUrl: 'https://activity.example/',
+    cacheStorage: new MemoryCacheStorage(),
+    cryptoImpl: webcrypto,
+    fetchImpl: async () => new Response(body),
+    storageManager: {
+      estimate: async () => { estimates += 1; return { usage: 1, quota: 2 }; },
+    },
+  });
+
+  assert.equal(cache.canRequestPersistence, false);
+  assert.deepEqual(await cache.checkPersistence(), {
+    mode: 'unsupported', reason: 'Persistent browser storage is unavailable.',
+  });
+  assert.deepEqual(await cache.requestPersistence(), {
+    mode: 'unsupported', reason: 'Persistent browser storage is unavailable.',
+  });
+  assert.equal(estimates, 0);
+});
+
 test('asset pack cleanup removes only stale exporter-owned cache versions', async () => {
   const body = Buffer.from('scene');
   const storage = new MemoryCacheStorage();

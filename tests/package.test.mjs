@@ -168,6 +168,8 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.ok(viewerFile, 'content-hashed viewer bundle is missing');
   assert.ok(activityFile, 'content-hashed Discord Activity bundle is missing');
   assert.match(read('Resources/WebTemplate/index.html'), /Run two-client check/);
+  assert.match(read('Resources/WebTemplate/index.html'), /Keep this game downloaded/);
+  assert.match(read('Resources/WebTemplate/index.html'), /Protect cached assets/);
   assert.match(readFileSync(new URL(`Resources/WebTemplate/runtime/${activityFile}`, plugin), 'utf8'), /ue5-discord-live-certification\/v2/);
   const viewer = read(`Resources/WebTemplate/runtime/${viewerFile}`);
   const activity = read(`Resources/WebTemplate/runtime/${activityFile}`);

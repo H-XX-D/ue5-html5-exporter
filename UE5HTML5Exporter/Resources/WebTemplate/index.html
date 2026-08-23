@@ -7,8 +7,8 @@
     <meta name="ue5-activity-api" content="/api/activity" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070b10'/%3E%3Cpath d='M17 17v21c0 8 5 12 15 12s15-4 15-12V17h-9v21c0 3-2 5-6 5s-6-2-6-5V17z' fill='%237fffd4'/%3E%3C/svg%3E" />
     <title>UE5 Web Export</title>
-    <script type="module" crossorigin src="./runtime/viewer-ClLWsfxs.js"></script>
-    <link rel="stylesheet" crossorigin href="./runtime/index-C4_yg9Pn.css">
+    <script type="module" crossorigin src="./runtime/viewer-CYd93t5e.js"></script>
+    <link rel="stylesheet" crossorigin href="./runtime/index-CF_l0lO2.css">
   </head>
   <body>
     <main id="viewport" aria-label="3D scene">
@@ -41,6 +41,12 @@
           <button id="logic-close" type="button" aria-label="Close logic report">Close</button>
         </div>
         <div id="logic-summary" class="logic-summary">Waiting for scene…</div>
+        <section id="asset-storage" class="asset-storage" hidden>
+          <span class="eyebrow">REUSABLE ASSETS</span>
+          <strong>Keep this game downloaded</strong>
+          <p id="asset-storage-status">Checking browser storage…</p>
+          <button id="asset-storage-request" type="button">Protect cached assets</button>
+        </section>
         <section id="live-certification" class="live-certification" hidden>
           <span class="eyebrow">LIVE DISCORD CHECK</span>
           <strong>Two-client Activity certificate</strong>

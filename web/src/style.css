@@ -105,15 +105,19 @@ button:hover, .file-button:hover { border-color: #6fe7cb88; background: #17232e;
 .logic-card strong { display: block; }
 .logic-card span { color: #8ea2b5; font-size: 12px; }
 .logic-card.warning { border-color: #ffb45442; }
-.live-certification {
+.asset-storage, .live-certification {
   margin-top: 16px;
   padding: 14px;
   border: 1px solid #5865f255;
   border-radius: 10px;
   background: #5865f20d;
 }
-.live-certification strong { display: block; margin-top: 7px; }
-.live-certification p { margin: 8px 0 12px; color: #aebdcb; font-size: 13px; line-height: 1.45; }
+.asset-storage strong, .live-certification strong { display: block; margin-top: 7px; }
+.asset-storage p, .live-certification p { margin: 8px 0 12px; color: #aebdcb; font-size: 13px; line-height: 1.45; }
+.asset-storage[data-mode="persistent"] { border-color: #6fe7cb55; background: #6fe7cb0a; }
+.asset-storage[data-mode="denied"], .asset-storage[data-mode="error"] { border-color: #ffb45442; }
+.asset-storage button { padding: 8px 10px; font-size: 12px; }
+.asset-storage button:disabled { cursor: wait; opacity: .6; }
 .live-certification-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .live-certification-actions button { padding: 8px 10px; font-size: 12px; }
 .live-certification-actions button:disabled { cursor: wait; opacity: .6; }
