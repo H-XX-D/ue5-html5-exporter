@@ -315,6 +315,7 @@ async function configureBlueprintLogic() {
         showBlueprintMessage(`Audio: ${message}`);
       },
     }, window);
+    runtimeAdapters.attachAudioListener(camera);
     targetPractice = new TargetPracticeRuntime(content, blueprintDocument.gameplay?.targets, {
       state: (state) => {
         targetStatus.hidden = state.configuredTargets === 0;

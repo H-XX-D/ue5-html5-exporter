@@ -684,6 +684,11 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
       eventTarget,
       onWarning: hooks.audioWarning,
     });
+    this.audioListener = null;
+    this.audioListenerPosition = new THREE.Vector3();
+    this.audioListenerForward = new THREE.Vector3();
+    this.audioListenerUp = new THREE.Vector3();
+    this.audioListenerQuaternion = new THREE.Quaternion();
     this.behaviors = new BehaviorTreeAdapter(blueprintIr);
     this.timers = new Map();
     this.gameplayController = null;
@@ -699,8 +704,22 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
   }
   registerFunction(name, implementation) { this.customFunctions.set(normalize(name), implementation); }
   attachGameplayController(controller) { this.gameplayController = controller; }
+  attachAudioListener(listener) { this.audioListener = listener; }
   variableChanged(instance, variable, value) { this.replication.changed(instance, variable, value); }
-  tick(delta) { this.input.tick(delta); this.physics.tick(delta); this.collisions.tick(delta); this.behaviors.tick(delta); }
+  tick(delta) {
+    this.input.tick(delta);
+    this.physics.tick(delta);
+    this.collisions.tick(delta);
+    this.behaviors.tick(delta);
+    if (this.audioListener) {
+      this.audioListener.updateWorldMatrix?.(true, false);
+      this.audioListener.getWorldPosition(this.audioListenerPosition);
+      this.audioListener.getWorldDirection(this.audioListenerForward);
+      this.audioListener.getWorldQuaternion(this.audioListenerQuaternion);
+      this.audioListenerUp.copy(this.audioListener.up).applyQuaternion(this.audioListenerQuaternion).normalize();
+      this.audio.updateListener(this.audioListenerPosition, this.audioListenerForward, this.audioListenerUp);
+    }
+  }
   discordActivity() { return this.eventTarget?.UE5HTML5?.activity || null; }
   attachDiscordActivityEvents() {
     const attachment = ++this.discordAttachment;
@@ -972,8 +991,11 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     if (name === 'shouldusetouchcontrols') {
       return { handled: true, value: shouldUseTouchControls(this.eventTarget, this.eventTarget?.navigator) };
     }
-    if (name === 'playsound2d' || name === 'playsoundatlocation') {
+    if (name === 'playsound2d') {
       return { handled: true, value: this.audio.play(args.sound, args) };
+    }
+    if (name === 'playsoundatlocation') {
+      return { handled: true, value: this.audio.playAtLocation(args.sound, args) };
     }
     if (name === 'getsubsystem') return { handled: true, value: this.input };
     if (name === 'delayuntilnextframe') return { handled: true, promise: new Promise((resolve) => requestAnimationFrame(() => resolve(true))) };

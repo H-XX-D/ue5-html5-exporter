@@ -507,6 +507,11 @@ test('browser adapters cover gameplay integration families', () => {
   assert.match(source, /DiscordActivityConnectionStateChanged/);
   assert.match(source, /playsound2d/);
   assert.match(source, /playsoundatlocation/);
+  assert.match(source, /attachAudioListener/);
+  const audio = readFileSync(new URL('../web/src/audio-adapter.js', import.meta.url), 'utf8');
+  assert.match(audio, /unrealAudioLocationToWebAudio/);
+  assert.match(audio, /panningModel = 'HRTF'/);
+  assert.match(audio, /distanceModel = 'inverse'/);
   const exporter = readFileSync(new URL('../UE5HTML5Exporter/Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.cpp', import.meta.url), 'utf8');
   assert.match(exporter, /USoundExporterWAV/);
   assert.match(exporter, /ue5-html5-audio-assets\/v1/);

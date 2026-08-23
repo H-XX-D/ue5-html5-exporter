@@ -33,7 +33,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
 - A proxy-safe, origin-scoped content-addressed asset pack: exported scene and Blueprint data are SHA-256 verified and Cache API-backed, unchanged resources survive later exports, and project adapter code uses the full pack-hash query with immutable HTTP caching; storage failure falls back to the network
 - An explicit **Keep this game downloaded** control in the generated Logic panel that can request persistent origin storage without collecting quota/device data; denial leaves the verified cache and network fallback working normally
-- Direct mono/stereo `SoundWave` export to WAV plus browser playback for Blueprint **Play Sound 2D** and **Play Sound at Location** calls; audio uses the same verified reusable asset pack and remains non-fatal when browser audio is unavailable
+- Direct mono/stereo `SoundWave` export to WAV plus browser playback for Blueprint **Play Sound 2D** and camera-relative HRTF playback for **Play Sound at Location**; audio uses the same verified reusable asset pack and remains non-fatal when browser audio is unavailable
 
 ## Build the plugin
 
@@ -190,7 +190,7 @@ Add `-FailOnUnsupported` when CI should exit with code `6` if any node still nee
 | AI/Behavior Trees | Tree assets exported; Wait and Blueprint task events run in a lightweight scheduler |
 | UMG | Widget trees exported to DOM; common containers, text, buttons, viewport, visibility, and text calls supported |
 | Niagara/Cascade | Spawn/activate/deactivate calls use a portable Three.js particle fallback |
-| Audio | Direct mono/stereo `SoundWave` literals and Blueprint variables export as WAV; `Play Sound 2D` and `Play Sound at Location` run through Web Audio, with at-location playback currently using a non-spatial 2D fallback |
+| Audio | Direct mono/stereo `SoundWave` literals and Blueprint variables export as WAV; `Play Sound 2D` uses ordinary Web Audio and `Play Sound at Location` uses camera-relative HRTF panning with a 2D fallback |
 | User C++ gameplay | Project-owned `Config/UE5HTML5/custom-adapters.json` + `custom-adapters.js`, copied into every export and registered through `UE5HTML5.registerFunction` before Blueprint startup |
 | Discord Activity | Blueprint nodes/events backed by Embedded App SDK connection/auth lifecycle, privacy-safe diagnostics, inbound/outbound private Broadcast, opaque Presence, participant and verified-entitlement updates, layout/orientation/thermal updates, Rich Presence/share links, opaque HttpOnly Activity sessions, and atomic cross-device saves |
 | Other Blueprint nodes/functions | Preserved in IR and reported as unsupported |
