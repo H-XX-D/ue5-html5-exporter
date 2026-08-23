@@ -155,6 +155,44 @@ try {
             -ExpectedAssetPackVersion $assetPackVersion
     } 'does not contain a passing run' 'browser certification bridge must reject a failed report'
 
+    $editorAutomationPath = Join-Path $testRoot 'editor-automation.json'
+    $editorAutomation = [ordered]@{
+        succeeded = 1
+        succeededWithWarnings = 0
+        failed = 0
+        notRun = 0
+        inProcess = 0
+        tests = @([ordered]@{
+            fullTestPath = 'UE5HTML5Exporter.Editor.BrowserFPSSetup'
+            state = 'Success'
+            duration = 0.17
+            errors = 0
+            warnings = 0
+        })
+    }
+    $editorAutomation | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $editorAutomationPath -Encoding utf8
+    $editorEvidence = Get-UE5HTML5EditorAutomationEvidence -ReportFile $editorAutomationPath
+    Assert-True ($editorEvidence.status -eq 'passed') 'editor automation bridge must accept one exact clean passing setup test'
+    Assert-True ($editorEvidence.testPath -eq 'UE5HTML5Exporter.Editor.BrowserFPSSetup') 'editor automation evidence must retain the exact native test path'
+    Assert-True ($editorEvidence.durationSeconds -eq 0.17) 'editor automation evidence must retain duration'
+
+    $editorAutomation.tests[0].state = 'Fail'
+    $editorAutomation.failed = 1
+    $editorAutomation.succeeded = 0
+    $editorAutomation | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $editorAutomationPath -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5EditorAutomationEvidence -ReportFile $editorAutomationPath
+    } 'does not prove one clean passing run' 'editor automation bridge must reject a failed native setup test'
+
+    $editorAutomation.tests[0].state = 'Success'
+    $editorAutomation.failed = 0
+    $editorAutomation.succeeded = 1
+    $editorAutomation.tests[0].fullTestPath = 'UE5HTML5Exporter.Editor.SomeOtherTest'
+    $editorAutomation | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $editorAutomationPath -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5EditorAutomationEvidence -ReportFile $editorAutomationPath
+    } 'does not contain exactly the requested test' 'editor automation bridge must reject the wrong test path'
+
     $revisionPath = Join-Path $testRoot 'source-revision.json'
     $cleanCommit = '0123456789abcdef0123456789abcdef01234567'
     @{

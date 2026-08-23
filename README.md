@@ -26,7 +26,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A one-click **Set Up Browser FPS Test Level** command plus drag-and-drop **UE5 HTML5 Practice Target** actor and Blueprint-spawnable target component; health, damage per shot, score, hit reaction, depletion, and respawn are configured in Unreal and run in the browser without JavaScript
 - A readiness chain that rejects incomplete Unreal targets, missing Discord launch commands, Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing the portal checklist and URL mappings
 - A double-click Windows installer that selects a `.uproject`, checks the exact Unreal/compiler toolchain, installs the plugin, and launches the project without requiring command-line or web-development knowledge
-- A one-click Win64 plus browser-FPS certification workflow with per-file SHA-256 inventories, a detached report checksum, and optional GitHub-signed SLSA provenance for downloadable Windows artifacts
+- A one-click Win64 plus browser-FPS certification workflow that first runs the native Unreal target-creation/idempotency/Undo test, then records per-file SHA-256 inventories, a detached report checksum, and optional GitHub-signed SLSA provenance for downloadable Windows artifacts
 - A double-click Win64 certification launcher that selects a real Unreal project and produces the same native build/export evidence without requiring PowerShell knowledge
 - A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
 - A versioned, origin-scoped browser asset pack: exported scene and Blueprint data are SHA-256 verified, cached after the first launch, reused on later launches, and safely fetched from the network when browser storage is unavailable
@@ -202,6 +202,14 @@ npm run build # production viewer bundle
 npm run install:plugin -- --help
 npm run package:plugin -- --help
 ```
+
+After installing a packaged plugin into a test project, its native editor setup contract can be run headlessly with Unreal's Automation framework:
+
+```text
+UnrealEditor-Cmd YourGame.uproject -ExecCmds="Automation RunTests UE5HTML5Exporter.Editor.BrowserFPSSetup" -TestExit="Automation Test Queue Empty" -ReportExportPath="path/to/report" -unattended -nop4 -NullRHI -NoSound
+```
+
+That test creates an isolated editor map and proves missing-Player-Start refusal, selected/first Player Start resolution, six-meter placement, target defaults, idempotency, Undo, and Redo. The Windows double-click certifier runs it automatically.
 
 ## Architecture
 

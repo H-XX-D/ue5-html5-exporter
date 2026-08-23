@@ -2,9 +2,7 @@
 
 #include "DesktopPlatformModule.h"
 #include "Editor.h"
-#include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
-#include "GameFramework/PlayerStart.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "Interfaces/IMainFrameModule.h"
@@ -12,13 +10,11 @@
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
-#include "ScopedTransaction.h"
 #include "Selection.h"
 #include "ToolMenus.h"
+#include "UE5HTML5BrowserFPSSetup.h"
 #include "UE5HTML5DiscordActivitySettings.h"
 #include "UE5HTML5ExportLibrary.h"
-#include "UE5HTML5PracticeTargetActor.h"
-#include "UE5HTML5TargetComponent.h"
 
 #define LOCTEXT_NAMESPACE "FUE5HTML5ExporterModule"
 
@@ -66,36 +62,6 @@ namespace
 #else
         return FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/Python3/Linux/bin/python3"));
 #endif
-    }
-
-    APlayerStart* PreferredPlayerStart(UWorld* World)
-    {
-        if (GEditor)
-        {
-            if (USelection* Selection = GEditor->GetSelectedActors())
-            {
-                for (FSelectionIterator Iterator(*Selection); Iterator; ++Iterator)
-                {
-                    if (APlayerStart* SelectedStart = Cast<APlayerStart>(*Iterator))
-                    {
-                        return SelectedStart;
-                    }
-                }
-            }
-        }
-
-        TActorIterator<APlayerStart> Iterator(World);
-        return Iterator ? *Iterator : nullptr;
-    }
-
-    FTransform BrowserFPSTargetTransform(const APlayerStart& PlayerStart)
-    {
-        const float PlayerYaw = PlayerStart.GetActorRotation().Yaw;
-        const FRotator HorizontalFacing(0.0f, PlayerYaw, 0.0f);
-        const FVector TargetLocation = PlayerStart.GetActorLocation()
-            + HorizontalFacing.Vector() * 600.0f
-            + FVector(0.0f, 0.0f, 65.0f);
-        return FTransform(FRotator(0.0f, PlayerYaw + 180.0f, 0.0f), TargetLocation);
     }
 
     bool LaunchDiscordActivityReleaseAssistant(const FString& OutputDirectory)
@@ -666,37 +632,25 @@ void FUE5HTML5ExporterModule::ExportBrowserCertificationInteractive()
 void FUE5HTML5ExporterModule::SetupBrowserFPSTestLevelInteractive()
 {
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-    if (!World)
+    const FUE5HTML5BrowserFPSSetupResult Preview =
+        FUE5HTML5BrowserFPSSetup::Apply(World, false, true);
+    if (Preview.Status == EUE5HTML5BrowserFPSSetupStatus::MissingWorld)
     {
         FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoFPSSetupWorld", "Open a level before setting up the browser FPS test."));
         return;
     }
-
-    TArray<AActor*> ExistingTargets;
-    for (TActorIterator<AActor> Iterator(World); Iterator; ++Iterator)
+    if (Preview.Status == EUE5HTML5BrowserFPSSetupStatus::ExistingTargetSelected)
     {
-        if (Iterator->FindComponentByClass<UUE5HTML5TargetComponent>())
-        {
-            ExistingTargets.Add(*Iterator);
-        }
-    }
-    if (!ExistingTargets.IsEmpty())
-    {
-        GEditor->SelectNone(false, true, false);
-        GEditor->SelectActor(ExistingTargets[0], true, true, true);
-        GEditor->MoveViewportCamerasToActor(*ExistingTargets[0], false);
         FMessageDialog::Open(
             EAppMsgType::Ok,
             FText::Format(
                 LOCTEXT(
                     "ExistingFPSTargetSelected",
                     "This level already contains {0} UE5 HTML5 target(s). The first target is selected; no actor was created."),
-                FText::AsNumber(ExistingTargets.Num())));
+                FText::AsNumber(Preview.TargetCount)));
         return;
     }
-
-    APlayerStart* PlayerStart = PreferredPlayerStart(World);
-    if (!PlayerStart)
+    if (Preview.Status == EUE5HTML5BrowserFPSSetupStatus::MissingPlayerStart)
     {
         FMessageDialog::Open(
             EAppMsgType::Ok,
@@ -716,26 +670,26 @@ void FUE5HTML5ExporterModule::SetupBrowserFPSTestLevelInteractive()
         return;
     }
 
-    const FScopedTransaction Transaction(LOCTEXT("AddBrowserFPSTargetTransaction", "Add Browser FPS Practice Target"));
-    AActor* AddedActor = GEditor->AddActor(
-        PlayerStart->GetLevel(),
-        AUE5HTML5PracticeTargetActor::StaticClass(),
-        BrowserFPSTargetTransform(*PlayerStart),
-        false,
-        RF_Transactional,
-        true);
-    AUE5HTML5PracticeTargetActor* Target = Cast<AUE5HTML5PracticeTargetActor>(AddedActor);
-    if (!Target)
+    const FUE5HTML5BrowserFPSSetupResult Result =
+        FUE5HTML5BrowserFPSSetup::Apply(World, true, true);
+    if (Result.Status == EUE5HTML5BrowserFPSSetupStatus::ExistingTargetSelected)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            FText::Format(
+                LOCTEXT(
+                    "ExistingFPSTargetSelectedAfterConfirmation",
+                    "This level now contains {0} UE5 HTML5 target(s). The first target is selected; no duplicate was created."),
+                FText::AsNumber(Result.TargetCount)));
+        return;
+    }
+    if (Result.Status != EUE5HTML5BrowserFPSSetupStatus::Created)
     {
         FMessageDialog::Open(
             EAppMsgType::Ok,
             LOCTEXT("FPSSetupSpawnFailed", "Unreal could not add the browser FPS practice target to the Player Start's level."));
         return;
     }
-
-    Target->SetActorLabel(TEXT("UE5HTML5_PracticeTarget"));
-    Target->MarkPackageDirty();
-    GEditor->MoveViewportCamerasToActor(*Target, false);
     FMessageDialog::Open(
         EAppMsgType::Ok,
         LOCTEXT(

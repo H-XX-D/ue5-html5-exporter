@@ -451,6 +451,56 @@ function Get-UE5HTML5BrowserCertificationEvidence {
     }
 }
 
+function Get-UE5HTML5EditorAutomationEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ReportFile,
+        [string]$ExpectedTestPath = 'UE5HTML5Exporter.Editor.BrowserFPSSetup'
+    )
+
+    if (-not (Test-Path -LiteralPath $ReportFile -PathType Leaf)) {
+        throw "Unreal editor automation report was not found: $ReportFile"
+    }
+    try {
+        $report = Get-Content -LiteralPath $ReportFile -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Unreal editor automation report is invalid JSON: $ReportFile ($($_.Exception.Message))"
+    }
+
+    $tests = @($report.tests)
+    $matchingTests = @($tests | Where-Object { [string]$_.fullTestPath -eq $ExpectedTestPath })
+    if ($tests.Count -ne 1 -or $matchingTests.Count -ne 1) {
+        throw "Unreal editor automation report does not contain exactly the requested test: $ExpectedTestPath"
+    }
+    $test = $matchingTests[0]
+    if ([int]$report.succeeded -ne 1 -or
+        [int]$report.succeededWithWarnings -ne 0 -or
+        [int]$report.failed -ne 0 -or
+        [int]$report.notRun -ne 0 -or
+        [int]$report.inProcess -ne 0 -or
+        [string]$test.state -ne 'Success' -or
+        [int]$test.errors -ne 0 -or
+        [int]$test.warnings -ne 0) {
+        throw "Unreal editor automation report does not prove one clean passing run of $ExpectedTestPath."
+    }
+    $durationSeconds = [double]$test.duration
+    if ($durationSeconds -lt 0) {
+        throw 'Unreal editor automation report contains an invalid duration.'
+    }
+
+    return [pscustomobject][ordered]@{
+        status = 'passed'
+        schema = 'ue5-html5-editor-automation-evidence/v1'
+        testPath = $ExpectedTestPath
+        succeeded = 1
+        failed = 0
+        warnings = 0
+        durationSeconds = $durationSeconds
+        details = 'Normalized result only; the raw Unreal report is deleted after validation because it contains workstation metadata.'
+    }
+}
+
 function Resolve-UE5HTML5CertificationSource {
     [CmdletBinding()]
     param(
@@ -549,5 +599,6 @@ Export-ModuleMember -Function @(
     'Get-UE5HTML5WorkstationReport',
     'Get-UE5HTML5DirectoryInventory',
     'Get-UE5HTML5BrowserCertificationEvidence',
+    'Get-UE5HTML5EditorAutomationEvidence',
     'Resolve-UE5HTML5CertificationSource'
 )

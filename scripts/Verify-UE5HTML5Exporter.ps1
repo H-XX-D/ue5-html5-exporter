@@ -88,11 +88,15 @@ if (-not $ExportOutput) {
 }
 $packagePath = [System.IO.Path]::GetFullPath($PackageOutput)
 $exportPath = [System.IO.Path]::GetFullPath($ExportOutput)
+$editorAutomationReportPath = "$exportPath-editor-automation"
 if (Test-Path -LiteralPath $packagePath) {
     throw "PackageOutput already exists; choose a new path: $packagePath"
 }
 if (Test-Path -LiteralPath $exportPath) {
     throw "ExportOutput already exists; choose a new path: $exportPath"
+}
+if (Test-Path -LiteralPath $editorAutomationReportPath) {
+    throw "Editor automation output already exists; choose a new ExportOutput path: $editorAutomationReportPath"
 }
 
 $packageScript = Join-Path $PSScriptRoot 'Package-UE5HTML5Exporter.ps1'
@@ -108,6 +112,32 @@ if ($LASTEXITCODE -ne 0) { throw "Win64 plugin packaging failed with status $LAS
 
 & $installScript -Project $projectPath -Plugin $packagePath -Replace
 if ($LASTEXITCODE -ne 0) { throw "Packaged plugin installation failed with status $LASTEXITCODE." }
+
+$editorAutomationTestPath = 'UE5HTML5Exporter.Editor.BrowserFPSSetup'
+Write-Host "Running native Unreal editor setup automation: $editorAutomationTestPath"
+try {
+    & $editorCommand `
+        $projectPath `
+        "-ExecCmds=Automation RunTests $editorAutomationTestPath" `
+        '-TestExit=Automation Test Queue Empty' `
+        "-ReportExportPath=$editorAutomationReportPath" `
+        -unattended `
+        -nop4 `
+        -NullRHI `
+        -NoSound
+    $editorAutomationStatus = $LASTEXITCODE
+    if ($editorAutomationStatus -ne 0) {
+        throw "Unreal editor setup automation process failed with status $editorAutomationStatus."
+    }
+    $editorSetupAutomation = Get-UE5HTML5EditorAutomationEvidence `
+        -ReportFile (Join-Path $editorAutomationReportPath 'index.json') `
+        -ExpectedTestPath $editorAutomationTestPath
+}
+finally {
+    if (Test-Path -LiteralPath $editorAutomationReportPath) {
+        Remove-Item -LiteralPath $editorAutomationReportPath -Recurse -Force
+    }
+}
 
 & $editorCommand $projectPath -run=UE5HTML5Export "-Map=$Map" -CheckOnly -unattended -nop4 -NullRHI
 if ($LASTEXITCODE -ne 0) { throw "Unreal readiness check failed with status $LASTEXITCODE." }
@@ -186,7 +216,7 @@ $exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
 )
 $environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v3'
+    schema = 'ue5-html5-workstation-certification/v4'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     source = $source
     execution = [ordered]@{
@@ -213,6 +243,7 @@ $report = [ordered]@{
         inventory = $exportInventory
     }
     readiness = 'passed'
+    editorSetupAutomation = $editorSetupAutomation
     unrealExport = $unrealExportStatus
     blueprintCompatibility = [ordered]@{
         status = [string]$compatibility.status
@@ -228,10 +259,10 @@ $report = [ordered]@{
         credentialsAccessed = $false
         personalPlayerDataCollected = $false
         scope = if ($CertifyBrowser) {
-            'native plugin build, readiness, export, package preflight, and loopback browser FPS certification only'
+            'native plugin build, editor setup automation, readiness, export, package preflight, and loopback browser FPS certification only'
         }
         else {
-            'native plugin build, readiness, export, and package preflight only'
+            'native plugin build, editor setup automation, readiness, export, and package preflight only'
         }
     }
 }
@@ -242,10 +273,10 @@ $reportChecksumPath = Join-Path $exportPath 'workstation-certification.sha256'
 "$reportHash  workstation-certification.json" | Set-Content -LiteralPath $reportChecksumPath -Encoding ascii
 
 if ($CertifyBrowser) {
-    Write-Host "UE5HTML5Exporter Win64 workstation and browser FPS certification passed."
+    Write-Host "UE5HTML5Exporter Win64 workstation, editor setup automation, and browser FPS certification passed."
 }
 else {
-    Write-Host "UE5HTML5Exporter Win64 workstation certification passed; browser FPS certification was not requested."
+    Write-Host "UE5HTML5Exporter Win64 workstation and editor setup automation passed; browser FPS certification was not requested."
 }
 if ($unsupportedBlueprintNodes -gt 0) {
     Write-Warning "$unsupportedBlueprintNodes Blueprint node(s) require adapters; certification records the partial gameplay compatibility explicitly."

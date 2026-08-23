@@ -202,6 +202,8 @@ test('exporter writes the scene, manifest, and local server helper', () => {
 
 test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
+  const fpsSetup = read('Source/UE5HTML5Exporter/Private/UE5HTML5BrowserFPSSetup.cpp');
+  const fpsSetupTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BrowserFPSSetupTests.cpp');
   const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
   assert.match(module, /Check Discord Activity Readiness/);
   assert.match(module, /Export Discord Activity/);
@@ -224,13 +226,20 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /LaunchBrowserCertification/);
   assert.match(module, /SetupBrowserFPSTestLevelInteractive/);
   assert.match(module, /Set Up Browser FPS Test Level/);
-  assert.match(module, /FindComponentByClass<UUE5HTML5TargetComponent>/);
-  assert.match(module, /PreferredPlayerStart/);
-  assert.match(module, /HorizontalFacing\.Vector\(\) \* 600\.0f/);
-  assert.match(module, /FScopedTransaction/);
-  assert.match(module, /GEditor->AddActor/);
-  assert.match(module, /RF_Transactional/);
+  assert.match(module, /FUE5HTML5BrowserFPSSetup::Apply/);
   assert.match(module, /The first target is selected; no actor was created/);
+  assert.match(fpsSetup, /FindComponentByClass<UUE5HTML5TargetComponent>/);
+  assert.match(fpsSetup, /FindPreferredPlayerStart/);
+  assert.match(fpsSetup, /HorizontalFacing\.Vector\(\) \* 600\.0f/);
+  assert.match(fpsSetup, /FScopedTransaction/);
+  assert.match(fpsSetup, /GEditor->AddActor/);
+  assert.match(fpsSetup, /RF_Transactional/);
+  assert.match(fpsSetup, /Transaction\.Cancel/);
+  assert.match(fpsSetupTest, /UE5HTML5Exporter\.Editor\.BrowserFPSSetup/);
+  assert.match(fpsSetupTest, /Preview does not create a target/);
+  assert.match(fpsSetupTest, /Repeated setup creates no duplicate/);
+  assert.match(fpsSetupTest, /Undo removes the created target/);
+  assert.match(fpsSetupTest, /Redo restores exactly one target/);
   assert.match(module, /browser-certification\.json/);
   assert.match(module, /certify-browser\.cmd/);
   assert.match(module, /certify-browser\.command/);
@@ -632,6 +641,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(tools, /18\.0/);
   assert.match(tools, /Get-UE5HTML5DirectoryInventory/);
   assert.match(tools, /ue5-html5-directory-inventory\/v1/);
+  assert.match(tools, /Get-UE5HTML5EditorAutomationEvidence/);
+  assert.match(tools, /ue5-html5-editor-automation-evidence\/v1/);
   assert.match(launcher, /Start-UE5HTML5Setup\.ps1/);
   assert.match(launcher, /--check/);
   assert.match(launcher, /ExecutionPolicy Bypass/);
@@ -664,7 +675,13 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /workstation-certification\.sha256/);
-  assert.match(verify, /ue5-html5-workstation-certification\/v3/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v4/);
+  assert.match(verify, /UE5HTML5Exporter\.Editor\.BrowserFPSSetup/);
+  assert.match(verify, /Automation RunTests/);
+  assert.match(verify, /Automation Test Queue Empty/);
+  assert.match(verify, /Get-UE5HTML5EditorAutomationEvidence/);
+  assert.match(verify, /editorSetupAutomation = \$editorSetupAutomation/);
+  assert.match(verify, /Remove-Item -LiteralPath \$editorAutomationReportPath -Recurse -Force/);
   assert.match(verify, /\[switch\]\$CertifyBrowser/);
   assert.match(verify, /Get-UE5HTML5BrowserCertificationEvidence/);
   assert.match(verify, /browserCertification = \$browserCertification/);
