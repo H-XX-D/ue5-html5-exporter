@@ -400,7 +400,7 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
     if (value.endsWith('/auth/v1/.well-known/jwks.json')) {
       return Response.json({ keys: [{ kid: 'activity-key', kty: 'EC', crv: 'P-256', x: 'x-value', y: 'y-value' }] });
     }
-    if (value.endsWith('/rest/v1/')) return Response.json({});
+    if (value.endsWith('/auth/v1/health')) return Response.json({ version: 'test' });
     if (value.includes('/discord_activity_world_state')) {
       return headers.get('apikey') === env.SUPABASE_PUBLISHABLE_KEY
         ? Response.json({ message: 'permission denied' }, { status: 403 })
@@ -412,6 +412,8 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
   const result = await verifyActivityServices(env, { fetchImpl });
   assert.deepEqual(result.errors, []);
   assert.equal(result.checks.length, 9);
+  assert.ok(calls.some((call) => call.value.endsWith('/auth/v1/health')));
+  assert.equal(calls.some((call) => call.value.endsWith('/rest/v1/')), false);
   assert.equal(calls.find((call) => call.value.endsWith('/applications/@me')).headers.get('authorization'), `Bot ${env.DISCORD_BOT_TOKEN}`);
   for (const call of calls.filter((entry) => entry.value.includes('supabase.co/rest/'))) {
     assert.equal(call.headers.has('authorization'), false);
@@ -427,7 +429,7 @@ test('online preflight rejects mismatched service identities and browser-readabl
     if (value.endsWith('/auth/v1/.well-known/jwks.json')) {
       return Response.json({ keys: [{ kid: 'activity-key', kty: 'EC', crv: 'P-256', x: 'wrong', y: 'wrong' }] });
     }
-    if (value.endsWith('/rest/v1/')) return Response.json({});
+    if (value.endsWith('/auth/v1/health')) return Response.json({ version: 'test' });
     if (value.includes('/discord_activity_world_state')) return Response.json([]);
     throw new Error(`Unexpected online preflight request: ${value}`);
   };

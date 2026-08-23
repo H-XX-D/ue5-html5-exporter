@@ -671,7 +671,10 @@ export async function verifyActivityServices(env = process.env, { fetchImpl = fe
   }
 
   try {
-    const response = await onlineRequest(fetchImpl, 'Supabase publishable-key check', `${env.SUPABASE_URL}/rest/v1/`, {
+    // Supabase removed publishable/anon access to the PostgREST OpenAPI root in
+    // 2026. Auth health still validates the project API key without exposing
+    // schema metadata or creating a user/session.
+    const response = await onlineRequest(fetchImpl, 'Supabase publishable-key check', `${env.SUPABASE_URL}/auth/v1/health`, {
       headers: apiKeyHeaders(env.SUPABASE_PUBLISHABLE_KEY),
     });
     if (!response.ok) errors.push(`Supabase publishable-key check returned HTTP ${response.status}.`);
