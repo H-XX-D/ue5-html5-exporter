@@ -26,6 +26,7 @@ import {
   verifyPublicDeployment,
 } from '../web/public/scripts/activity-release.mjs';
 import {
+  CURRENT_MANIFEST_SCHEMA,
   REQUIRED_EXPORT_FILES,
   REQUIRED_EXPORT_PATTERNS,
 } from '../web/public/scripts/activity-preflight.mjs';
@@ -682,7 +683,7 @@ test('public deployment probe validates hosted export and enabled Activity API',
       requests.push({ pathname: url.pathname, redirect: options.redirect });
       if (url.pathname === '/') return new Response('<html></html>', { status: 200 });
       if (url.pathname === '/export-manifest.json') {
-        return Response.json({ schema: 'ue5-html5-export/v3', actorCount: 69 });
+        return Response.json({ schema: CURRENT_MANIFEST_SCHEMA, actorCount: 69 });
       }
       if (url.pathname === '/api/activity') return Response.json({ enabled: true, clientId: 'public' });
       return new Response(null, { status: 404 });

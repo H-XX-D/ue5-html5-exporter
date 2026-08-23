@@ -72,7 +72,7 @@ const HANDOFF_SCHEMAS = new Set([
   'ue5-discord-activity-handoff/v7',
   CURRENT_HANDOFF_SCHEMA,
 ]);
-const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v7';
+export const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v7';
 const MANIFEST_SCHEMAS = new Set([
   'ue5-html5-export/v2',
   'ue5-html5-export/v3',
@@ -81,6 +81,10 @@ const MANIFEST_SCHEMAS = new Set([
   'ue5-html5-export/v6',
   CURRENT_MANIFEST_SCHEMA,
 ]);
+
+export function isSupportedManifestSchema(schema) {
+  return MANIFEST_SCHEMAS.has(schema);
+}
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
 const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
 const LEGACY_ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
@@ -664,7 +668,7 @@ function validateUnrealHandoff(root, errors, warnings) {
   const logic = readJsonArtifact(root, 'logic/blueprints.json', errors);
   if (!manifest || !handoff || !logic) return;
 
-  if (!MANIFEST_SCHEMAS.has(manifest.schema)) {
+  if (!isSupportedManifestSchema(manifest.schema)) {
     errors.push('export-manifest.json has an unsupported schema.');
   }
   if (!HANDOFF_SCHEMAS.has(handoff.schema)) {
