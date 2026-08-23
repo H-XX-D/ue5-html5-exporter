@@ -4,4 +4,5 @@ node_modules
 .env.*
 !.env.example
 activity-release-receipt.json
+activity-release-verification.json
 browser-certification.json

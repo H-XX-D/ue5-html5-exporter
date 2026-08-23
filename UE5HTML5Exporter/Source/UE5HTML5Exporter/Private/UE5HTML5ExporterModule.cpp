@@ -53,6 +53,17 @@ namespace
 #endif
     }
 
+    FString ReleaseReceiptVerificationLauncher(const FString& OutputDirectory)
+    {
+#if PLATFORM_WINDOWS
+        return FPaths::Combine(OutputDirectory, TEXT("verify-discord-activity-release.cmd"));
+#elif PLATFORM_MAC
+        return FPaths::Combine(OutputDirectory, TEXT("verify-discord-activity-release.command"));
+#else
+        return FPaths::Combine(OutputDirectory, TEXT("verify-discord-activity-release.sh"));
+#endif
+    }
+
     FString BundledPythonExecutable()
     {
 #if PLATFORM_WINDOWS
@@ -180,6 +191,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::OpenDiscordActivityInstallPage)));
 
     Section.AddMenuEntry(
+        "UE5HTML5VerifyDiscordActivityReleaseReceipt",
+        LOCTEXT("VerifyDiscordActivityReleaseReceipt", "Verify Hosted Discord Activity Receipt…"),
+        LOCTEXT("VerifyDiscordActivityReleaseReceiptTooltip", "Choose the secret-free release receipt from the operator, independently verify both hosted URLs and exact release identities, and write a shareable verification record."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::VerifyDiscordActivityReleaseReceipt)));
+
+    Section.AddMenuEntry(
         "UE5HTML5ImportDiscordActivityProjectTargets",
         LOCTEXT("ImportDiscordActivityProjectTargets", "Import Public Discord Activity Targets…"),
         LOCTEXT("ImportDiscordActivityProjectTargetsTooltip", "Import the allowlisted public Discord, Vercel, and Supabase project identity from a teammate JSON file. Credentials are rejected."),
@@ -247,6 +265,56 @@ void FUE5HTML5ExporterModule::OpenDiscordActivityInstallPage()
                 *InstallUrl,
                 *LaunchError)));
     }
+}
+
+void FUE5HTML5ExporterModule::VerifyDiscordActivityReleaseReceipt()
+{
+    IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+    if (!DesktopPlatform)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("ReceiptVerifyNoDesktop", "The operating-system file picker is unavailable."));
+        return;
+    }
+    const void* ParentHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
+    TArray<FString> Files;
+    if (!DesktopPlatform->OpenFileDialog(
+        ParentHandle,
+        TEXT("Choose the Discord Activity release receipt"),
+        FPaths::ProjectDir(),
+        TEXT("activity-release-receipt.json"),
+        TEXT("JSON files (*.json)|*.json"),
+        EFileDialogFlags::None,
+        Files)
+        || Files.Num() != 1)
+    {
+        return;
+    }
+
+    FString VerificationDirectory;
+    FString Error;
+    if (!FUE5HTML5ExportLibrary::PrepareReleaseReceiptVerification(Files[0], VerificationDirectory, Error))
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
+        return;
+    }
+    if (!LaunchReleaseReceiptVerifier(VerificationDirectory))
+    {
+        FPlatformProcess::ExploreFolder(*VerificationDirectory);
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT(
+                "ReceiptVerifierLaunchFailed",
+                "Unreal could not start hosted release verification automatically. The disposable verification folder is open; run the verify-discord-activity-release launcher for this operating system."));
+        return;
+    }
+
+    FMessageDialog::Open(
+        EAppMsgType::Ok,
+        FText::FromString(FString::Printf(
+            TEXT("Hosted Discord Activity verification started.\n\n")
+            TEXT("The terminal independently checks the receipt contract, immutable deployment URL, stable public URL, exporter version, manifest schema, complete manifest identity, reusable asset-pack identity, iframe compatibility, and enabled Activity API.\n\n")
+            TEXT("It uses no Discord, Vercel, or Supabase credentials and writes no player or billing information. A successful run creates:\n%s"),
+            *FPaths::Combine(VerificationDirectory, TEXT("activity-release-verification.json")))));
 }
 
 void FUE5HTML5ExporterModule::ImportDiscordActivityProjectTargets()
@@ -807,6 +875,46 @@ bool FUE5HTML5ExporterModule::LaunchBrowserCertification(const FString& OutputDi
     const FString Launcher = BrowserCertificationLauncher(OutputDirectory);
     return FPaths::FileExists(Launcher)
         && FPlatformProcess::LaunchFileInDefaultExternalApplication(*Launcher);
+}
+
+bool FUE5HTML5ExporterModule::LaunchReleaseReceiptVerifier(const FString& OutputDirectory)
+{
+    const FString Launcher = ReleaseReceiptVerificationLauncher(OutputDirectory);
+    if (!FPaths::FileExists(Launcher))
+    {
+        return false;
+    }
+
+#if PLATFORM_LINUX
+    const TArray<TPair<FString, FString>> TerminalCandidates = {
+        { TEXT("/usr/bin/x-terminal-emulator"), FString::Printf(TEXT("-e \"%s\""), *Launcher) },
+        { TEXT("/usr/bin/gnome-terminal"), FString::Printf(TEXT("-- \"%s\""), *Launcher) },
+        { TEXT("/usr/bin/konsole"), FString::Printf(TEXT("-e \"%s\""), *Launcher) }
+    };
+    for (const TPair<FString, FString>& Candidate : TerminalCandidates)
+    {
+        if (!FPaths::FileExists(Candidate.Key))
+        {
+            continue;
+        }
+        const FProcHandle Process = FPlatformProcess::CreateProc(
+            *Candidate.Key,
+            *Candidate.Value,
+            true,
+            false,
+            false,
+            nullptr,
+            0,
+            *OutputDirectory,
+            nullptr);
+        if (Process.IsValid())
+        {
+            return true;
+        }
+    }
+#endif
+
+    return FPlatformProcess::LaunchFileInDefaultExternalApplication(*Launcher);
 }
 
 void FUE5HTML5ExporterModule::StopDiscordActivityPreview()

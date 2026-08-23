@@ -13,6 +13,7 @@ private:
     void RegisterMenus();
     void OpenDiscordActivitySettings();
     void OpenDiscordActivityInstallPage();
+    void VerifyDiscordActivityReleaseReceipt();
     void ImportDiscordActivityProjectTargets();
     void ExportDiscordActivityProjectTargets();
     void OpenCustomWebAdapters();
@@ -24,6 +25,7 @@ private:
     void ExportBrowserCertificationInteractive();
     bool LaunchDiscordActivityPreview(const FString& OutputDirectory);
     bool LaunchBrowserCertification(const FString& OutputDirectory);
+    bool LaunchReleaseReceiptVerifier(const FString& OutputDirectory);
     void StopDiscordActivityPreview();
 
     FProcHandle PreviewServerProcess;

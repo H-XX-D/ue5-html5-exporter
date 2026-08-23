@@ -626,7 +626,7 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
       manifestIdentity: `sha256:${'a'.repeat(64)}`,
       assetPackIdentity: `sha256:${'b'.repeat(64)}`,
       manifestSchema: CURRENT_MANIFEST_SCHEMA,
-      exporterVersion: '0.3.54',
+      exporterVersion: '0.3.55',
     }),
   });
   assert.equal(result.ok, true);
@@ -700,7 +700,7 @@ test('production publish promotes only after staged verification and verifies th
         manifestIdentity: `sha256:${'a'.repeat(64)}`,
         assetPackIdentity: `sha256:${'b'.repeat(64)}`,
         manifestSchema: CURRENT_MANIFEST_SCHEMA,
-        exporterVersion: '0.3.54',
+        exporterVersion: '0.3.55',
       };
     },
   });
@@ -881,7 +881,7 @@ test('public deployment probe validates hosted export and enabled Activity API',
       requests.push({ pathname: url.pathname, redirect: options.redirect });
       if (url.pathname === '/') return new Response('<html></html>', { status: 200 });
       if (url.pathname === '/export-manifest.json') {
-        return Response.json({ schema: CURRENT_MANIFEST_SCHEMA, exporterVersion: '0.3.54', actorCount: 69 });
+        return Response.json({ schema: CURRENT_MANIFEST_SCHEMA, exporterVersion: '0.3.55', actorCount: 69 });
       }
       if (url.pathname === '/api/activity') return Response.json({ enabled: true, clientId: 'public' });
       return new Response(null, { status: 404 });
@@ -894,7 +894,7 @@ test('public deployment probe validates hosted export and enabled Activity API',
   assert.match(result.manifestIdentity, /^sha256:[a-f0-9]{64}$/);
   assert.equal(result.assetPackIdentity, null);
   assert.equal(result.manifestSchema, CURRENT_MANIFEST_SCHEMA);
-  assert.equal(result.exporterVersion, '0.3.54');
+  assert.equal(result.exporterVersion, '0.3.55');
   assert.deepEqual(requests.map(({ pathname }) => pathname), ['/', '/export-manifest.json', '/api/activity']);
   assert.ok(requests.every(({ redirect }) => redirect === 'manual'));
 });

@@ -77,6 +77,7 @@ class FUE5HTML5ExportLibrary
 {
 public:
     static bool EnsureProjectAdapterFiles(FString& OutDirectory, FString& OutError);
+    static bool PrepareReleaseReceiptVerification(const FString& ReceiptFile, FString& OutDirectory, FString& OutError);
     static FString FormatDiscordAccessSummary(
         const TArray<FString>& DiscordFeatures,
         const TArray<FString>& RequiredDiscordOAuthScopes);

@@ -154,13 +154,17 @@ namespace
             TEXT("DISCORD_ACTIVITY_WORKFLOW.md"),
             TEXT("scripts/activity-preflight.mjs"),
             TEXT("scripts/activity-release.mjs"),
+            TEXT("scripts/activity-release-receipt.mjs"),
             TEXT("scripts/activity-release-assistant.mjs"),
             TEXT("release-discord-activity.cmd"),
             TEXT("release-discord-activity.command"),
             TEXT("release-discord-activity.sh"),
             TEXT("release-discord-activity-production.cmd"),
             TEXT("release-discord-activity-production.command"),
-            TEXT("release-discord-activity-production.sh")
+            TEXT("release-discord-activity-production.sh"),
+            TEXT("verify-discord-activity-release.cmd"),
+            TEXT("verify-discord-activity-release.command"),
+            TEXT("verify-discord-activity-release.sh")
         };
         return Files;
     }
@@ -715,6 +719,85 @@ bool FUE5HTML5ExportLibrary::EnsureProjectAdapterFiles(FString& OutDirectory, FS
     if (!FPaths::FileExists(Module) && !FFileHelper::SaveStringToFile(EmptyProjectAdapterModule(), *Module))
     {
         OutError = FString::Printf(TEXT("Could not create %s."), *Module);
+        return false;
+    }
+    return true;
+}
+
+bool FUE5HTML5ExportLibrary::PrepareReleaseReceiptVerification(
+    const FString& ReceiptFile,
+    FString& OutDirectory,
+    FString& OutError)
+{
+    constexpr int64 MaxReceiptBytes = 64 * 1024;
+    const FString SourceReceipt = FPaths::ConvertRelativePathToFull(ReceiptFile);
+    const int64 ReceiptBytes = IFileManager::Get().FileSize(*SourceReceipt);
+    if (ReceiptBytes <= 0 || ReceiptBytes > MaxReceiptBytes)
+    {
+        OutError = FString::Printf(
+            TEXT("Choose an activity-release-receipt.json file between 1 and %lld bytes."),
+            MaxReceiptBytes);
+        return false;
+    }
+
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
+    if (!Plugin.IsValid())
+    {
+        OutError = TEXT("Could not locate the UE5HTML5Exporter plugin directory.");
+        return false;
+    }
+
+    const FString TemplateDirectory = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Resources/WebTemplate"));
+    const TArray<FString> RuntimeFiles = {
+        TEXT("verify-discord-activity-release.cmd"),
+        TEXT("verify-discord-activity-release.command"),
+        TEXT("verify-discord-activity-release.sh"),
+        TEXT("scripts/Start-DiscordActivityRelease.ps1"),
+        TEXT("scripts/activity-preflight.mjs"),
+        TEXT("scripts/activity-release.mjs"),
+        TEXT("scripts/activity-release-receipt.mjs")
+    };
+    for (const FString& RelativePath : RuntimeFiles)
+    {
+        if (!FPaths::FileExists(FPaths::Combine(TemplateDirectory, RelativePath)))
+        {
+            OutError = FString::Printf(
+                TEXT("The installed plugin is missing release-verification file %s. Reinstall the complete plugin package."),
+                *RelativePath);
+            return false;
+        }
+    }
+
+    OutDirectory = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UE5HTML5/ReleaseVerification")));
+    IFileManager& Files = IFileManager::Get();
+    if (Files.DirectoryExists(*OutDirectory) && !Files.DeleteDirectory(*OutDirectory, false, true))
+    {
+        OutError = FString::Printf(TEXT("Could not replace the disposable release-verification workspace: %s"), *OutDirectory);
+        return false;
+    }
+    if (!Files.MakeDirectory(*FPaths::Combine(OutDirectory, TEXT("scripts")), true))
+    {
+        OutError = FString::Printf(TEXT("Could not create the release-verification workspace: %s"), *OutDirectory);
+        return false;
+    }
+    for (const FString& RelativePath : RuntimeFiles)
+    {
+        const FString Source = FPaths::Combine(TemplateDirectory, RelativePath);
+        const FString Destination = FPaths::Combine(OutDirectory, RelativePath);
+        if (Files.Copy(*Destination, *Source, true, true) != COPY_OK)
+        {
+            OutError = FString::Printf(TEXT("Could not prepare release-verification file %s."), *RelativePath);
+            return false;
+        }
+    }
+    if (Files.Copy(
+            *FPaths::Combine(OutDirectory, TEXT("activity-release-receipt.json")),
+            *SourceReceipt,
+            true,
+            true) != COPY_OK)
+    {
+        OutError = TEXT("Could not copy the selected receipt into the disposable verification workspace.");
         return false;
     }
     return true;

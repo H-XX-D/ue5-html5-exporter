@@ -76,6 +76,10 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/release-discord-activity-production.cmd',
     'Resources/WebTemplate/release-discord-activity-production.command',
     'Resources/WebTemplate/release-discord-activity-production.sh',
+    'Resources/WebTemplate/verify-discord-activity-release.cmd',
+    'Resources/WebTemplate/verify-discord-activity-release.command',
+    'Resources/WebTemplate/verify-discord-activity-release.sh',
+    'Resources/WebTemplate/scripts/activity-release-receipt.mjs',
     'Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1',
   ]) assert.ok(existsSync(new URL(path, plugin)), `${path} is missing; run npm run build`);
 
@@ -85,7 +89,11 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(read('Resources/WebTemplate/release-discord-activity-production.cmd'), /--environment production --promote/);
   assert.match(read('Resources/WebTemplate/release-discord-activity-production.command'), /--environment production --promote/);
   assert.match(read('Resources/WebTemplate/release-discord-activity-production.sh'), /--environment production --promote/);
+  assert.match(read('Resources/WebTemplate/verify-discord-activity-release.cmd'), /activity-release-receipt\.mjs activity-release-receipt\.json/);
+  assert.match(read('Resources/WebTemplate/verify-discord-activity-release.command'), /activity-release-receipt\.mjs activity-release-receipt\.json/);
+  assert.match(read('Resources/WebTemplate/verify-discord-activity-release.sh'), /activity-release-receipt\.mjs activity-release-receipt\.json/);
   assert.match(read('Resources/WebTemplate/.vercelignore'), /activity-release-receipt\.json/);
+  assert.match(read('Resources/WebTemplate/.vercelignore'), /activity-release-verification\.json/);
   assert.match(read('Resources/WebTemplate/.vercelignore'), /browser-certification\.json/);
   const windowsReleaseBootstrap = read('Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1');
   assert.match(windowsReleaseBootstrap, /\$PinnedNodeVersion = '22\.23\.2'/);
@@ -240,6 +248,7 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const fpsSetup = read('Source/UE5HTML5Exporter/Private/UE5HTML5BrowserFPSSetup.cpp');
   const fpsSetupTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BrowserFPSSetupTests.cpp');
   const installUrlTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5DiscordActivitySettingsTests.cpp');
+  const receiptTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5ReleaseReceiptTests.cpp');
   const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
   const commandlet = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportCommandlet.cpp');
   assert.match(module, /Check Discord Activity Readiness/);
@@ -249,6 +258,10 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /Open Discord Activity Install Page/);
   assert.match(module, /OpenDiscordActivityInstallPage/);
   assert.match(module, /FPlatformProcess::LaunchURL/);
+  assert.match(module, /Verify Hosted Discord Activity Receipt/);
+  assert.match(module, /VerifyDiscordActivityReleaseReceipt/);
+  assert.match(module, /LaunchReleaseReceiptVerifier/);
+  assert.match(module, /activity-release-verification\.json/);
   assert.match(module, /Check Blueprint Web Compatibility/);
   assert.match(module, /CheckBlueprintCompatibilityInteractive/);
   assert.match(module, /Open Custom Web Adapters Folder/);
@@ -283,6 +296,9 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(installUrlTest, /UE5HTML5Exporter\.Editor\.DiscordInstallUrl/);
   assert.match(installUrlTest, /A non-digit Application ID is rejected/);
   assert.match(installUrlTest, /oauth2\/authorize\?client_id=1540833293098819795/);
+  assert.match(receiptTest, /UE5HTML5Exporter\.Editor\.ReleaseReceiptWorkspace/);
+  assert.match(receiptTest, /self-contained verification workspace/);
+  assert.match(receiptTest, /oversized receipt is rejected/);
   assert.match(module, /browser-certification\.json/);
   assert.match(module, /certify-browser\.cmd/);
   assert.match(module, /certify-browser\.command/);
@@ -316,6 +332,8 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(library, /does not certify gameplay/);
   assert.match(library, /credentials remain with the release operator/);
   assert.match(library, /scripts\/activity-release-assistant\.mjs/);
+  assert.match(library, /scripts\/activity-release-receipt\.mjs/);
+  assert.match(library, /PrepareReleaseReceiptVerification/);
   assert.match(library, /release-discord-activity\.cmd/);
   assert.match(library, /AnalyzeBlueprintCompatibility/);
   assert.match(library, /BLUEPRINT_COMPATIBILITY\.txt/);
