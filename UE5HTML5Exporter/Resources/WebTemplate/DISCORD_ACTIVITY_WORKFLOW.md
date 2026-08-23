@@ -263,6 +263,7 @@ activity.addEventListener('broadcast', ({ detail }) => {
 await activity.broadcast('player-input', { x: 1, y: 0 });
 const { participants } = await activity.getParticipants();
 await activity.openInviteDialog();
+await activity.chooseAndShareImage(); // user selects; Discord uploads and shares it
 await activity.setOrientationLock(3); // Discord landscape orientation
 await activity.setInteractivePip(true);
 const platform = await activity.getPlatformBehaviors();

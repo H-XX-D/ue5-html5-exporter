@@ -868,6 +868,10 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
       return { handled: true, promise: activity.openExternalLink(String(args.url || ''))
         .then((result) => ({ returnvalue: result?.supported !== false && result?.opened !== false })) };
     }
+    if (name === 'discordactivitychooseandshareimage') {
+      return { handled: true, promise: activity.chooseAndShareImage()
+        .then((result) => ({ returnvalue: result?.supported !== false && result?.shared !== false })) };
+    }
     if (name === 'discordactivitygetlaunchcontext') {
       const context = activity.getLaunchContext();
       return { handled: true, value: {

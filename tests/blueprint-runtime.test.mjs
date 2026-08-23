@@ -443,6 +443,7 @@ test('Discord Blueprint social nodes expose distribution features without raw re
       return { success: true, supported: true, didSendMessage: true };
     },
     async openExternalLink(url) { calls.push({ external: url }); return { opened: true, supported: true }; },
+    async chooseAndShareImage() { calls.push('share-image'); return { shared: true, supported: true }; },
     getLaunchContext() { return { customId: 'campaign-one', hasReferrer: true }; },
   };
   const adapters = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, { UE5HTML5: { activity } });
@@ -456,6 +457,7 @@ test('Discord Blueprint social nodes expose distribution features without raw re
     message: 'Join me', customid: 'campaign-one', linkid: '',
   }).promise;
   const opened = await adapters.call('DiscordActivityOpenExternalLink', { url: 'https://example.com/help' }).promise;
+  const sharedImage = await adapters.call('DiscordActivityChooseAndShareImage', {}).promise;
   const launch = adapters.call('DiscordActivityGetLaunchContext', {}).value;
 
   assert.deepEqual(presence, { returnvalue: true });
@@ -463,6 +465,7 @@ test('Discord Blueprint social nodes expose distribution features without raw re
   assert.equal(shared.returnvalue, true);
   assert.equal(JSON.parse(shared.outshareresultjson).didSendMessage, true);
   assert.deepEqual(opened, { returnvalue: true });
+  assert.deepEqual(sharedImage, { returnvalue: true });
   assert.deepEqual(launch, {
     returnvalue: true,
     outcustomid: 'campaign-one',
@@ -477,6 +480,7 @@ test('Discord Blueprint social nodes expose distribution features without raw re
     'clear',
     { share: { message: 'Join me', customId: 'campaign-one', linkId: '' } },
     { external: 'https://example.com/help' },
+    'share-image',
   ]);
   adapters.dispose();
 });

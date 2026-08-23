@@ -23,6 +23,7 @@ test('runtime module exposes Discord Activity operations as familiar Blueprint n
     'DiscordActivityHasEntitlement', 'DiscordActivityStartPurchase',
     'DiscordActivitySetRichPresence', 'DiscordActivityClearRichPresence',
     'DiscordActivityShareLink', 'DiscordActivityOpenExternalLink',
+    'DiscordActivityChooseAndShareImage',
     'DiscordActivityGetLaunchContext', 'DiscordActivitySetOrientationLock',
     'DiscordActivitySetInteractivePip', 'DiscordActivityGetPlatformBehaviors',
     'DiscordActivityGetLocale',

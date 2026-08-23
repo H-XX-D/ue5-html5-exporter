@@ -73,6 +73,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social")
     static bool DiscordActivityOpenExternalLink(const FString& Url);
 
+    /**
+     * Opens Discord's image picker, uploads the deliberately selected image
+     * directly to Discord, then opens Discord's share-moment dialog. The
+     * exporter does not retain the image or its ephemeral CDN URL.
+     */
+    UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Discord Activity|Social")
+    static bool DiscordActivityChooseAndShareImage();
+
     UFUNCTION(BlueprintPure, Category = "UE5 HTML5|Discord Activity|Social")
     static bool DiscordActivityGetLaunchContext(FString& OutCustomId, bool& bOutHasReferrer);
 

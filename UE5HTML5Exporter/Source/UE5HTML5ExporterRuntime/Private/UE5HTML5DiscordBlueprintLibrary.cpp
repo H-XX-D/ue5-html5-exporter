@@ -96,6 +96,12 @@ bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityOpenExternalLink(const FSt
     return false;
 }
 
+bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityChooseAndShareImage()
+{
+    LogNativeFallback(TEXT("DiscordActivityChooseAndShareImage"));
+    return false;
+}
+
 bool UUE5HTML5DiscordBlueprintLibrary::DiscordActivityGetLaunchContext(
     FString& OutCustomId,
     bool& bOutHasReferrer)

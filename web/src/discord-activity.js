@@ -272,6 +272,8 @@ export class DiscordActivityBridge extends EventTarget {
       getEntitlements: async () => ({ entitlements: this.entitlements }),
       userSettingsGetLocale: async () => ({ locale: 'en-US' }),
       openInviteDialog: async () => ({}),
+      initiateImageUpload: async () => ({ image_url: 'https://cdn.discordapp.com/preview-image.png' }),
+      openShareMomentDialog: async () => ({}),
       encourageHardwareAcceleration: async () => ({ enabled: true }),
       setActivity: async ({ activity }) => activity || {},
       setConfig: async ({ use_interactive_pip: enabled }) => ({ use_interactive_pip: Boolean(enabled) }),
@@ -451,6 +453,16 @@ export class DiscordActivityBridge extends EventTarget {
 
   async openInviteDialog() {
     return this.discord.commands.openInviteDialog();
+  }
+
+  async chooseAndShareImage() {
+    const upload = await this.callOptionalCommand('initiateImageUpload', undefined, { supported: false });
+    if (upload?.supported === false) return upload;
+    const mediaUrl = optionalText(upload?.image_url);
+    if (!mediaUrl) throw new Error('Discord did not return an image URL.');
+    const shared = await this.callOptionalCommand('openShareMomentDialog', { mediaUrl }, { supported: false });
+    if (shared?.supported === false) return shared;
+    return { supported: true, shared: true };
   }
 
   async checkInLiveCertification(challenge) {

@@ -44,6 +44,10 @@ The listener interface emits `Connection State Changed`, `Ready`, `Unavailable`,
 
 Diagnostics follow a strict privacy boundary. The bridge forwards normalized state/reason/error/command codes and fixed messages only. Raw SDK error objects, response bodies, stack traces, access tokens, user identifiers, private Realtime topics, and Supabase details stay out of Blueprint event arguments and are never persisted by this adapter.
 
+## Discord social sharing
+
+`Choose And Share Image` is a single user-initiated Blueprint operation. Discord opens its own file picker, uploads the selected image to an ephemeral Discord CDN URL, and opens the share-moment dialog. The exporter never receives the image bytes, never returns the URL to Blueprint, and does not persist either one. The operation needs no additional OAuth scope and returns `false` with a recoverable warning when the connected Discord client does not support either SDK command.
+
 ## First-person target practice
 
 `UE5 HTML5 Practice Target` is a ready-to-place cube actor, while `UE5 HTML5 Target` is a Blueprint-spawnable component for existing actors. The graph exporter writes the placed actor identity plus health, per-shot damage, score, hit-flash time, and respawn policy under `gameplay.targets`. The browser binds each definition to the matching glTF actor label/name, applies the existing center-screen raycast, and owns only the local target-range state and HUD.
