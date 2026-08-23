@@ -593,7 +593,7 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
       return Response.json({ keys: [{ kid: 'activity-key', kty: 'EC', crv: 'P-256', x: 'x-value', y: 'y-value' }] });
     }
     if (value.endsWith('/auth/v1/health')) return Response.json({ version: 'test' });
-    if (value.includes('/discord_activity_world_state')) {
+    if (value.includes('/discord_activity_world_state') || value.includes('/discord_activity_live_certification_checkins')) {
       return headers.get('apikey') === env.SUPABASE_PUBLISHABLE_KEY
         ? Response.json({ message: 'permission denied' }, { status: 403 })
         : Response.json([]);
@@ -603,7 +603,7 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
 
   const result = await verifyActivityServices(env, { fetchImpl });
   assert.deepEqual(result.errors, []);
-  assert.equal(result.checks.length, 9);
+  assert.equal(result.checks.length, 11);
   assert.ok(calls.some((call) => call.value.endsWith('/auth/v1/health')));
   assert.equal(calls.some((call) => call.value.endsWith('/rest/v1/')), false);
   assert.equal(calls.find((call) => call.value.endsWith('/applications/@me')).headers.get('authorization'), `Bot ${env.DISCORD_BOT_TOKEN}`);
@@ -635,7 +635,7 @@ test('online preflight skips signing-key discovery when private Realtime is disa
       return Response.json([{ id: 'entry', name: 'launch', type: 4, handler: 2 }]);
     }
     if (value.endsWith('/auth/v1/health')) return Response.json({ version: 'test' });
-    if (value.includes('/discord_activity_world_state')) {
+    if (value.includes('/discord_activity_world_state') || value.includes('/discord_activity_live_certification_checkins')) {
       return headers.get('apikey') === env.SUPABASE_PUBLISHABLE_KEY
         ? Response.json({ message: 'permission denied' }, { status: 403 })
         : Response.json([]);
@@ -659,7 +659,7 @@ test('online preflight rejects mismatched service identities and browser-readabl
       return Response.json({ keys: [{ kid: 'activity-key', kty: 'EC', crv: 'P-256', x: 'wrong', y: 'wrong' }] });
     }
     if (value.endsWith('/auth/v1/health')) return Response.json({ version: 'test' });
-    if (value.includes('/discord_activity_world_state')) return Response.json([]);
+    if (value.includes('/discord_activity_world_state') || value.includes('/discord_activity_live_certification_checkins')) return Response.json([]);
     throw new Error(`Unexpected online preflight request: ${value}`);
   };
   const result = await verifyActivityServices(env, { fetchImpl });
@@ -667,6 +667,7 @@ test('online preflight rejects mismatched service identities and browser-readabl
   assert.ok(result.errors.some((error) => error.includes('not marked as an embedded Activity')));
   assert.ok(result.errors.some((error) => error.includes('does not match this project')));
   assert.ok(result.errors.some((error) => error.includes('can read the private world-state table')));
+  assert.ok(result.errors.some((error) => error.includes('can read private live-certification check-ins')));
   assert.ok(result.errors.some((error) => error.includes('no global Primary Entry Point')));
   assert.ok(result.warnings.some((warning) => warning.includes('Guild Install and User Install')));
   assert.ok(result.warnings.some((warning) => warning.includes('OAuth2 redirect URI')));

@@ -6,6 +6,7 @@ import { Events } from '@discord/embedded-app-sdk';
 
 import {
   DiscordActivityBridge,
+  LIVE_CERTIFICATION_SCHEMA,
   isDiscordActivityContext,
   isDiscordActivityPreviewContext,
   resolveActivityApiUrl,
@@ -440,6 +441,120 @@ test('persistence uses one atomic database RPC and reports revision conflicts', 
   assert.match(rpcCalls[0].parameters.p_world_id, /^[0-9a-f]{64}$/);
   assert.equal(discordRequests.some((url) => url.endsWith('/users/@me')), false);
   assert.equal(discordRequests.filter((url) => url.includes('/activity-instances/')).length, 1);
+});
+
+test('live certification rechecks one Discord instance and sends only opaque account keys to Supabase', async () => {
+  const env = await testEnvironment();
+  const users = ['user-42', 'user-84'];
+  const fetchFor = (userId) => async (url) => {
+    const value = String(url);
+    if (value.endsWith('/oauth2/token')) return Response.json({ access_token: `discord-access-token-${userId}` });
+    if (value.endsWith('/users/@me')) return Response.json({ id: userId });
+    if (value.includes('/activity-instances/')) return Response.json({ users });
+    if (value.includes('/entitlements')) return Response.json([]);
+    throw new Error(`Unexpected Discord request: ${value}`);
+  };
+  const firstCookie = await authenticatedCookie(env, fetchFor(users[0]), 'i-live-test');
+  const secondCookie = await authenticatedCookie(env, fetchFor(users[1]), 'i-live-test');
+  const rpcCalls = [];
+  const createClientImpl = () => ({
+    rpc(name, parameters) {
+      rpcCalls.push({ name, parameters });
+      return {
+        async single() {
+          const authenticatedClients = new Set(rpcCalls.map((call) => call.parameters.p_player_key)).size;
+          return {
+            data: {
+              status: authenticatedClients >= 2 ? 'passed' : 'waiting',
+              authenticated_clients: authenticatedClients,
+              participant_count: 2,
+              all_proxy_authenticated: false,
+              checked_at: '2026-08-23T18:00:00Z',
+              expires_at: '2026-08-23T18:10:00Z',
+            },
+            error: null,
+          };
+        },
+      };
+    },
+  });
+  const certify = (cookie, challenge) => handleActivityRequest(new Request('https://game.test/api/activity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ action: 'certify-live', instanceId: 'i-live-test', challenge }),
+  }), { env, fetchImpl: fetchFor(users[0]), createClientImpl });
+
+  const first = await certify(firstCookie, 'challenge_first_123456');
+  const second = await certify(secondCookie, 'challenge_second_12345');
+  const firstReport = await first.json();
+  const secondReport = await second.json();
+
+  assert.equal(firstReport.status, 'waiting');
+  assert.equal(secondReport.status, 'passed');
+  assert.equal(secondReport.schema, LIVE_CERTIFICATION_SCHEMA);
+  assert.equal(secondReport.authenticatedClientCount, 2);
+  assert.equal(secondReport.participantCount, 2);
+  assert.equal(secondReport.backendMembershipRechecked, true);
+  assert.equal(secondReport.realtimeRequired, false);
+  assert.equal(rpcCalls.length, 2);
+  assert.equal(rpcCalls.every((call) => call.name === 'check_in_discord_activity_certification'), true);
+  for (const { parameters } of rpcCalls) {
+    assert.deepEqual(Object.keys(parameters).sort(), [
+      'p_challenge_key', 'p_instance_key', 'p_participant_count', 'p_player_key', 'p_proxy_authenticated',
+    ]);
+    assert.match(parameters.p_instance_key, /^[0-9a-f]{64}$/);
+    assert.match(parameters.p_player_key, /^[0-9a-f]{64}$/);
+    assert.match(parameters.p_challenge_key, /^[0-9a-f]{64}$/);
+    assert.equal(parameters.p_participant_count, 2);
+  }
+  assert.notEqual(rpcCalls[0].parameters.p_player_key, rpcCalls[1].parameters.p_player_key);
+  assert.doesNotMatch(JSON.stringify({ rpcCalls, firstReport, secondReport }), /user-42|user-84|i-live-test/);
+});
+
+test('bridge polls a privacy-safe live certificate and rejects preview certification', async () => {
+  const calls = [];
+  const reports = [
+    { status: 'waiting', authenticatedClientCount: 1 },
+    { status: 'passed', authenticatedClientCount: 2 },
+  ];
+  const bridge = new DiscordActivityBridge({
+    randomUUID: () => '01234567-89ab-cdef-0123-456789abcdef',
+    fetchImpl: async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return Response.json({
+        schema: LIVE_CERTIFICATION_SCHEMA,
+        requiredAuthenticatedClients: 2,
+        participantCount: 2,
+        ...reports.shift(),
+      });
+    },
+  });
+  bridge.mode = 'ready';
+  bridge.discord = { instanceId: 'i-live-test' };
+  const progress = [];
+  const report = await bridge.certifyLiveSession({
+    timeoutMs: 100,
+    pollIntervalMs: 0,
+    onProgress: (value) => progress.push(value.status),
+  });
+
+  assert.equal(report.status, 'passed');
+  assert.deepEqual(progress, ['waiting', 'passed']);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.every((call) => call.action === 'certify-live' && call.instanceId === 'i-live-test'), true);
+  assert.equal(calls[0].challenge, '01234567-89ab-cdef-0123-456789abcdef');
+  assert.equal(calls.every((call) => !('accessToken' in call)), true);
+
+  const preview = new DiscordActivityBridge({
+    previewMode: true,
+    locationObject: { hostname: 'localhost', search: '?ue5_discord_preview=1' },
+  });
+  await preview.start();
+  await assert.rejects(
+    preview.checkInLiveCertification('preview_challenge_1234'),
+    /real, connected Discord Activity/,
+  );
+  await preview.dispose();
 });
 
 test('Activity sessions reject tampering and cannot cross Activity instances', async () => {

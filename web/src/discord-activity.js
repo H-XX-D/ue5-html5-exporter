@@ -12,6 +12,7 @@ const DEFAULT_SCOPES = ['identify'];
 const PREVIEW_CLIENT_ID = '123456789012345678';
 const PREVIEW_STATE_BYTES = 512 * 1024;
 const PREVIEW_STORAGE_PREFIX = 'ue5-html5-discord-preview';
+export const LIVE_CERTIFICATION_SCHEMA = 'ue5-discord-live-certification/v1';
 const THERMAL_STATE_NAMES = Object.freeze({
   [-1]: 'Unhandled', 0: 'Nominal', 1: 'Fair', 2: 'Serious', 3: 'Critical',
 });
@@ -96,6 +97,16 @@ function previewStorageKey(kind) {
 
 function previewStateSize(state) {
   return new TextEncoder().encode(JSON.stringify(state)).byteLength;
+}
+
+function certificationChallenge(randomUUID) {
+  const value = String(randomUUID()).replace(/[^A-Za-z0-9_-]/g, '');
+  if (value.length >= 16) return value.slice(0, 128);
+  throw new Error('A secure live-certification challenge could not be generated.');
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export class DiscordActivityBridge extends EventTarget {
@@ -440,6 +451,47 @@ export class DiscordActivityBridge extends EventTarget {
 
   async openInviteDialog() {
     return this.discord.commands.openInviteDialog();
+  }
+
+  async checkInLiveCertification(challenge) {
+    if (this.mode !== 'ready' || !this.discord || this.previewMode) {
+      throw new Error('Live certification requires a real, connected Discord Activity.');
+    }
+    const result = await this.callApi('certify-live', {
+      instanceId: this.discord.instanceId,
+      challenge,
+    });
+    if (result.schema !== LIVE_CERTIFICATION_SCHEMA) {
+      throw new Error('The Activity API returned an unsupported live-certification report.');
+    }
+    return result;
+  }
+
+  async certifyLiveSession({
+    challenge = certificationChallenge(this.randomUUID),
+    timeoutMs = 2 * 60 * 1000,
+    pollIntervalMs = 2 * 1000,
+    onProgress,
+  } = {}) {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error('Live-certification timeout must be greater than zero.');
+    }
+    if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 0) {
+      throw new Error('Live-certification polling interval cannot be negative.');
+    }
+    const startedAt = Date.now();
+    let report;
+    do {
+      report = await this.checkInLiveCertification(challenge);
+      onProgress?.(report);
+      if (report.status === 'passed') return report;
+      if (Date.now() - startedAt >= timeoutMs) break;
+      await wait(Math.min(pollIntervalMs, Math.max(0, timeoutMs - (Date.now() - startedAt))));
+    } while (Date.now() - startedAt < timeoutMs);
+    const error = new Error('Two authenticated Discord clients did not check in before the certification window expired.');
+    error.code = 'LIVE_CERTIFICATION_TIMEOUT';
+    error.report = report;
+    throw error;
   }
 
   async encourageHardwareAcceleration() {

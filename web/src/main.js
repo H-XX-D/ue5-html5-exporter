@@ -30,6 +30,11 @@ const fpsPrompt = document.querySelector('#fps-prompt');
 const targetStatus = document.querySelector('#fps-target-status');
 const targetScore = document.querySelector('#fps-target-score');
 const targetCount = document.querySelector('#fps-target-count');
+const liveCertification = document.querySelector('#live-certification');
+const liveCertificationStatus = document.querySelector('#live-certification-status');
+const liveCertificationInvite = document.querySelector('#live-certification-invite');
+const liveCertificationRun = document.querySelector('#live-certification-run');
+const liveCertificationDownload = document.querySelector('#live-certification-download');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -71,6 +76,7 @@ let targetPractice = null;
 let activityBridge = null;
 let exportManifest = null;
 let assetPackCache = null;
+let liveCertificationReport = null;
 const browserCertification = createBrowserCertification();
 let sceneStats = 'Preparing renderer…';
 let deliveryStats = '';
@@ -112,6 +118,7 @@ window.UE5HTML5 = {
   get exportManifest() { return exportManifest; },
   get assetCache() { return assetPackCache; },
   get certification() { return browserCertification; },
+  get liveCertification() { return liveCertificationReport; },
 };
 
 function ensureProjectAdapters() {
@@ -182,6 +189,7 @@ async function startDiscordActivity({ previewMode = false } = {}) {
     activityStatus.textContent = detail.mode === 'ready'
       ? `${detail.preview ? 'Discord Preview' : 'Discord'} · ${detail.user.global_name || detail.user.username || 'connected'}`
       : detail.mode === 'error' ? 'Discord · connection failed' : 'Discord · connecting';
+    liveCertification.hidden = detail.mode !== 'ready' || Boolean(detail.preview);
   });
   await activityBridge.start();
   return activityBridge;
@@ -427,6 +435,58 @@ document.querySelector('#file').addEventListener('change', (event) => {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(file);
   load(objectUrl, file.name);
+});
+liveCertificationInvite.addEventListener('click', async () => {
+  liveCertificationInvite.disabled = true;
+  try {
+    await activityBridge.openInviteDialog();
+    liveCertificationStatus.textContent = 'Invite opened. Run the check here and on the second Discord client.';
+  } catch (error) {
+    liveCertificationStatus.textContent = `Discord could not open the invite dialog: ${error.message || error}`;
+  } finally {
+    liveCertificationInvite.disabled = false;
+  }
+});
+liveCertificationRun.addEventListener('click', async () => {
+  liveCertificationRun.disabled = true;
+  liveCertificationDownload.hidden = true;
+  liveCertificationReport = null;
+  try {
+    const report = await activityBridge.certifyLiveSession({
+      onProgress: (progressReport) => {
+        liveCertificationStatus.textContent = `${progressReport.authenticatedClientCount}/${progressReport.requiredAuthenticatedClients} authenticated clients checked in · ${progressReport.participantCount} participants visible to Discord. Run this check on the second client.`;
+      },
+    });
+    liveCertificationReport = {
+      ...report,
+      exporterVersion: exportManifest?.exporterVersion || null,
+      manifestSchema: exportManifest?.schema || null,
+      assetPack: exportManifest?.assetPack ? {
+        schema: exportManifest.assetPack.schema,
+        version: exportManifest.assetPack.version,
+      } : null,
+    };
+    liveCertificationStatus.textContent = `Passed: ${report.authenticatedClientCount} distinct authenticated clients were verified in one live Discord Activity instance.`;
+    liveCertificationDownload.hidden = false;
+  } catch (error) {
+    const last = error.report;
+    liveCertificationStatus.textContent = last
+      ? `Timed out at ${last.authenticatedClientCount}/${last.requiredAuthenticatedClients} authenticated clients. Keep both clients in the same Activity and try again.`
+      : `Live check failed: ${error.message || error}`;
+  } finally {
+    liveCertificationRun.disabled = false;
+  }
+});
+liveCertificationDownload.addEventListener('click', () => {
+  if (!liveCertificationReport) return;
+  const url = URL.createObjectURL(new Blob([
+    `${JSON.stringify(liveCertificationReport, null, 2)}\n`,
+  ], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'discord-live-certification.json';
+  link.click();
+  URL.revokeObjectURL(url);
 });
 window.addEventListener('resize', () => {
   const width = window.innerWidth;

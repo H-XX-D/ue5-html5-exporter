@@ -105,6 +105,18 @@ button:hover, .file-button:hover { border-color: #6fe7cb88; background: #17232e;
 .logic-card strong { display: block; }
 .logic-card span { color: #8ea2b5; font-size: 12px; }
 .logic-card.warning { border-color: #ffb45442; }
+.live-certification {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #5865f255;
+  border-radius: 10px;
+  background: #5865f20d;
+}
+.live-certification strong { display: block; margin-top: 7px; }
+.live-certification p { margin: 8px 0 12px; color: #aebdcb; font-size: 13px; line-height: 1.45; }
+.live-certification-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-certification-actions button { padding: 8px 10px; font-size: 12px; }
+.live-certification-actions button:disabled { cursor: wait; opacity: .6; }
 .blueprint-log { position: absolute; left: 50%; top: calc(76px + var(--sait)); width: min(520px, calc(100% - 40px - var(--sail) - var(--sair))); transform: translateX(-50%); display: grid; gap: 7px; pointer-events: none; }
 .blueprint-message { padding: 10px 14px; border: 1px solid #6fe7cb44; border-radius: 8px; background: #09111aee; box-shadow: 0 10px 30px #0007; text-align: center; animation: message-in .2s ease-out; }
 

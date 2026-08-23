@@ -39,6 +39,7 @@ export const REQUIRED_EXPORT_FILES = [
   'supabase/migrations/20260822094350_discord_activity_core.sql',
   'supabase/migrations/20260823011755_optimize_discord_activity_realtime_rls.sql',
   'supabase/migrations/20260823011922_restrict_discord_activity_service_role_privileges.sql',
+  'supabase/migrations/20260823103000_discord_activity_live_certification.sql',
   'vercel.json',
   'package.json',
 ];
@@ -947,6 +948,7 @@ export async function verifyActivityServices(env = process.env, { fetchImpl = fe
   }
 
   const tableUrl = `${env.SUPABASE_URL}/rest/v1/discord_activity_world_state?select=world_id&limit=0`;
+  const certificationTableUrl = `${env.SUPABASE_URL}/rest/v1/discord_activity_live_certification_checkins?select=instance_key&limit=0`;
   try {
     const response = await onlineRequest(fetchImpl, 'Supabase browser-denial check', tableUrl, {
       headers: apiKeyHeaders(env.SUPABASE_PUBLISHABLE_KEY),
@@ -965,6 +967,29 @@ export async function verifyActivityServices(env = process.env, { fetchImpl = fe
     });
     if (!response.ok) errors.push(`Supabase migration/secret-key check returned HTTP ${response.status}.`);
     else checks.push('Supabase secret key can read the migrated world-state table');
+    await response.body?.cancel();
+  } catch (error) {
+    errors.push(error.message);
+  }
+
+  try {
+    const response = await onlineRequest(fetchImpl, 'Supabase live-certification browser-denial check', certificationTableUrl, {
+      headers: apiKeyHeaders(env.SUPABASE_PUBLISHABLE_KEY),
+    });
+    if (response.ok) errors.push('Publishable Supabase key can read private live-certification check-ins; revoke browser table grants.');
+    else if (response.status === 401 || response.status === 403) checks.push('Browser key is denied direct live-certification table access');
+    else errors.push(`Supabase live-certification browser-denial check returned unexpected HTTP ${response.status}.`);
+    await response.body?.cancel();
+  } catch (error) {
+    errors.push(error.message);
+  }
+
+  try {
+    const response = await onlineRequest(fetchImpl, 'Supabase live-certification migration check', certificationTableUrl, {
+      headers: apiKeyHeaders(env.SUPABASE_SECRET_KEY),
+    });
+    if (!response.ok) errors.push(`Supabase live-certification migration/secret-key check returned HTTP ${response.status}.`);
+    else checks.push('Supabase secret key can read the live-certification table');
     await response.body?.cancel();
   } catch (error) {
     errors.push(error.message);

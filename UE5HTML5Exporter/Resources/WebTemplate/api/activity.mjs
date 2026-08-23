@@ -9,6 +9,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const DISCORD_API = 'https://discord.com/api/v10';
 const MAX_WORLD_STATE_BYTES = 512 * 1024;
+const LIVE_CERTIFICATION_SCHEMA = 'ue5-discord-live-certification/v1';
+const LIVE_CERTIFICATION_REQUIRED_CLIENTS = 2;
+const LIVE_CERTIFICATION_WINDOW_SECONDS = 10 * 60;
 const SESSION_COOKIE = '__Host-ue5_activity_session';
 const SESSION_TTL_SECONDS = 20 * 60;
 const MAX_DISCORD_RATE_LIMIT_RETRIES = 2;
@@ -273,6 +276,10 @@ function validExpectedRevision(value) {
   return value === undefined || (Number.isSafeInteger(value) && value >= 0);
 }
 
+function validCertificationChallenge(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value);
+}
+
 function stateSize(state) {
   return new TextEncoder().encode(JSON.stringify(state)).byteLength;
 }
@@ -448,6 +455,48 @@ async function savePlayer(request, body, admin, fetchImpl, env) {
   });
 }
 
+async function certifyLiveSession(request, body, admin, fetchImpl, env, proxyAuthenticated) {
+  if (!validCertificationChallenge(body.challenge)) {
+    return json({ error: 'Live certification challenge is invalid.' }, 400);
+  }
+  const verified = await verifyActivitySession(request, body, fetchImpl, env);
+  if (verified.error) return verified.error;
+  const participantCount = new Set(
+    Array.from(verified.instance.users || [], (value) => String(value)),
+  ).size;
+  const challengeKey = opaqueStateId(env, 'live-certification-challenge', body.challenge);
+  const { data, error } = await admin.rpc('check_in_discord_activity_certification', {
+    p_instance_key: verified.instanceKey,
+    p_player_key: verified.playerKey,
+    p_challenge_key: challengeKey,
+    p_participant_count: participantCount,
+    p_proxy_authenticated: Boolean(proxyAuthenticated),
+  }).single();
+  if (error) throw error;
+  return json({
+    schema: LIVE_CERTIFICATION_SCHEMA,
+    status: data.status === 'passed' ? 'passed' : 'waiting',
+    checkedAtUtc: data.checked_at,
+    expiresAtUtc: data.expires_at,
+    requiredAuthenticatedClients: LIVE_CERTIFICATION_REQUIRED_CLIENTS,
+    authenticatedClientCount: Number(data.authenticated_clients || 0),
+    participantCount: Number(data.participant_count || 0),
+    sameActivityInstance: true,
+    backendMembershipRechecked: true,
+    proxyAuthenticationEnforced: Boolean(data.all_proxy_authenticated),
+    realtimeRequired: false,
+    certificationWindowSeconds: LIVE_CERTIFICATION_WINDOW_SECONDS,
+    privacy: {
+      rawDiscordIdentityStored: false,
+      personalPlayerDataStored: false,
+      billingDataStored: false,
+      deviceMetadataCollected: false,
+      databaseKeys: 'opaque-hmac-only',
+      retention: 'check-ins older than 24 hours are deleted during certification',
+    },
+  });
+}
+
 export async function handleActivityRequest(request, {
   env = process.env,
   fetchImpl = fetch,
@@ -487,6 +536,9 @@ export async function handleActivityRequest(request, {
     if (body.action === 'save-world') return saveWorld(request, body, admin, fetchImpl, env);
     if (body.action === 'load-player') return loadPlayer(request, body, admin, fetchImpl, env);
     if (body.action === 'save-player') return savePlayer(request, body, admin, fetchImpl, env);
+    if (body.action === 'certify-live') {
+      return certifyLiveSession(request, body, admin, fetchImpl, env, proxyVerification.enforced);
+    }
     return json({ error: 'Unknown Activity action.' }, 400);
   } catch (error) {
     console.error('Discord Activity API error', error);
