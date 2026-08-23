@@ -147,6 +147,102 @@ test('supports GAS-style tags and registered C++ replacement functions', () => {
   adapters.dispose();
 });
 
+test('bridges replicated properties and RPC calls over private Activity Broadcast', async () => {
+  const originalBroadcastChannel = globalThis.BroadcastChannel;
+  globalThis.BroadcastChannel = undefined;
+  let first;
+  let second;
+  try {
+    const peers = new Set();
+    class ActivityPeer extends EventTarget {
+      constructor() {
+        super();
+        this.mode = 'ready';
+        this.publicState = { mode: 'ready' };
+        peers.add(this);
+      }
+      async broadcast(event, payload) {
+        for (const peer of peers) {
+          const message = new Event('broadcast');
+          Object.defineProperty(message, 'detail', { value: { event, payload, meta: { replayed: false } } });
+          peer.dispatchEvent(message);
+        }
+        return { status: 'ok' };
+      }
+    }
+
+    const firstActivity = new ActivityPeer();
+    const secondActivity = new ActivityPeer();
+    const activityWindow = (activity) => ({
+      UE5HTML5: { activity },
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    const replicationWarnings = [];
+    first = new BrowserRuntimeAdapters(new THREE.Group(), {}, {
+      replicationWarning: (warning) => replicationWarnings.push(warning),
+    }, activityWindow(firstActivity));
+    second = new BrowserRuntimeAdapters(new THREE.Group(), {}, {}, activityWindow(secondActivity));
+    const replicated = [];
+    const rpcCalls = [];
+    const publicBroadcasts = [];
+    const actor = {
+      objectName: 'ReplicatedActor_C_0',
+      initialState: { Score: { value: '0', category: 'int', replicated: true } },
+    };
+    const instance = { actor, object: null, program: { name: 'BP_ReplicatedActor' } };
+    first.attachRuntime({
+      instances: [instance],
+      applyReplicatedState() {},
+      call() {},
+    });
+    second.attachRuntime({
+      instances: [instance],
+      applyReplicatedState(programName, actorName, variable, value) {
+        replicated.push({ programName, actorName, variable, value });
+      },
+      call(functionName, actorName, args) {
+        if (functionName === 'DiscordActivityBroadcastReceived') publicBroadcasts.push(args);
+        if (functionName === 'ServerFire') rpcCalls.push({ functionName, actorName, args });
+      },
+    });
+
+    first.variableChanged(instance, 'Score', 25);
+    assert.equal(first.call('ServerFire', { damage: 10 }, instance).handled, true);
+    await Promise.resolve();
+
+    assert.deepEqual(replicated, [{
+      programName: 'BP_ReplicatedActor', actorName: 'ReplicatedActor_C_0', variable: 'Score', value: 25,
+    }]);
+    assert.deepEqual(rpcCalls, [{
+      functionName: 'ServerFire', actorName: 'ReplicatedActor_C_0', args: { damage: 10 },
+    }]);
+    assert.deepEqual(publicBroadcasts, [], 'reserved replication frames must not enter the public Blueprint Broadcast event');
+
+    const malformed = new Event('broadcast');
+    Object.defineProperty(malformed, 'detail', { value: {
+      event: '__ue5html5_replication_v1',
+      payload: { schema: 'ue5-html5-replication/v1', type: 'rpc', function: 'DestroyEverything' },
+    } });
+    secondActivity.dispatchEvent(malformed);
+    assert.equal(rpcCalls.length, 1, 'malformed or non-RPC-prefixed internal frames must be ignored');
+
+    const circularArgs = {};
+    circularArgs.self = circularArgs;
+    assert.equal(first.call('ServerCircular', circularArgs, instance).handled, true);
+    first.variableChanged(instance, 'Score', 'x'.repeat(65 * 1024));
+    assert.deepEqual(replicationWarnings, [
+      { code: 'REPLICATION_PAYLOAD_REJECTED' },
+      { code: 'REPLICATION_PAYLOAD_REJECTED' },
+    ]);
+    assert.equal(rpcCalls.length, 1, 'rejected private frames must not reach peers');
+  } finally {
+    first?.dispose();
+    second?.dispose();
+    globalThis.BroadcastChannel = originalBroadcastChannel;
+  }
+});
+
 test('invokes exported Blueprint function entries by name', () => {
   const nodes = [
     { id: 'entry', kind: 'functionEntry', function: 'ServerApplyDamage', pins: [pin('then', 'output', 'exec', { links: [link('set', 'execute')] })] },

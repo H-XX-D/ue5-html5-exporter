@@ -156,12 +156,39 @@ export class RuntimeEventBus {
   }
 }
 
+const REPLICATION_SCHEMA = 'ue5-html5-replication/v1';
+const REPLICATION_EVENT = '__ue5html5_replication_v1';
+const MAX_REPLICATION_BYTES = 64 * 1024;
+
+function portableReplicationMessage(message) {
+  try {
+    const serialized = JSON.stringify(message);
+    const bytes = typeof TextEncoder !== 'undefined'
+      ? new TextEncoder().encode(serialized).byteLength
+      : serialized.length;
+    if (bytes > MAX_REPLICATION_BYTES) return null;
+    return JSON.parse(serialized);
+  } catch {
+    return null;
+  }
+}
+
+function validReplicationMessage(message) {
+  if (!message || message.schema !== REPLICATION_SCHEMA || !['property', 'rpc'].includes(message.type)) return false;
+  const bounded = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256;
+  if (!bounded(message.id) || !bounded(message.origin) || !bounded(message.program) || !bounded(message.actor)) return false;
+  if (message.type === 'property' && !bounded(message.variable)) return false;
+  if (message.type === 'rpc' && (!bounded(message.function) || !/^(server|client|multicast)/i.test(message.function))) return false;
+  return Boolean(portableReplicationMessage(message));
+}
+
 class ReplicationAdapter {
   constructor(blueprintIr, hooks = {}) {
     this.hooks = hooks;
     this.runtime = null;
     this.origin = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     this.seen = new Set();
+    this.realtimeTransport = null;
     const channelName = `ue5-html5:${globalThis.location?.pathname || 'local'}`;
     this.channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(channelName) : null;
     this.socket = null;
@@ -175,6 +202,7 @@ class ReplicationAdapter {
     }
   }
   attach(runtime) { this.runtime = runtime; }
+  setRealtimeTransport(transport) { this.realtimeTransport = typeof transport === 'function' ? transport : null; }
   isReplicated(instance, variable) {
     return Boolean(instance.actor.initialState?.[variable]?.replicated)
       || (instance.program.replication?.variables || []).includes(variable);
@@ -185,11 +213,31 @@ class ReplicationAdapter {
     this.send(message);
   }
   envelope(message) {
-    return { ...message, id: globalThis.crypto?.randomUUID?.() || `${this.origin}-${Date.now()}-${Math.random()}`, origin: this.origin };
+    return {
+      ...message,
+      schema: REPLICATION_SCHEMA,
+      id: globalThis.crypto?.randomUUID?.() || `${this.origin}-${Date.now()}-${Math.random()}`,
+      origin: this.origin,
+    };
   }
   send(message) {
-    this.channel?.postMessage(message);
-    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
+    const portable = portableReplicationMessage(message);
+    if (!portable || !validReplicationMessage(portable)) {
+      this.hooks.replicationWarning?.({ code: 'REPLICATION_PAYLOAD_REJECTED' });
+      return false;
+    }
+    this.channel?.postMessage(portable);
+    if (this.socket && this.socket.readyState === globalThis.WebSocket?.OPEN) this.socket.send(JSON.stringify(portable));
+    if (this.realtimeTransport) {
+      try {
+        Promise.resolve(this.realtimeTransport(REPLICATION_EVENT, portable)).catch(() => {
+          this.hooks.replicationWarning?.({ code: 'REPLICATION_REALTIME_SEND_FAILED' });
+        });
+      } catch {
+        this.hooks.replicationWarning?.({ code: 'REPLICATION_REALTIME_SEND_FAILED' });
+      }
+    }
+    return true;
   }
   remoteCall(functionName, args, instance) {
     if (!/^(server|client|multicast)/i.test(String(functionName))) return false;
@@ -203,7 +251,7 @@ class ReplicationAdapter {
     return true;
   }
   receive(message) {
-    if (!message || message.origin === this.origin || (message.id && this.seen.has(message.id))) return;
+    if (!validReplicationMessage(message) || message.origin === this.origin || this.seen.has(message.id)) return;
     if (message.id) {
       this.seen.add(message.id);
       if (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value);
@@ -216,7 +264,7 @@ class ReplicationAdapter {
       this.hooks.rpc?.(message);
     }
   }
-  dispose() { this.channel?.close(); this.socket?.close(); }
+  dispose() { this.realtimeTransport = null; this.channel?.close(); this.socket?.close(); }
 }
 
 class EnhancedInputAdapter {
@@ -734,11 +782,17 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
         ['thermalstate', ({ detail = {} }) => this.runtime?.call('DiscordActivityThermalStateChanged', null, detail)],
         ['orientation', ({ detail = {} }) => this.runtime?.call('DiscordActivityOrientationChanged', null, detail)],
         ['layoutmode', ({ detail = {} }) => this.runtime?.call('DiscordActivityLayoutModeChanged', null, detail)],
-        ['broadcast', ({ detail = {} }) => this.runtime?.call('DiscordActivityBroadcastReceived', null, {
-          event: String(detail.event || 'message'),
-          jsonPayload: blueprintJson(detail.payload),
-          bReplayed: Boolean(detail.meta?.replayed),
-        })],
+        ['broadcast', ({ detail = {} }) => {
+          if (detail.event === REPLICATION_EVENT) {
+            this.replication.receive(detail.payload);
+            return;
+          }
+          this.runtime?.call('DiscordActivityBroadcastReceived', null, {
+            event: String(detail.event || 'message'),
+            jsonPayload: blueprintJson(detail.payload),
+            bReplayed: Boolean(detail.meta?.replayed),
+          });
+        }],
         ['presence', ({ detail = {} }) => this.runtime?.call('DiscordActivityPresenceChanged', null, {
           presenceJson: blueprintJson(detail),
         })],
@@ -746,6 +800,10 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
         ['entitlements', ({ detail = [] }) => this.emitDiscordEntitlements(detail)],
       ];
       this.discordEventSource = activity;
+      this.replication.setRealtimeTransport((event, payload) => {
+        if (activity.mode !== 'ready' || typeof activity.broadcast !== 'function') return undefined;
+        return activity.broadcast(event, payload);
+      });
       for (const [type, handler] of this.discordEventHandlers) activity.addEventListener?.(type, handler);
       Promise.resolve().then(() => {
         if (attachment === this.discordAttachment && activity === this.discordEventSource) {
@@ -1058,6 +1116,7 @@ export class BrowserRuntimeAdapters extends ThreeBlueprintAdapter {
     }
     this.discordEventHandlers = [];
     this.discordEventSource = null;
+    this.replication.setRealtimeTransport(null);
     this.input.dispose();
     this.replication.dispose();
     this.widgets.dispose();

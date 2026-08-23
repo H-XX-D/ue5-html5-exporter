@@ -10,7 +10,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - **Tools → Export Selection to HTML5…** for a smaller scene
 - A self-contained `scene.glb`
 - `logic/blueprints.json` containing event graphs, typed pins, links, variables, and actor bindings
-- A browser Blueprint VM for gameplay flow plus adapters for Enhanced Input, replicated state/RPC transport, delegates/interfaces, latent tasks, physics events, GAS-style state, Behavior Trees, UMG, and particles
+- A browser Blueprint VM for gameplay flow plus adapters for Enhanced Input, replicated state/RPC transport—including automatic private Activity Broadcast when configured—delegates/interfaces, latent tasks, physics events, GAS-style state, Behavior Trees, UMG, and particles
 - Responsive WebGL viewer with orbit controls, animation playback, drag-and-drop GLB loading, progress, and errors
 - `export-manifest.json` plus per-Blueprint/node compatibility warnings and exact browser payload measurements
 - Commandlet support for CI or batch export
@@ -182,7 +182,7 @@ Add `-FailOnUnsupported` when CI should exit with code `6` if any node still nee
 | Delay and Print String/Text | Converted |
 | Actor location, offset, rotation, scale, visibility, destroy | Converted |
 | Enhanced Input actions/mapping contexts | Exported; keyboard, standard browser gamepad, context activation, Input Action plus mapping-level triggers, common Pressed/Released/Hold/Hold-and-Release/Tap/Pulse timing, and stock First Person touch/thumbstick events run in-browser |
-| Replicated properties and RPC-style calls | Browser transport adapter using BroadcastChannel or a configured WebSocket |
+| Replicated properties and RPC-style calls | Versioned 64 KiB JSON envelopes over authenticated private Activity Broadcast when configured, with BroadcastChannel and optional WebSocket fallbacks |
 | Interfaces and delegates | Routed through the browser runtime/event bus |
 | Timers, async asset/JSON fetch, Move Component To | Converted to browser async operations |
 | Physics/collision | Lightweight force/impulse/gravity integration plus mesh-bounds overlap/hit events |
@@ -202,7 +202,7 @@ For project C++ or a Blueprint function outside the built-in subset, choose **To
 
 The footer also shows the measured primary browser payload from `export-manifest.json`. `delivery review` means the package exceeds its Unreal project advisory budget; it does not mean Discord rejected the package.
 
-These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, Sound Cues/procedural audio graphs, and compiled C++ still need project-specific web implementations. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
+These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication/ownership/validation, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, Sound Cues/procedural audio graphs, and compiled C++ still need project-specific web implementations. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
 
 ## Development
 

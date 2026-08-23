@@ -189,6 +189,8 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(viewer, /ue5-html5-browser-certification\/v3/);
   assert.match(viewer, /ue5html5_pack/);
   assert.match(viewer, /ue5_certify/);
+  assert.match(viewer, /ue5-html5-replication\/v1/);
+  assert.match(viewer, /__ue5html5_replication_v1/);
 
   const serve = read('Resources/WebTemplate/serve.py');
   assert.match(serve, /127\.0\.0\.1/);
@@ -490,6 +492,8 @@ test('viewer exposes errors and animation selection', () => {
   assert.match(source, /loadExportManifest/);
   assert.match(source, /primary payload/);
   assert.match(source, /delivery review/);
+  assert.match(source, /replicationWarning/);
+  assert.match(source, /exceeded 64 KiB/);
 });
 
 test('browser adapters cover gameplay integration families', () => {
@@ -508,6 +512,10 @@ test('browser adapters cover gameplay integration families', () => {
   assert.match(source, /playsound2d/);
   assert.match(source, /playsoundatlocation/);
   assert.match(source, /attachAudioListener/);
+  assert.match(source, /ue5-html5-replication\/v1/);
+  assert.match(source, /__ue5html5_replication_v1/);
+  assert.match(source, /MAX_REPLICATION_BYTES = 64 \* 1024/);
+  assert.match(source, /setRealtimeTransport/);
   const audio = readFileSync(new URL('../web/src/audio-adapter.js', import.meta.url), 'utf8');
   assert.match(audio, /unrealAudioLocationToWebAudio/);
   assert.match(audio, /panningModel = 'HRTF'/);

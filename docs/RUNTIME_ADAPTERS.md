@@ -66,7 +66,9 @@ This preview shortens Blueprint iteration; it is not a Discord emulator or a rel
 
 ## Replication and RPCs
 
-Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synchronized between tabs with `BroadcastChannel`. Add this optional field to the exported IR to use a server transport:
+Blueprint properties carrying `CPF_Net` are marked replicated. Function calls whose names begin with `Server`, `Client`, or `Multicast` are transported as RPC-style calls. Inside a configured Discord Activity, both automatically use the authenticated private Supabase Broadcast topic that the Activity bridge has already joined. Unreal developers do not need to add separate Discord Broadcast nodes for those portable replication frames.
+
+The same messages also use `BroadcastChannel` for same-origin tabs and can use an explicit WebSocket fallback. Add this optional field to the exported IR for a project-owned server transport:
 
 ```json
 {
@@ -74,7 +76,9 @@ Blueprint properties carrying `CPF_Net` are marked replicated. Changes are synch
 }
 ```
 
-Messages use `property` and `rpc` envelopes. Function names beginning with `Server`, `Client`, or `Multicast` are transported as RPC-style calls. A production server must authenticate clients, enforce ownership/authority, validate payloads, and decide routing. This adapter does not reproduce Unreal's replication graph, relevancy, prediction, rollback, or serialization protocol.
+Activity replication uses the reserved `__ue5html5_replication_v1` event and `ue5-html5-replication/v1` JSON envelope. Frames are limited to 64 KiB, must contain bounded program/actor/member identifiers, reject cyclic or non-JSON arguments, deduplicate across simultaneous Activity/BroadcastChannel/WebSocket delivery, and never enter the public `Discord Activity Broadcast Received` Blueprint event. The exporter adds no Discord identity, email, billing, profile, or device fields. Frames are transient and are not written to local storage or Supabase tables.
+
+Private Realtime must be configured for cross-device delivery; otherwise the same export continues with local-tab and optional WebSocket behavior. This is a client-authored compatibility transport, not Unreal server authority. A production competitive game must authenticate clients, enforce actor ownership, validate RPC arguments and state changes, and decide routing in a trusted project adapter. This layer does not reproduce Unreal's replication graph, relevancy, prediction, rollback, dormancy, conditions, or serialization protocol.
 
 ## Interfaces and delegates
 

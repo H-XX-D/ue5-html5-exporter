@@ -314,6 +314,13 @@ async function configureBlueprintLogic() {
         console.warn(`Portable audio: ${message}`);
         showBlueprintMessage(`Audio: ${message}`);
       },
+      replicationWarning: ({ code }) => {
+        const message = code === 'REPLICATION_PAYLOAD_REJECTED'
+          ? 'A replicated value or RPC was not portable JSON or exceeded 64 KiB.'
+          : 'Private Realtime could not send a replication frame; local fallback remains active.';
+        console.warn(`Portable replication: ${message}`);
+        showBlueprintMessage(`Replication: ${message}`);
+      },
     }, window);
     runtimeAdapters.attachAudioListener(camera);
     targetPractice = new TargetPracticeRuntime(content, blueprintDocument.gameplay?.targets, {
