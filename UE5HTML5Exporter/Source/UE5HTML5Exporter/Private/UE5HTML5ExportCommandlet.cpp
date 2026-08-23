@@ -4,6 +4,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "UE5HTML5DiscordActivitySettings.h"
 #include "UE5HTML5ExportLibrary.h"
 
 UUE5HTML5ExportCommandlet::UUE5HTML5ExportCommandlet()
@@ -18,21 +19,59 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
 {
     FString MapPath;
     FString OutputDirectory;
+    FString ProjectTargetsFile;
+    FString ExportProjectTargetsFile;
     const bool bCheckOnly = FParse::Param(*Params, TEXT("CheckOnly"));
     const bool bBlueprintCheckOnly = FParse::Param(*Params, TEXT("BlueprintCheckOnly"));
     const bool bFailOnUnsupported = FParse::Param(*Params, TEXT("FailOnUnsupported"));
     FParse::Value(*Params, TEXT("Map="), MapPath);
     FParse::Value(*Params, TEXT("Output="), OutputDirectory);
+    FParse::Value(*Params, TEXT("ProjectTargets="), ProjectTargetsFile);
+    FParse::Value(*Params, TEXT("ExportProjectTargets="), ExportProjectTargetsFile);
 
     if (bCheckOnly && bBlueprintCheckOnly)
     {
         UE_LOG(LogTemp, Error, TEXT("Choose either -CheckOnly or -BlueprintCheckOnly, not both."));
         return 2;
     }
-    if (MapPath.IsEmpty() || (!bCheckOnly && !bBlueprintCheckOnly && OutputDirectory.IsEmpty()))
+    const bool bHasMapOperation = !MapPath.IsEmpty();
+    const bool bMapArgumentsWithoutMap = !bHasMapOperation
+        && (bCheckOnly || bBlueprintCheckOnly || bFailOnUnsupported || !OutputDirectory.IsEmpty());
+    if ((MapPath.IsEmpty() && ExportProjectTargetsFile.IsEmpty())
+        || bMapArgumentsWithoutMap
+        || (bHasMapOperation && !bCheckOnly && !bBlueprintCheckOnly && OutputDirectory.IsEmpty()))
     {
-        UE_LOG(LogTemp, Error, TEXT("Usage: -run=UE5HTML5Export -Map=/Game/Maps/Main [-CheckOnly | -BlueprintCheckOnly [-FailOnUnsupported] [-Output=/absolute/report/folder] | -Output=/absolute/export/folder]"));
+        UE_LOG(LogTemp, Error, TEXT("Usage: -run=UE5HTML5Export [-ProjectTargets=/absolute/public-targets.json] [-ExportProjectTargets=/absolute/public-targets.json] [-Map=/Game/Maps/Main [-CheckOnly | -BlueprintCheckOnly [-FailOnUnsupported] [-Output=/absolute/report/folder] | -Output=/absolute/export/folder]]"));
         return 2;
+    }
+
+    if (!ProjectTargetsFile.IsEmpty())
+    {
+        FString Error;
+        UUE5HTML5DiscordActivitySettings* Settings = GetMutableDefault<UUE5HTML5DiscordActivitySettings>();
+        if (!Settings->ImportPublicTargets(ProjectTargetsFile, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Public project target import failed: %s"), *Error);
+            return 7;
+        }
+        UE_LOG(LogTemp, Display, TEXT("Imported complete public Discord Activity project targets; credential fields and player data are not part of this contract."));
+    }
+
+    if (!ExportProjectTargetsFile.IsEmpty())
+    {
+        FString Error;
+        const UUE5HTML5DiscordActivitySettings* Settings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+        if (!Settings->ExportPublicTargets(ExportProjectTargetsFile, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Public project target export failed: %s"), *Error);
+            return 8;
+        }
+        UE_LOG(LogTemp, Display, TEXT("Exported allowlisted public Discord Activity project targets to %s"), *FPaths::ConvertRelativePathToFull(ExportProjectTargetsFile));
+    }
+
+    if (!bHasMapOperation)
+    {
+        return 0;
     }
 
     UWorld* World = UEditorLoadingAndSavingUtils::LoadMap(MapPath);

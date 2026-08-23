@@ -231,7 +231,21 @@ test('Unreal Project Settings expose only non-secret Discord Activity targets', 
   assert.match(implementation, /ValidateTargets/);
   assert.match(implementation, /HasCompleteTargetSet/);
   assert.match(implementation, /GetMissingRequiredTargets/);
+  assert.match(header, /ImportPublicTargets/);
+  assert.match(header, /ExportPublicTargets/);
+  assert.match(implementation, /ue5-discord-activity-project-targets\/v1/);
+  assert.match(implementation, /AllowedFields/);
+  assert.match(implementation, /containsSecrets/);
+  assert.match(implementation, /unsupported field/);
+  assert.match(implementation, /TryUpdateDefaultConfigFile/);
+  assert.match(implementation, /complete Discord, Vercel, and Supabase target set/);
   assert.match(module, /Discord Activity Project Settings/);
+  assert.match(module, /Import Public Discord Activity Targets/);
+  assert.match(module, /Export Public Discord Activity Targets/);
+  assert.match(module, /ImportDiscordActivityProjectTargets/);
+  assert.match(module, /ExportDiscordActivityProjectTargets/);
+  assert.match(module, /JSON files \(\*\.json\)\|\*\.json/);
+  assert.match(module, /Credential fields and player data are not part of this contract/);
 });
 
 test('Unreal commandlet exposes the same readiness policy for workstation automation', () => {
@@ -244,6 +258,12 @@ test('Unreal commandlet exposes the same readiness policy for workstation automa
   assert.match(commandlet, /FailOnUnsupported/);
   assert.match(commandlet, /AnalyzeBlueprintCompatibility/);
   assert.match(commandlet, /return 6/);
+  assert.match(commandlet, /ProjectTargets=/);
+  assert.match(commandlet, /ExportProjectTargets=/);
+  assert.match(commandlet, /ImportPublicTargets/);
+  assert.match(commandlet, /ExportPublicTargets/);
+  assert.match(commandlet, /return 7/);
+  assert.match(commandlet, /return 8/);
 });
 
 test('Blueprint exporter preserves graph pins and writes browser IR', () => {

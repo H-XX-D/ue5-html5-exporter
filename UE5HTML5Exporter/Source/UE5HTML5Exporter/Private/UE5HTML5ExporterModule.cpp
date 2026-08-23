@@ -147,6 +147,20 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::OpenDiscordActivitySettings)));
 
     Section.AddMenuEntry(
+        "UE5HTML5ImportDiscordActivityProjectTargets",
+        LOCTEXT("ImportDiscordActivityProjectTargets", "Import Public Discord Activity Targets…"),
+        LOCTEXT("ImportDiscordActivityProjectTargetsTooltip", "Import the allowlisted public Discord, Vercel, and Supabase project identity from a teammate JSON file. Credentials are rejected."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ImportDiscordActivityProjectTargets)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5ExportDiscordActivityProjectTargets",
+        LOCTEXT("ExportDiscordActivityProjectTargets", "Export Public Discord Activity Targets…"),
+        LOCTEXT("ExportDiscordActivityProjectTargetsTooltip", "Create a shareable JSON file containing only the current project's public Discord, Vercel, and Supabase identity."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportDiscordActivityProjectTargets)));
+
+    Section.AddMenuEntry(
         "UE5HTML5DiscordActivityReadiness",
         LOCTEXT("DiscordActivityReadiness", "Check Discord Activity Readiness…"),
         LOCTEXT("DiscordActivityReadinessTooltip", "Check the exporter and runtime prerequisites before measuring Blueprint compatibility during export."),
@@ -172,6 +186,80 @@ void FUE5HTML5ExporterModule::OpenDiscordActivitySettings()
 {
     ISettingsModule& SettingsModule = FModuleManager::LoadModuleChecked<ISettingsModule>(TEXT("Settings"));
     SettingsModule.ShowViewer(TEXT("Project"), TEXT("Plugins"), TEXT("UE5HTML5DiscordActivity"));
+}
+
+void FUE5HTML5ExporterModule::ImportDiscordActivityProjectTargets()
+{
+    IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+    if (!DesktopPlatform)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("TargetImportNoDesktop", "The operating-system file picker is unavailable."));
+        return;
+    }
+    const void* ParentHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
+    TArray<FString> Files;
+    if (!DesktopPlatform->OpenFileDialog(
+        ParentHandle,
+        TEXT("Choose public Discord Activity project targets"),
+        FPaths::ProjectDir(),
+        TEXT("discord-activity-project-targets.json"),
+        TEXT("JSON files (*.json)|*.json"),
+        EFileDialogFlags::None,
+        Files)
+        || Files.Num() != 1)
+    {
+        return;
+    }
+
+    FString Error;
+    UUE5HTML5DiscordActivitySettings* Settings = GetMutableDefault<UUE5HTML5DiscordActivitySettings>();
+    if (!Settings->ImportPublicTargets(Files[0], Error))
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
+        return;
+    }
+    FMessageDialog::Open(
+        EAppMsgType::Ok,
+        LOCTEXT(
+            "TargetImportComplete",
+            "Imported the complete public Discord Activity target set into DefaultGame.ini. Credential fields and player data are not part of this contract."));
+}
+
+void FUE5HTML5ExporterModule::ExportDiscordActivityProjectTargets()
+{
+    IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+    if (!DesktopPlatform)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("TargetExportNoDesktop", "The operating-system file picker is unavailable."));
+        return;
+    }
+    const void* ParentHandle = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
+    TArray<FString> Files;
+    if (!DesktopPlatform->SaveFileDialog(
+        ParentHandle,
+        TEXT("Save public Discord Activity project targets"),
+        FPaths::ProjectDir(),
+        TEXT("discord-activity-project-targets.json"),
+        TEXT("JSON files (*.json)|*.json"),
+        EFileDialogFlags::None,
+        Files)
+        || Files.Num() != 1)
+    {
+        return;
+    }
+
+    FString Error;
+    const UUE5HTML5DiscordActivitySettings* Settings = GetDefault<UUE5HTML5DiscordActivitySettings>();
+    if (!Settings->ExportPublicTargets(Files[0], Error))
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
+        return;
+    }
+    FMessageDialog::Open(
+        EAppMsgType::Ok,
+        FText::FromString(FString::Printf(
+            TEXT("Saved public Discord Activity targets to:\n%s\n\nThe file contains only the allowlisted public target fields. Review it before sharing, just like any project configuration file."),
+            *Files[0])));
 }
 
 void FUE5HTML5ExporterModule::OpenCustomWebAdapters()

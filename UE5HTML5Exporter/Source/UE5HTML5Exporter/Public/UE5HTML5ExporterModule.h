@@ -12,6 +12,8 @@ public:
 private:
     void RegisterMenus();
     void OpenDiscordActivitySettings();
+    void ImportDiscordActivityProjectTargets();
+    void ExportDiscordActivityProjectTargets();
     void OpenCustomWebAdapters();
     void CheckDiscordActivityReadinessInteractive();
     void CheckBlueprintCompatibilityInteractive();
