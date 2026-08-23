@@ -89,6 +89,13 @@ namespace
         return Name == TEXT("playsound2d") || Name == TEXT("playsoundatlocation");
     }
 
+    bool IsPortableRpcFunction(const FString& FunctionName)
+    {
+        return FunctionName.StartsWith(TEXT("Server"), ESearchCase::IgnoreCase)
+            || FunctionName.StartsWith(TEXT("Client"), ESearchCase::IgnoreCase)
+            || FunctionName.StartsWith(TEXT("Multicast"), ESearchCase::IgnoreCase);
+    }
+
     void RegisterSoundAsset(UObject* Object, FUE5BlueprintExportSummary& Summary)
     {
         if (USoundWave* SoundWave = Cast<USoundWave>(Object))
@@ -410,7 +417,11 @@ namespace
         if (!Function.IsEmpty())
         {
             Json->SetStringField(TEXT("function"), Function);
-            if (Kind == TEXT("callFunction")) Summary.UsedFunctions.Add(Function);
+            if (Kind == TEXT("callFunction"))
+            {
+                Summary.UsedFunctions.Add(Function);
+                if (IsPortableRpcFunction(Function)) Summary.bUsesRpcTransport = true;
+            }
         }
         const FString Variable = VariableName(Node);
         if (!Variable.IsEmpty()) Json->SetStringField(TEXT("variable"), Variable);
@@ -537,7 +548,9 @@ namespace
             Entry->SetStringField(TEXT("value"), Value);
             Entry->SetStringField(TEXT("category"), Variable.VarType.PinCategory.ToString());
             Entry->SetStringField(TEXT("subcategory"), Variable.VarType.PinSubCategory.ToString());
-            Entry->SetBoolField(TEXT("replicated"), Property->HasAnyPropertyFlags(CPF_Net));
+            const bool bReplicated = Property->HasAnyPropertyFlags(CPF_Net);
+            Entry->SetBoolField(TEXT("replicated"), bReplicated);
+            if (bReplicated) Summary.bUsesReplicatedProperties = true;
             InitialState->SetObjectField(Variable.VarName.ToString(), Entry);
         }
         Json->SetObjectField(TEXT("initialState"), InitialState);

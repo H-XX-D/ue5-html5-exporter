@@ -224,6 +224,56 @@ test('Discord requirements are inferred only from used Blueprint calls', () => {
   });
 });
 
+test('replicated properties and invoked RPC-style calls independently require private Realtime', () => {
+  const replicatedRequirements = inferDiscordRequirements({
+    programs: [{
+      actors: [{
+        initialState: {
+          Score: { value: '0', category: 'int', replicated: true },
+          CosmeticName: { value: 'Target', category: 'string', replicated: false },
+        },
+      }],
+      graphs: [{
+        nodes: [
+          { kind: 'functionEntry', function: 'ClientReceiveHit' },
+          { kind: 'callFunction', function: 'PrintString' },
+        ],
+      }],
+    }],
+  });
+  const expected = {
+    schema: 'ue5-discord-activity-requirements/v1',
+    usedBlueprintFunctions: [],
+    features: ['realtime'],
+    requiredOAuthScopes: ['identify'],
+    requiredEnvironment: { SUPABASE_JWT_PRIVATE_KEY: 'private-es256-jwk' },
+  };
+  assert.deepEqual(replicatedRequirements, expected);
+
+  const rpcRequirements = inferDiscordRequirements({
+    programs: [{ graphs: [{ nodes: [
+      { kind: 'callFunction', function: 'ServerFire' },
+      { kind: 'functionEntry', function: 'ClientReceiveHit' },
+    ] }] }],
+  });
+  assert.deepEqual(rpcRequirements, expected);
+});
+
+test('Activity Broadcast requires private Realtime without broadening OAuth scopes', () => {
+  const requirements = inferDiscordRequirements({
+    programs: [{ graphs: [{ nodes: [
+      { kind: 'callFunction', function: 'DiscordActivityBroadcast' },
+    ] }] }],
+  });
+  assert.deepEqual(requirements, {
+    schema: 'ue5-discord-activity-requirements/v1',
+    usedBlueprintFunctions: ['DiscordActivityBroadcast'],
+    features: ['realtime'],
+    requiredOAuthScopes: ['identify'],
+    requiredEnvironment: { SUPABASE_JWT_PRIVATE_KEY: 'private-es256-jwk' },
+  });
+});
+
 test('Activity package preflight verifies the current reusable asset-pack contract and detects tampering', () => {
   const root = exportFixture();
   try {
@@ -347,7 +397,7 @@ test('Activity package preflight verifies the current reusable asset-pack contra
       },
     }));
     assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
-      .some((error) => error.includes('does not match Discord functions')));
+      .some((error) => error.includes('does not match Blueprint features and transports')));
     writeFileSync(handoffPath, JSON.stringify(validHandoff));
     writeFileSync(browserCertificationPath, JSON.stringify({
       ...browserCertification,
@@ -387,6 +437,15 @@ test('Activity preflight keeps private Realtime optional for Discord auth and pe
   const result = validateActivityEnvironment(env);
   assert.deepEqual(result.errors, []);
   assert.ok(result.warnings.some((warning) => warning.includes('private Realtime is disabled')));
+});
+
+test('Activity preflight makes private Realtime conditional on the exported transport contract', () => {
+  const env = validEnvironment();
+  delete env.SUPABASE_JWT_PRIVATE_KEY;
+  delete env.SUPABASE_JWT_KEY_ID;
+  const result = validateActivityEnvironment(env, { requirePrivateRealtime: true });
+  assert.ok(result.errors.some((error) => error.includes('Exported replication or Activity Broadcast requires')));
+  assert.equal(result.warnings.some((warning) => warning.includes('private Realtime is disabled')), false);
 });
 
 test('Activity preflight rejects placeholders, weak secrets, and mismatched signing keys', () => {

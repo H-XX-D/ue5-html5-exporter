@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import {
   inferDiscordRequirements,
   isSupportedManifestSchema,
+  requiresPrivateRealtime,
   validateActivityExport,
   verifyActivityServices,
 } from './activity-preflight.mjs';
@@ -177,7 +178,11 @@ export async function completeVercelOnlySecrets(options, environment, {
   const completed = { ...environment };
   if (!options.vercelOnlySecrets || !options.apply) return completed;
 
-  for (const name of REQUIRED_SENSITIVE_ENVIRONMENT) {
+  const requirements = readActivityHandoffRequirements(options.directory);
+  const requiredSecrets = requiresPrivateRealtime(requirements)
+    ? [...REQUIRED_SENSITIVE_ENVIRONMENT, 'SUPABASE_JWT_PRIVATE_KEY']
+    : REQUIRED_SENSITIVE_ENVIRONMENT;
+  for (const name of requiredSecrets) {
     if (!placeholder(completed[name])) continue;
     if (name === 'ACTIVITY_STATE_SECRET') {
       completed[name] = generatedStateSecret(random);
@@ -276,6 +281,13 @@ function dryRunEnvironment(options, environment) {
     if (placeholder(preview.DISCORD_BOT_TOKEN)) preview.DISCORD_BOT_TOKEN = 'prompted-discord-bot-token-value';
     if (placeholder(preview.SUPABASE_SECRET_KEY)) preview.SUPABASE_SECRET_KEY = 'sb_secret_prompted-at-apply';
     if (placeholder(preview.ACTIVITY_STATE_SECRET)) preview.ACTIVITY_STATE_SECRET = 'generated-at-apply-0123456789abcdef';
+    if (requiresPrivateRealtime(readActivityHandoffRequirements(options.directory))
+        && placeholder(preview.SUPABASE_JWT_PRIVATE_KEY)) {
+      preview.SUPABASE_JWT_PRIVATE_KEY = JSON.stringify({
+        kty: 'EC', crv: 'P-256', kid: 'provided-at-apply', x: 'planned', y: 'planned', d: 'planned',
+      });
+      preview.SUPABASE_JWT_KEY_ID = 'provided-at-apply';
+    }
   }
   return preview;
 }
@@ -292,6 +304,7 @@ export function readVercelLink(directory) {
 }
 
 function readActivityHandoffContract(directory) {
+  if (!directory) return null;
   const path = join(directory, 'activity-handoff.json');
   if (!existsSync(path)) return null;
   try {
@@ -406,6 +419,11 @@ export function validateReleaseSelection(
       && !/^(?:1|true|yes|on)$/i.test(String(environment.DISCORD_ENABLE_RICH_PRESENCE || ''))) {
     errors.push('Exported Rich Presence Blueprint nodes require DISCORD_ENABLE_RICH_PRESENCE=true.');
   }
+  if (requiresPrivateRealtime(discordRequirements)
+      && placeholder(environment.SUPABASE_JWT_PRIVATE_KEY)
+      && !(options.vercelOnlySecrets && !options.apply)) {
+    errors.push('Exported replication or Activity Broadcast requires SUPABASE_JWT_PRIVATE_KEY; provide the imported private ES256 JWK or use the guided hidden prompt.');
+  }
   return {
     errors,
     warnings,
@@ -425,6 +443,8 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
   const variableNames = [...PUBLIC_ENVIRONMENT, ...SENSITIVE_ENVIRONMENT]
     .filter((name) => Boolean(environment[name])
       || (options.vercelOnlySecrets && REQUIRED_SENSITIVE_ENVIRONMENT.includes(name))
+      || (options.vercelOnlySecrets && name === 'SUPABASE_JWT_PRIVATE_KEY'
+        && requiresPrivateRealtime(selection.discordRequirements))
       || (options.supabaseCliKeys && name === 'SUPABASE_PUBLISHABLE_KEY'));
   return {
     schema: 'ue5-discord-activity-release-plan/v1',
@@ -447,6 +467,10 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       source: name === 'DISCORD_ENABLE_RICH_PRESENCE'
           && selection.discordRequirements.requiredEnvironment?.DISCORD_ENABLE_RICH_PRESENCE === 'true'
         ? 'unreal-blueprint-inference'
+        : name === 'SUPABASE_JWT_PRIVATE_KEY'
+          && requiresPrivateRealtime(selection.discordRequirements)
+          && placeholder(environment[name])
+        ? 'unreal-realtime-hidden-prompt-at-apply'
         : options.supabaseCliKeys
           && ['SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY'].includes(name)
           && placeholder(environment[name])
@@ -470,7 +494,8 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       '/': options.promote && selection.handoffTargets.productionUrl
         ? (productionHostname(selection.handoffTargets.productionUrl) || '<invalid-production-host>')
         : '<deployment-host returned after apply>',
-      ...(!placeholder(environment.SUPABASE_JWT_PRIVATE_KEY) ? {
+      ...((requiresPrivateRealtime(selection.discordRequirements)
+        || !placeholder(environment.SUPABASE_JWT_PRIVATE_KEY)) ? {
         '/supabase': selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : null,
       } : {}),
     },
@@ -481,7 +506,9 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       'OAuth2: leave Public Client disabled; this export exchanges authorization codes in the Vercel server function and keeps the client secret off the browser.',
       'Activities: enable Activities and keep a global Primary Entry Point using DISCORD_LAUNCH_ACTIVITY.',
       'URL Mappings: map / to the deployment host printed after apply.',
-      `Optional private Realtime only: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'} when SUPABASE_JWT_PRIVATE_KEY is configured. Basic persistence does not need this mapping.`,
+      requiresPrivateRealtime(selection.discordRequirements)
+        ? `Required by exported replication/Broadcast: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'} after importing the matching ES256 signing key in Supabase.`
+        : `Optional private Realtime only: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'} when SUPABASE_JWT_PRIVATE_KEY is configured. Basic persistence does not need this mapping.`,
       'Activity Settings: enable every intended desktop, web, iOS, and Android platform and configure mobile orientation.',
       'General Information: add distribution metadata, art, participant limit, privacy policy, and terms as applicable.',
     ],

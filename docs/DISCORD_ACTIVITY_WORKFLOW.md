@@ -1,6 +1,6 @@
 # Discord Activity release workflow
 
-This exporter can produce a Discord Activity-ready folder. The exported game remains playable as an ordinary website, while Discord launch, verified identity, and persistent saves turn on automatically inside Discord after the base configuration. Private Supabase Broadcast/Presence is an optional multiplayer layer.
+This exporter can produce a Discord Activity-ready folder. The exported game remains playable as an ordinary website, while Discord launch, verified identity, and persistent saves turn on automatically inside Discord after the base configuration. Private Supabase Broadcast/Presence is optional for auth/save-only games and becomes a declared release requirement when the exported graph uses replicated properties, invoked RPC-style calls, or Activity Broadcast.
 
 Discord runs Activities on desktop, web, iOS, and Android. Standard first-person exports detect touch-capable clients and provide safe-area-aware movement, look, Jump, and Fire controls without changing the Unreal project. Desktop clients retain pointer-lock mouse and keyboard controls.
 
@@ -24,8 +24,8 @@ Supabase is the persistence/Realtime layer, not the static game host: Supabase S
 Supabase Free and Pro use the same integration contract. A Pro account is a good production choice, but plan level does not change the privacy model or turn Supabase Storage into the game host. Store only game-created world/player state in the private tables below; Discord remains the system for player identity, authorization, and billing.
 
 1. Create a Supabase project.
-2. Optional Realtime only: in **Realtime Settings**, disable **Allow public access** so every channel must pass Realtime Authorization.
-3. Optional Realtime only: generate an ES256 signing key, import it under **Authentication → Signing Keys**, then activate it. Keep the private JWK only in your password manager and Vercel; Supabase cannot reveal an imported private key later. Skip this step for Discord auth plus server-mediated save/load.
+2. Realtime exports only: in **Realtime Settings**, disable **Allow public access** so every channel must pass Realtime Authorization.
+3. Realtime exports only: generate an ES256 signing key, import it under **Authentication → Signing Keys**, then activate it. Keep the private JWK only in your password manager and Vercel; Supabase cannot reveal an imported private key later. Skip this step for Discord auth plus server-mediated save/load. The Unreal compatibility report and release plan say explicitly when this step is required.
 
    ```bash
    supabase gen signing-key --algorithm ES256
@@ -83,6 +83,8 @@ Use `-ExportProjectTargets=/absolute/path/discord-activity-project-targets.json`
 
 During development, **Check Blueprint Web Compatibility…** reports the optional Discord features and authorization inferred from the current Blueprint graph without exporting scene assets. Its saved text report and `-BlueprintCheckOnly` commandlet output carry the same access and privacy summary. After **Export Discord Activity…**, Unreal repeats the result from the final exported graph. No optional feature nodes means `identify only`; Rich Presence means `identify + rpc.activities.write` and its server configuration is enabled automatically. The export dialog states the privacy boundary before offering to start the correct one-command assistant. You can launch a Preview later by double-clicking `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. When the verified export is ready to replace the live game, use the matching `release-discord-activity-production` launcher instead. The assistant reads public identity from `activity-handoff.json`, installs pinned Vercel and Supabase CLIs locally, and invokes the release workflow without creating an environment file. On Windows, a missing or outdated Node.js produces an explicit consent prompt for a pinned official portable ZIP; the launcher verifies its architecture-specific SHA-256 before placing it under Local AppData, without administrator access or a system PATH change. Both the archive and extracted executable hashes are pinned in the shipped resolver. Every cache reuse re-hashes the executable against that pinned value; an incomplete or modified cache is backed up and replaced rather than trusted. The one-click Win64 certifier uses this same resolver before package preflight. No global CLI installation or web-project command knowledge is required. After a successful hosted verification it writes `activity-release-receipt.json` beside the export. That receipt contains only public URLs, manifest/asset-pack identities, environment and promotion state, and boolean verification results—never service credentials or player/billing data. Give this small JSON file to the Unreal team instead of copying terminal output. In Unreal, choose **Verify Hosted Discord Activity Receipt…**, select the file, and wait for the launched terminal to report PASS. The verifier rejects unknown fields and unsafe URLs, checks both the immutable deployment and stable public origin independently, and requires their exact hosted identities/version/schema to match before writing `Saved/UE5HTML5/ReleaseVerification/activity-release-verification.json`. A receipt is therefore a claim until this independent check passes. Receipts, verification records, and browser certificates are excluded from Vercel deployment so stale local evidence cannot become part of a later game build.
 
+The compatibility report and final export also derive the multiplayer transport contract. A replicated property, an invoked `Server*`, `Client*`, or `Multicast*` call, or `Discord Activity Broadcast` requires private Realtime but does not broaden OAuth scopes. That requirement is serialized into both the manifest and handoff and is independently recalculated by package preflight from `logic/blueprints.json`.
+
 The platform launcher always runs the non-mutating plan first, then asks a plain yes/no question before it invokes `--apply` in the same terminal. Answering No, a failed plan, or non-interactive use performs no hosted changes. The underlying Node.js 22 command remains dry-run-only unless `--apply` is present. Both paths read public targets from `activity-handoff.json`, check that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuse to silently switch an existing Vercel link.
 
 For manual or CI use, the same zero-file dry-run is:
@@ -98,7 +100,7 @@ That manual command remains useful for CI and custom automation. The workstation
 
 If an older export has no configured project targets, supply `--supabase-project-ref YOUR_PROJECT_REF --vercel-project YOUR_VERCEL_PROJECT`. When the handoff does contain targets, explicit arguments must match them exactly.
 
-On Windows PowerShell, enter the same command on one line. Neither safe mode reads private values during dry-run. After `--apply` is added, `--supabase-cli-keys` retrieves modern `sb_publishable_...` and `sb_secret_...` keys through the authenticated CLI without printing them. `--vercel-only-secrets` requests Discord credentials and the deliberately imported Supabase private signing JWK through hidden input, derives its key ID, and generates `ACTIVITY_STATE_SECRET` in memory. The application-side values are sent directly to Vercel and never written locally. CI may instead inject existing values into the process environment.
+On Windows PowerShell, enter the same command on one line. Neither safe mode reads private values during dry-run. After `--apply` is added, `--supabase-cli-keys` retrieves modern `sb_publishable_...` and `sb_secret_...` keys through the authenticated CLI without printing them. `--vercel-only-secrets` requests Discord credentials and generates `ACTIVITY_STATE_SECRET` in memory. If the handoff requires private Realtime, it additionally requests the deliberately imported Supabase private ES256 JWK through hidden input and derives its key ID. The application-side values are sent directly to Vercel and never written locally. CI may instead inject existing values into the process environment.
 
 After reviewing the dry-run, answer Yes in the workstation launcher or add `--apply` to the manual command. The tool then:
 
@@ -151,7 +153,7 @@ DISCORD_BOT_TOKEN
 SUPABASE_SECRET_KEY
 ACTIVITY_STATE_SECRET
 
-# Optional private Realtime configuration
+# Private JWK required only when the handoff declares Realtime; KEY_ID may come from its kid
 SUPABASE_JWT_PRIVATE_KEY
 SUPABASE_JWT_KEY_ID
 ```
@@ -159,6 +161,8 @@ SUPABASE_JWT_KEY_ID
 Set `DISCORD_REQUIRE_PROXY_AUTH=false` for ordinary browser previews. Before a public release, enable proxy authentication for the Discord application, copy its 64-character Ed25519 public key into `DISCORD_PUBLIC_KEY`, set `DISCORD_REQUIRE_PROXY_AUTH=true`, redeploy, and run the online preflight. The preflight then verifies that the key matches Discord's application record. Do not turn the requirement on before Discord is sending the three proxy headers or every privileged request will correctly fail with HTTP 401.
 
 Current exports detect Rich Presence Blueprint calls and set `DISCORD_ENABLE_RICH_PRESENCE=true` in the in-memory release environment automatically. The reviewed dry-run plan lists the inferred Blueprint functions, features, and OAuth scopes before apply. Discord's `rpc.activities.write` is added to `identify` only when those nodes are actually present. An advanced manual or CI workflow must still satisfy the exported requirement; preflight refuses an explicitly disabled Rich Presence configuration when the game requires it.
+
+The same plan makes `SUPABASE_JWT_PRIVATE_KEY` and the `/supabase` Discord URL mapping required when the graph needs private Realtime. The one-command apply collects the JWK without echo and derives `SUPABASE_JWT_KEY_ID`. Exports using only Discord auth and server-mediated save/load retain the simpler no-Realtime setup.
 
 The export pins Node.js 22 or later and includes:
 
@@ -188,7 +192,7 @@ vercel promote DEPLOYMENT_URL
    /  -> YOUR_VERCEL_PRODUCTION_HOST
    ```
 
-   Enter the hostname without a path. If optional private Realtime is configured, also map `/supabase` to `YOUR_PROJECT_REF.supabase.co`; the bundled adapter patches that prefix for the Realtime WebSocket. Basic Discord auth and save/load do not need the `/supabase` mapping.
+   Enter the hostname without a path. If the exported release plan says private Realtime is required, also map `/supabase` to `YOUR_PROJECT_REF.supabase.co`; the bundled adapter patches that prefix for the Realtime WebSocket and the plan prints this mapping automatically. Basic Discord auth and save/load do not need it.
 4. Add an OAuth redirect URI. `https://127.0.0.1` is sufficient when authorization is handled only by the Embedded App SDK; the confidential exchange occurs only in `api/activity.mjs`.
 5. Leave **Public Client** disabled. This exporter has a Vercel backend that can protect `DISCORD_CLIENT_SECRET`, so it uses Discord's recommended confidential-client design. Enable Public Client only for a different, backend-free native desktop/mobile Social SDK integration that uses PKCE; the toggle does not publish or list an Activity.
 6. Confirm the global **Launch** command is a Primary Entry Point with Discord's automatic `DISCORD_LAUNCH_ACTIVITY` handler. The online preflight verifies this through the Discord API.

@@ -140,6 +140,22 @@ function discordFeature(functionName) {
   return '';
 }
 
+function usesReplicationTransport(logic) {
+  return (logic?.programs || []).some((program) => {
+    const replicatedProperty = (program?.actors || []).some((actor) => Object
+      .values(actor?.initialState || {})
+      .some((value) => value?.replicated === true));
+    const rpcCall = (program?.graphs || []).some((graph) => (graph?.nodes || [])
+      .some((node) => node?.kind === 'callFunction'
+        && /^(?:server|client|multicast)/i.test(String(node?.function || ''))));
+    return replicatedProperty || rpcCall;
+  });
+}
+
+export function requiresPrivateRealtime(requirements) {
+  return requirements?.requiredEnvironment?.SUPABASE_JWT_PRIVATE_KEY === 'private-es256-jwk';
+}
+
 export function inferDiscordRequirements(logic) {
   const usedBlueprintFunctions = [...new Set((logic?.programs || [])
     .flatMap((program) => program?.graphs || [])
@@ -147,14 +163,20 @@ export function inferDiscordRequirements(logic) {
     .filter((node) => node?.kind === 'callFunction' && discordFeature(node?.function))
     .map((node) => String(node.function)))]
     .sort();
-  const features = [...new Set(usedBlueprintFunctions.map(discordFeature))].sort();
-  const richPresence = features.includes('rich-presence');
+  const features = new Set(usedBlueprintFunctions.map(discordFeature));
+  if (usesReplicationTransport(logic)) features.add('realtime');
+  const sortedFeatures = [...features].sort();
+  const richPresence = sortedFeatures.includes('rich-presence');
+  const realtime = sortedFeatures.includes('realtime');
+  const requiredEnvironment = {};
+  if (richPresence) requiredEnvironment.DISCORD_ENABLE_RICH_PRESENCE = 'true';
+  if (realtime) requiredEnvironment.SUPABASE_JWT_PRIVATE_KEY = 'private-es256-jwk';
   return {
     schema: DISCORD_REQUIREMENTS_SCHEMA,
     usedBlueprintFunctions,
-    features,
+    features: sortedFeatures,
     requiredOAuthScopes: richPresence ? ['identify', 'rpc.activities.write'] : ['identify'],
-    requiredEnvironment: richPresence ? { DISCORD_ENABLE_RICH_PRESENCE: 'true' } : {},
+    requiredEnvironment,
   };
 }
 
@@ -165,7 +187,7 @@ function validateDiscordRequirements(manifest, handoff, logic, errors) {
     ['activity-handoff.json.discordRequirements', handoff.discordRequirements],
   ]) {
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      errors.push(`${label} does not match Discord functions in logic/blueprints.json.`);
+      errors.push(`${label} does not match Blueprint features and transports in logic/blueprints.json.`);
     }
   }
 }
@@ -830,7 +852,7 @@ function validateJwk(env, errors) {
   }
 }
 
-export function validateActivityEnvironment(env = process.env) {
+export function validateActivityEnvironment(env = process.env, { requirePrivateRealtime = false } = {}) {
   const errors = [];
   const warnings = [];
   for (const name of REQUIRED_ENVIRONMENT) {
@@ -873,7 +895,11 @@ export function validateActivityEnvironment(env = process.env) {
   }
   const realtimeKey = String(env.SUPABASE_JWT_PRIVATE_KEY || '');
   if (!realtimeKey) {
-    warnings.push('Supabase private Realtime is disabled; Discord auth and server-mediated game persistence remain available.');
+    if (requirePrivateRealtime) {
+      errors.push('Exported replication or Activity Broadcast requires SUPABASE_JWT_PRIVATE_KEY with the imported private ES256 JWK.');
+    } else {
+      warnings.push('Supabase private Realtime is disabled; Discord auth and server-mediated game persistence remain available.');
+    }
   } else if (placeholder(realtimeKey)) {
     errors.push('SUPABASE_JWT_PRIVATE_KEY is still a placeholder; remove it to disable Realtime or configure a private ES256 JWK.');
   } else {
@@ -904,7 +930,15 @@ export function validateActivityExport({
   validateBrowserCertification(root, errors);
 
   if (!packageOnly) {
-    const environment = validateActivityEnvironment(env);
+    let discordRequirements = null;
+    try {
+      discordRequirements = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8')).discordRequirements;
+    } catch {
+      // The artifact validator above reports missing or malformed handoff JSON.
+    }
+    const environment = validateActivityEnvironment(env, {
+      requirePrivateRealtime: requiresPrivateRealtime(discordRequirements),
+    });
     errors.push(...environment.errors);
     warnings.push(...environment.warnings);
   }

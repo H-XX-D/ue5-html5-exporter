@@ -16,6 +16,8 @@ struct FUE5BlueprintExportSummary
     int32 CustomAdapterNodeCount = 0;
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
+    bool bUsesReplicatedProperties = false;
+    bool bUsesRpcTransport = false;
     TArray<FString> UnsupportedNodes;
     TSet<FString> UsedFunctions;
     TArray<USoundWave*> ReferencedSoundWaves;

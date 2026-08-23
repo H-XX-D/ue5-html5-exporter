@@ -399,6 +399,58 @@ test('release workflow automatically enables the scope required by Rich Presence
   assert.deepEqual(plan.errors, []);
 });
 
+test('release workflow turns Unreal replication into a required hidden Realtime setup', async () => {
+  const root = exportFixture();
+  const handoffPath = join(root, 'activity-handoff.json');
+  const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+  handoff.discordRequirements = {
+    schema: 'ue5-discord-activity-requirements/v1',
+    usedBlueprintFunctions: [],
+    features: ['realtime'],
+    requiredOAuthScopes: ['identify'],
+    requiredEnvironment: { SUPABASE_JWT_PRIVATE_KEY: 'private-es256-jwk' },
+  };
+  writeFileSync(handoffPath, JSON.stringify(handoff));
+
+  const withoutRealtime = hydrateUnrealPublicEnvironment(
+    { directory: root },
+    validEnvironment(),
+  );
+  delete withoutRealtime.SUPABASE_JWT_PRIVATE_KEY;
+  delete withoutRealtime.SUPABASE_JWT_KEY_ID;
+  const ordinary = validateReleaseSelection(
+    { directory: root, environment: 'preview' }, withoutRealtime, null,
+  );
+  assert.ok(ordinary.errors.some((error) => error.includes('Exported replication or Activity Broadcast requires')));
+
+  const guidedOptions = {
+    directory: root, environment: 'preview', deploy: true, migrate: true,
+    vercelOnlySecrets: true, apply: false,
+  };
+  const guidedPlan = buildActivityReleasePlan(guidedOptions, withoutRealtime, null);
+  assert.deepEqual(guidedPlan.errors, []);
+  assert.equal(guidedPlan.discordUrlMappings['/supabase'], 'abcdefghijklmnopqrst.supabase.co');
+  assert.equal(
+    guidedPlan.vercelEnvironment.find(({ name }) => name === 'SUPABASE_JWT_PRIVATE_KEY').source,
+    'unreal-realtime-hidden-prompt-at-apply',
+  );
+  assert.ok(guidedPlan.discordPortalChecklist.some((item) => item.includes('Required by exported replication/Broadcast')));
+
+  const prompts = [];
+  const completed = await completeVercelOnlySecrets(
+    { ...guidedOptions, apply: true },
+    withoutRealtime,
+    { async prompt(label) {
+      prompts.push(label);
+      return JSON.stringify({
+        kty: 'EC', crv: 'P-256', kid: 'activity-key', x: 'x-value', y: 'y-value', d: 'd-value',
+      });
+    } },
+  );
+  assert.deepEqual(prompts, ['Enter SUPABASE_JWT_PRIVATE_KEY (hidden; stored only in Vercel)']);
+  assert.equal(completed.SUPABASE_JWT_KEY_ID, 'activity-key');
+});
+
 test('release workflow rejects arguments and Discord environment that drift from Unreal targets', () => {
   const handoffTargets = {
     discordApplicationId: '123456789012345678',

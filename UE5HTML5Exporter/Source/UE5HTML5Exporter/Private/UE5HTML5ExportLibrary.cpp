@@ -414,6 +414,8 @@ namespace
 
     void DeriveDiscordRequirements(
         const TSet<FString>& UsedBlueprintFunctions,
+        const bool bUsesReplicatedProperties,
+        const bool bUsesRpcTransport,
         TArray<FString>& OutFeatures,
         TArray<FString>& OutRequiredOAuthScopes,
         TArray<FString>& OutRequiredEnvironment)
@@ -423,6 +425,10 @@ namespace
         {
             const FString Feature = DiscordFeatureForFunction(Function);
             if (!Feature.IsEmpty()) Features.Add(Feature);
+        }
+        if (bUsesReplicatedProperties || bUsesRpcTransport)
+        {
+            Features.Add(TEXT("realtime"));
         }
 
         OutFeatures = Features.Array();
@@ -434,12 +440,18 @@ namespace
             OutRequiredOAuthScopes.Add(TEXT("rpc.activities.write"));
             OutRequiredEnvironment.Add(TEXT("DISCORD_ENABLE_RICH_PRESENCE"));
         }
+        if (OutFeatures.Contains(TEXT("realtime")))
+        {
+            OutRequiredEnvironment.Add(TEXT("SUPABASE_JWT_PRIVATE_KEY"));
+        }
     }
 
     void PopulateDiscordRequirements(FUE5HTML5ExportResult& Result)
     {
         DeriveDiscordRequirements(
             Result.UsedBlueprintFunctions,
+            Result.bUsesReplicatedProperties,
+            Result.bUsesRpcTransport,
             Result.DiscordFeatures,
             Result.RequiredDiscordOAuthScopes,
             Result.RequiredDiscordEnvironment);
@@ -468,6 +480,11 @@ namespace
         return Result.DiscordFeatures.Contains(TEXT("rich-presence"));
     }
 
+    bool RequiresDiscordRealtime(const FUE5HTML5ExportResult& Result)
+    {
+        return Result.DiscordFeatures.Contains(TEXT("realtime"));
+    }
+
     TSharedRef<FJsonObject> BuildDiscordRequirements(const FUE5HTML5ExportResult& Result)
     {
         TArray<FString> UsedFunctions;
@@ -494,7 +511,9 @@ namespace
         TSharedRef<FJsonObject> RequiredEnvironment = MakeShared<FJsonObject>();
         for (const FString& Name : Result.RequiredDiscordEnvironment)
         {
-            RequiredEnvironment->SetStringField(Name, TEXT("true"));
+            RequiredEnvironment->SetStringField(
+                Name,
+                Name == TEXT("SUPABASE_JWT_PRIVATE_KEY") ? TEXT("private-es256-jwk") : TEXT("true"));
         }
         Requirements->SetObjectField(TEXT("requiredEnvironment"), RequiredEnvironment);
         return Requirements;
@@ -562,10 +581,17 @@ namespace
         {
             RequiredEnvironment.Add(MakeShared<FJsonValueString>(TEXT("DISCORD_ENABLE_RICH_PRESENCE")));
         }
+        if (RequiresDiscordRealtime(Result))
+        {
+            RequiredEnvironment.Add(MakeShared<FJsonValueString>(TEXT("SUPABASE_JWT_PRIVATE_KEY")));
+        }
         Root->SetArrayField(TEXT("releaseEnvironment"), RequiredEnvironment);
 
         TArray<TSharedPtr<FJsonValue>> OptionalEnvironment;
-        OptionalEnvironment.Add(MakeShared<FJsonValueString>(TEXT("SUPABASE_JWT_PRIVATE_KEY")));
+        if (!RequiresDiscordRealtime(Result))
+        {
+            OptionalEnvironment.Add(MakeShared<FJsonValueString>(TEXT("SUPABASE_JWT_PRIVATE_KEY")));
+        }
         OptionalEnvironment.Add(MakeShared<FJsonValueString>(TEXT("SUPABASE_JWT_KEY_ID")));
         Root->SetArrayField(TEXT("optionalReleaseEnvironment"), OptionalEnvironment);
 
@@ -602,6 +628,10 @@ namespace
         if (RequiresDiscordRichPresence(Result))
         {
             ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Rich Presence Blueprint calls were detected; the guided release will enable DISCORD_ENABLE_RICH_PRESENCE and request rpc.activities.write automatically.")));
+        }
+        if (RequiresDiscordRealtime(Result))
+        {
+            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Replicated state, RPC-style calls, or Activity Broadcast were detected; the guided release requires the imported Supabase private ES256 JWK and prints the required /supabase Discord URL mapping.")));
         }
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("For a first-person target-range export, run the included certify-browser launcher and retain its passing browser-certification.json report.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
@@ -826,9 +856,18 @@ FString FUE5HTML5ExportLibrary::FormatDiscordAccessSummary(
         && RequiredDiscordOAuthScopes[0] == TEXT("identify")
             ? TEXT("identify only")
             : FString::Join(RequiredDiscordOAuthScopes, TEXT(" + "));
-    const FString AutomaticSetup = DiscordFeatures.Contains(TEXT("rich-presence"))
-        ? TEXT("\nRelease assistant: Rich Presence configuration will be enabled automatically.")
-        : TEXT("");
+    TArray<FString> SetupNotes;
+    if (DiscordFeatures.Contains(TEXT("rich-presence")))
+    {
+        SetupNotes.Add(TEXT("Rich Presence configuration will be enabled automatically"));
+    }
+    if (DiscordFeatures.Contains(TEXT("realtime")))
+    {
+        SetupNotes.Add(TEXT("private Realtime is required; the assistant will request the imported Supabase ES256 JWK and print the /supabase mapping"));
+    }
+    const FString AutomaticSetup = SetupNotes.IsEmpty()
+        ? TEXT("")
+        : FString::Printf(TEXT("\nRelease assistant: %s."), *FString::Join(SetupNotes, TEXT("; ")));
 
     return FString::Printf(
         TEXT("Discord features detected from Blueprints: %s.\n")
@@ -987,9 +1026,13 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
     Report.CustomAdapterNodeCount = Summary.CustomAdapterNodeCount;
     Report.SupportedNodeCount = Summary.SupportedNodeCount;
     Report.UnsupportedNodeCount = Summary.UnsupportedNodeCount;
+    Report.bUsesReplicatedProperties = Summary.bUsesReplicatedProperties;
+    Report.bUsesRpcTransport = Summary.bUsesRpcTransport;
     Report.UnsupportedNodes = Summary.UnsupportedNodes;
     DeriveDiscordRequirements(
         Summary.UsedFunctions,
+        Summary.bUsesReplicatedProperties,
+        Summary.bUsesRpcTransport,
         Report.DiscordFeatures,
         Report.RequiredDiscordOAuthScopes,
         Report.RequiredDiscordEnvironment);
@@ -1129,6 +1172,8 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     Result.CustomAdapterBlueprintNodeCount = BlueprintSummary.CustomAdapterNodeCount;
     Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
     Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;
+    Result.bUsesReplicatedProperties = BlueprintSummary.bUsesReplicatedProperties;
+    Result.bUsesRpcTransport = BlueprintSummary.bUsesRpcTransport;
     Result.UsedBlueprintFunctions = BlueprintSummary.UsedFunctions;
     PopulateDiscordRequirements(Result);
     Result.Warnings.Append(BlueprintSummary.Warnings);

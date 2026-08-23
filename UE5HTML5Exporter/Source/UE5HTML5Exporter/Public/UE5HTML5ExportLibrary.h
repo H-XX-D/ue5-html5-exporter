@@ -27,6 +27,8 @@ struct FUE5HTML5ExportResult
     int32 CustomAdapterBlueprintNodeCount = 0;
     int32 SupportedBlueprintNodeCount = 0;
     int32 UnsupportedBlueprintNodeCount = 0;
+    bool bUsesReplicatedProperties = false;
+    bool bUsesRpcTransport = false;
     TSet<FString> UsedBlueprintFunctions;
     TArray<FString> DiscordFeatures;
     TArray<FString> RequiredDiscordOAuthScopes;
@@ -67,6 +69,8 @@ struct FUE5HTML5BlueprintCompatibilityReport
     int32 CustomAdapterNodeCount = 0;
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
+    bool bUsesReplicatedProperties = false;
+    bool bUsesRpcTransport = false;
     TArray<FString> UnsupportedNodes;
     TArray<FString> DiscordFeatures;
     TArray<FString> RequiredDiscordOAuthScopes;

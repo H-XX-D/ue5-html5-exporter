@@ -234,6 +234,10 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /blueprintCompatibility/);
   assert.match(source, /ue5-html5-export\/v8/);
   assert.match(source, /discordRequirements/);
+  assert.match(source, /RequiresDiscordRealtime/);
+  assert.match(source, /private-es256-jwk/);
+  assert.match(source, /SUPABASE_JWT_PRIVATE_KEY/);
+  assert.match(source, /\/supabase mapping/);
   assert.match(source, /SetStringField\(TEXT\("exporterVersion"\)/);
   assert.match(source, /custom-adapters\.json/);
   assert.match(source, /custom-adapters\.js/);
@@ -431,6 +435,7 @@ test('Unreal commandlet exposes the same readiness policy for workstation automa
 
 test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   const source = read('Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.cpp');
+  const summary = read('Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.h');
   assert.match(source, /ue-blueprint-ir\/v1/);
   assert.match(source, /Pin->LinkedTo/);
   assert.match(source, /blueprints\.json/);
@@ -457,6 +462,12 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
     assert.match(source, new RegExp(eventName));
   }
   assert.match(source, /browser-touch-controls/);
+  assert.match(source, /IsPortableRpcFunction/);
+  assert.match(source, /CPF_Net/);
+  assert.match(source, /bUsesRpcTransport = true/);
+  assert.match(source, /bUsesReplicatedProperties = true/);
+  assert.match(summary, /bUsesRpcTransport = false/);
+  assert.match(summary, /bUsesReplicatedProperties = false/);
 });
 
 test('Enhanced Input metadata is read from enhanced mappings', () => {
