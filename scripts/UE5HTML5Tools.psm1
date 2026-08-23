@@ -293,6 +293,150 @@ function Get-UE5HTML5WorkstationReport {
     }
 }
 
+function Get-UE5HTML5DirectoryInventory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [string[]]$Exclude = @()
+    )
+
+    $rootPath = (Resolve-Path -LiteralPath $Root -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $rootPath -PathType Container)) {
+        throw "Inventory root is not a directory: $rootPath"
+    }
+
+    $excluded = @{}
+    foreach ($entry in $Exclude) {
+        if (-not $entry) { continue }
+        $normalized = $entry.Replace('\', '/').TrimStart('/')
+        $excluded[$normalized] = $true
+    }
+
+    $files = @()
+    [Int64]$totalBytes = 0
+    $children = @(Get-ChildItem -LiteralPath $rootPath -File -Recurse -Force | Sort-Object -Property FullName)
+    foreach ($file in $children) {
+        $relative = $file.FullName.Substring($rootPath.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+        if ($excluded.ContainsKey($relative)) { continue }
+        $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $length = [Int64]$file.Length
+        $totalBytes += $length
+        $files += [pscustomobject][ordered]@{
+            path = $relative
+            bytes = $length
+            sha256 = $hash
+        }
+    }
+
+    $canonicalLines = @($files | ForEach-Object { "$($_.sha256) $($_.bytes) $($_.path)" })
+    $canonical = if ($canonicalLines.Count -gt 0) { ($canonicalLines -join "`n") + "`n" } else { '' }
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digestBytes = $algorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical))
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+    $digest = ([System.BitConverter]::ToString($digestBytes)).Replace('-', '').ToLowerInvariant()
+
+    return [pscustomobject][ordered]@{
+        schema = 'ue5-html5-directory-inventory/v1'
+        algorithm = 'sha256'
+        canonicalFormat = '<sha256> <bytes> <forward-slash-relative-path> LF'
+        fileCount = $files.Count
+        totalBytes = $totalBytes
+        sha256 = $digest
+        files = $files
+    }
+}
+
+function Resolve-UE5HTML5CertificationSource {
+    [CmdletBinding()]
+    param(
+        [string]$SourceCommit,
+        [string]$SourceRef,
+        [string]$Repository,
+        [string]$SourceRevisionFile,
+        [string]$RepositoryRoot
+    )
+
+    $packagedRevision = $null
+    if ($SourceRevisionFile -and (Test-Path -LiteralPath $SourceRevisionFile -PathType Leaf)) {
+        try {
+            $packagedRevision = Get-Content -LiteralPath $SourceRevisionFile -Raw | ConvertFrom-Json
+        }
+        catch {
+            throw "Source revision metadata is invalid: $SourceRevisionFile ($($_.Exception.Message))"
+        }
+        if ([string]$packagedRevision.schema -ne 'ue5-html5-source-revision/v1') {
+            throw "Source revision metadata has an unsupported schema: $SourceRevisionFile"
+        }
+    }
+
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    $gitAvailable = $null -ne $git -and $RepositoryRoot -and
+        (Test-Path -LiteralPath (Join-Path $RepositoryRoot '.git'))
+    $gitCommit = $null
+    if ($gitAvailable) {
+        $gitCommit = (& $git.Source -C $RepositoryRoot rev-parse HEAD).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "Git could not resolve the source commit for $RepositoryRoot." }
+    }
+
+    if (-not $SourceCommit -and ${env:GITHUB_SHA}) { $SourceCommit = ${env:GITHUB_SHA} }
+    if (-not $SourceCommit -and $packagedRevision) { $SourceCommit = [string]$packagedRevision.commit }
+    if (-not $SourceCommit -and $gitCommit) { $SourceCommit = $gitCommit }
+    if ($SourceCommit -notmatch '^[0-9a-fA-F]{40}$') {
+        throw 'Win64 certification requires an exact 40-character source commit from a clean Git checkout or generated source bundle.'
+    }
+    $SourceCommit = $SourceCommit.ToLowerInvariant()
+
+    $cleanEvidence = $false
+    if ($packagedRevision) {
+        $packagedCommit = [string]$packagedRevision.commit
+        $hasDirtyFlag = $packagedRevision.PSObject.Properties.Name -contains 'dirty'
+        if ($packagedCommit -notmatch '^[0-9a-fA-F]{40}$' -or
+            -not $hasDirtyFlag -or
+            -not ($packagedRevision.dirty -is [bool]) -or
+            $packagedRevision.dirty) {
+            throw 'The source bundle does not prove an exact clean commit and cannot produce release-grade Win64 certification.'
+        }
+        if ($packagedCommit.ToLowerInvariant() -ne $SourceCommit) {
+            throw "The requested source commit $SourceCommit does not match source-revision.json commit $($packagedCommit.ToLowerInvariant())."
+        }
+        $cleanEvidence = $true
+    }
+    if ($gitAvailable) {
+        $gitStatus = (& $git.Source -C $RepositoryRoot status --porcelain | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "Git could not verify source cleanliness for $RepositoryRoot." }
+        if ($gitStatus) {
+            throw "Win64 certification requires a clean source checkout; uncommitted files were detected:`n$gitStatus"
+        }
+        if ($gitCommit.ToLowerInvariant() -ne $SourceCommit) {
+            throw "The requested source commit $SourceCommit does not match checkout commit $($gitCommit.ToLowerInvariant())."
+        }
+        $cleanEvidence = $true
+    }
+    if (-not $cleanEvidence) {
+        throw 'Win64 certification could not prove that its source files match a clean commit.'
+    }
+
+    if (-not $SourceRef -and ${env:GITHUB_REF}) { $SourceRef = ${env:GITHUB_REF} }
+    if (-not $SourceRef -and $packagedRevision) { $SourceRef = [string]$packagedRevision.ref }
+    if (-not $SourceRef -and $gitAvailable) {
+        $SourceRef = (& $git.Source -C $RepositoryRoot symbolic-ref --quiet --short HEAD 2>$null | Out-String).Trim()
+    }
+    if (-not $Repository -and ${env:GITHUB_REPOSITORY}) { $Repository = ${env:GITHUB_REPOSITORY} }
+
+    return [pscustomobject][ordered]@{
+        commit = $SourceCommit
+        ref = if ($SourceRef) { $SourceRef } else { $null }
+        repository = if ($Repository) { $Repository } else { $null }
+        clean = $true
+        evidence = if ($gitAvailable) { 'git-checkout' } else { 'source-bundle-metadata' }
+        releaseGradeSourceProof = [bool]$gitAvailable
+    }
+}
+
 Export-ModuleMember -Function @(
     'Test-UE5EngineRoot',
     'Get-UE5EngineVersion',
@@ -301,5 +445,7 @@ Export-ModuleMember -Function @(
     'Get-UE5VisualStudioInstallation',
     'Test-UE5VisualStudioCompatibility',
     'Get-UE5WindowsSdkVersion',
-    'Get-UE5HTML5WorkstationReport'
+    'Get-UE5HTML5WorkstationReport',
+    'Get-UE5HTML5DirectoryInventory',
+    'Resolve-UE5HTML5CertificationSource'
 )

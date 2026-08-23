@@ -24,6 +24,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Automatic mobile FPS movement/look/jump/fire controls that execute the stock `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` Blueprint branches before using a browser fallback
 - A readiness chain that rejects incomplete Unreal targets, missing Discord launch commands, Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing the portal checklist and URL mappings
 - A double-click Windows installer that selects a `.uproject`, checks the exact Unreal/compiler toolchain, installs the plugin, and launches the project without requiring command-line or web-development knowledge
+- A commit-bound Win64 certification workflow with per-file SHA-256 inventories, a detached report checksum, and GitHub-signed SLSA provenance for downloadable Windows artifacts
 - A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
 
 ## Build the plugin
@@ -58,7 +59,7 @@ The web build is written into `UE5HTML5Exporter/Resources/WebTemplate`, where th
 
 The first compile must match your installed UE5 minor version. The plugin contains source, so Unreal Build Tool will build it for your engine.
 
-For a redistributable native package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. To make a portable source bundle that Unreal can compile for a teammate's installed engine, run `npm run package:source`. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
+For a redistributable native package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. To make a portable source bundle that Unreal can compile for a teammate's installed engine, run `npm run package:source`. Source bundles include clean-commit provenance for later workstation certification. The self-hosted Windows workflow can bind a native build and real FPS export to that commit and sign the resulting ZIP provenance through GitHub. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
 
 ## Preview an export
 

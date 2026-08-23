@@ -15,7 +15,7 @@ npm run build
 npm run package:source
 ```
 
-Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HTML5Exporter-Source` artifact from a successful GitHub Actions CI run. The bundle intentionally excludes `Binaries` and `Intermediate`, so Unreal compiles it against the teammate's exact engine installation.
+Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HTML5Exporter-Source` artifact from a successful GitHub Actions CI run. The bundle intentionally excludes `Binaries` and `Intermediate`, so Unreal compiles it against the teammate's exact engine installation. It also includes `source-revision.json`; a release-grade Windows certification accepts that provenance only when it contains an exact commit and says the source tree was clean.
 
 The intended team workflow keeps Unreal developers inside Unreal. A release operator owns Discord, hosting, and Supabase configuration; level designers and Blueprint developers install the plugin and use familiar UE5 tools and nodes.
 
@@ -94,7 +94,17 @@ On the Windows Unreal workstation, one command can build the Win64 plugin, back 
   -Map "/Game/Maps/Main"
 ```
 
-The verified export receives `workstation-certification.json`, including the Blueprint compatibility counts and either `passed` or `passed-with-blueprint-adapters-required` for the Unreal export. No Discord, Vercel, or Supabase credential is read or written by this script. The manual GitHub workflow accepts the same optional project and map paths when the self-hosted Windows runner has a test project available.
+The verified export receives `workstation-certification.json` using the `ue5-html5-workstation-certification/v2` contract. It binds the record to the exact 40-character source commit, engine/compiler/SDK versions, Blueprint compatibility counts, and canonical SHA-256 inventories for every file in both the native plugin package and browser export. `workstation-certification.sha256` independently protects the report itself. Certification refuses a dirty checkout or a source bundle without usable revision metadata. The report distinguishes a directly verified clean Git checkout (`releaseGradeSourceProof: true`) from unsigned source-bundle metadata (`false`); use the self-hosted GitHub workflow for release-grade proof and GitHub-signed provenance.
+
+No Discord, Vercel, or Supabase credential is read or written by this script. It does not collect personal player data; its scope is only native compilation, plugin installation, readiness, map export, and package preflight.
+
+The manual GitHub workflow accepts the same optional project and map paths when a self-hosted runner labeled `Windows` and `ue5` has the matching Unreal installation and test project. It produces one commit-named certification bundle containing ZIP archives, checksums, and the report. GitHub's first-party `actions/attest` action signs SLSA provenance for each ZIP. After downloading one of those ZIPs, verify its builder and digest with:
+
+```powershell
+gh attestation verify .\UE5HTML5Exporter-Win64-<commit>.zip --repo H-XX-D/ue5-html5-exporter
+```
+
+The package-only workflow path proves native compilation. Supply `project_path` for the stronger end-to-end certification that also installs into a real game, runs Unreal readiness, exports the map, and checks the Discord Activity package.
 
 ## Who needs to understand the web stack?
 

@@ -524,6 +524,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   const install = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const verify = readFileSync(new URL('../scripts/Verify-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
+  const sourcePackager = readFileSync(new URL('../scripts/package-source-plugin.mjs', import.meta.url), 'utf8');
+  const windowsWorkflow = readFileSync(new URL('../.github/workflows/package-unreal-windows.yml', import.meta.url), 'utf8');
   for (const script of [start, setup, install, pack, verify]) {
     assert.doesNotMatch(script, /\[string\]\$Plugin\s*=\s*\(Join-Path \$PSScriptRoot/);
   }
@@ -532,6 +534,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(tools, /10\.0\.22621\.0/);
   assert.match(tools, /17\.14/);
   assert.match(tools, /18\.0/);
+  assert.match(tools, /Get-UE5HTML5DirectoryInventory/);
+  assert.match(tools, /ue5-html5-directory-inventory\/v1/);
   assert.match(launcher, /Start-UE5HTML5Setup\.ps1/);
   assert.match(launcher, /--check/);
   assert.match(launcher, /ExecutionPolicy Bypass/);
@@ -553,6 +557,13 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /-CheckOnly/);
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
+  assert.match(verify, /workstation-certification\.sha256/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v2/);
+  assert.match(tools, /Resolve-UE5HTML5CertificationSource/);
+  assert.match(tools, /SourceCommit -notmatch '\^\[0-9a-fA-F\]\{40\}\$'/);
+  assert.match(verify, /Get-UE5HTML5DirectoryInventory/);
+  assert.match(verify, /credentialsAccessed = \$false/);
+  assert.match(verify, /personalPlayerDataCollected = \$false/);
   assert.match(verify, /Get-UE5HTML5WorkstationReport/);
   assert.match(verify, /visualStudioVersion/);
   assert.match(verify, /blueprintCompatibility/);
@@ -561,4 +572,10 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /Install-UE5HTML5Exporter\.ps1/);
   assert.match(verify, /projectFile/);
   assert.doesNotMatch(verify, /project = \$projectPath|pluginPackage = \$packagePath|export = \$exportPath/);
+  assert.match(sourcePackager, /ue5-html5-source-revision\/v1/);
+  assert.match(sourcePackager, /source-revision\.json/);
+  assert.match(windowsWorkflow, /Require commit-clean certification source/);
+  assert.match(windowsWorkflow, /SourceCommit = \$env:GITHUB_SHA/);
+  assert.match(windowsWorkflow, /actions\/attest@v4/);
+  assert.match(windowsWorkflow, /UE5HTML5Exporter-Win64-Certification-\$\{\{ github\.sha \}\}/);
 });

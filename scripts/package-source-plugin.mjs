@@ -7,9 +7,11 @@ import {
   renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { findNumberedDuplicates } from './template-hygiene.mjs';
 
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,7 +56,29 @@ function requireDirectory(path, label) {
   if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error(`${label} was not found: ${path}`);
 }
 
-export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
+export function getSourceRevision({ env = process.env, exec = execFileSync } = {}) {
+  const git = (args) => {
+    try {
+      return String(exec('git', ['-C', REPOSITORY_ROOT, ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })).trim();
+    } catch {
+      return null;
+    }
+  };
+  const commit = String(env.GITHUB_SHA || git(['rev-parse', 'HEAD']) || '').trim() || null;
+  const ref = String(env.GITHUB_REF || git(['symbolic-ref', '--quiet', '--short', 'HEAD']) || '').trim() || null;
+  const status = git(['status', '--porcelain']);
+  return {
+    schema: 'ue5-html5-source-revision/v1',
+    commit: commit && /^[0-9a-f]{40}$/i.test(commit) ? commit.toLowerCase() : null,
+    ref,
+    dirty: status === null ? null : status.length > 0,
+  };
+}
+
+export function packageSourcePlugin(rawOptions, { now = new Date(), sourceRevision = getSourceRevision() } = {}) {
   const plugin = resolve(rawOptions.plugin || DEFAULT_PLUGIN);
   const output = resolve(rawOptions.output);
   requireDirectory(plugin, 'Plugin directory');
@@ -106,6 +130,7 @@ export function packageSourcePlugin(rawOptions, { now = new Date() } = {}) {
     );
     cpSync(join(REPOSITORY_ROOT, 'docs', 'TEAM_INSTALL.md'), join(output, 'TEAM_INSTALL.md'));
     cpSync(join(REPOSITORY_ROOT, 'LICENSE'), join(output, 'LICENSE'));
+    writeFileSync(join(output, 'source-revision.json'), `${JSON.stringify(sourceRevision, null, 2)}\n`);
   } catch (error) {
     if (existsSync(output)) rmSync(output, { recursive: true, force: true });
     if (backup) renameSync(backup, output);

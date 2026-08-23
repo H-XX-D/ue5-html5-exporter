@@ -16,7 +16,17 @@ param(
 
     [string]$PackageOutput,
 
-    [string]$ExportOutput
+    [string]$ExportOutput,
+
+    [string]$SourceCommit,
+
+    [string]$SourceRef,
+
+    [string]$Repository,
+
+    [string]$PluginPackageArtifact = 'UE5HTML5Exporter-Win64',
+
+    [string]$ExportArtifact = 'UE5HTML5Exporter-Certified-Export'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +38,15 @@ if (-not (Test-Path -LiteralPath $module -PathType Leaf)) {
     throw "Windows tooling module was not found: $module"
 }
 Import-Module $module -Force
+$repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$sourceRevisionFile = Join-Path $repositoryRoot 'source-revision.json'
+$source = Resolve-UE5HTML5CertificationSource `
+    -SourceCommit $SourceCommit `
+    -SourceRef $SourceRef `
+    -Repository $Repository `
+    -SourceRevisionFile $sourceRevisionFile `
+    -RepositoryRoot $repositoryRoot
+
 $projectPath = (Resolve-Path -LiteralPath $Project).Path
 if ([System.IO.Path]::GetExtension($projectPath) -ne '.uproject') {
     throw "Expected a .uproject file: $projectPath"
@@ -110,9 +129,21 @@ if (-not $compatibility) {
 }
 $unsupportedBlueprintNodes = [int]$compatibility.unsupportedNodeCount
 $unrealExportStatus = if ($unsupportedBlueprintNodes -gt 0) { 'passed-with-blueprint-adapters-required' } else { 'passed' }
+$packageInventory = Get-UE5HTML5DirectoryInventory -Root $packagePath
+$exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
+    'workstation-certification.json',
+    'workstation-certification.sha256'
+)
+$environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v1'
+    schema = 'ue5-html5-workstation-certification/v2'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
+    source = $source
+    execution = [ordered]@{
+        environment = $environmentKind
+        githubRunId = if (${env:GITHUB_RUN_ID}) { ${env:GITHUB_RUN_ID} } else { $null }
+        githubRunAttempt = if (${env:GITHUB_RUN_ATTEMPT}) { ${env:GITHUB_RUN_ATTEMPT} } else { $null }
+    }
     platform = 'Win64'
     exporterVersion = $descriptor.VersionName
     engineVersion = $workstation.engineVersion
@@ -121,8 +152,16 @@ $report = [ordered]@{
     nodeVersion = $workstation.nodeVersion
     projectFile = [System.IO.Path]::GetFileName($projectPath)
     map = $Map
-    pluginPackageArtifact = 'UE5HTML5Exporter-Win64'
-    exportArtifact = 'UE5HTML5Exporter-Certified-Export'
+    pluginPackageArtifact = $PluginPackageArtifact
+    exportArtifact = $ExportArtifact
+    pluginPackage = [ordered]@{
+        artifact = $PluginPackageArtifact
+        inventory = $packageInventory
+    }
+    exportedGame = [ordered]@{
+        artifact = $ExportArtifact
+        inventory = $exportInventory
+    }
     readiness = 'passed'
     unrealExport = $unrealExportStatus
     blueprintCompatibility = [ordered]@{
@@ -134,9 +173,17 @@ $report = [ordered]@{
         details = 'logic/blueprints.json'
     }
     activityPackagePreflight = 'passed'
+    privacy = [ordered]@{
+        credentialsAccessed = $false
+        personalPlayerDataCollected = $false
+        scope = 'native plugin build, readiness, export, and package preflight only'
+    }
 }
 $reportPath = Join-Path $exportPath 'workstation-certification.json'
-$report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $reportPath -Encoding utf8
+$report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8
+$reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$reportChecksumPath = Join-Path $exportPath 'workstation-certification.sha256'
+"$reportHash  workstation-certification.json" | Set-Content -LiteralPath $reportChecksumPath -Encoding ascii
 
 Write-Host "UE5HTML5Exporter Win64 workstation certification passed."
 if ($unsupportedBlueprintNodes -gt 0) {
@@ -145,3 +192,4 @@ if ($unsupportedBlueprintNodes -gt 0) {
 Write-Host "Plugin package: $packagePath"
 Write-Host "Verified export: $exportPath"
 Write-Host "Report: $reportPath"
+Write-Host "Report SHA-256: $reportHash"

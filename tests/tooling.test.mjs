@@ -105,7 +105,13 @@ test('source packager creates a clean Windows teammate bundle without native int
   writeFileSync(join(source, 'Intermediate', 'object.o'), 'object');
 
   const options = parseSourcePackageArgs(['--plugin', source, '--output', output]);
-  const result = packageSourcePlugin(options);
+  const sourceRevision = {
+    schema: 'ue5-html5-source-revision/v1',
+    commit: '0123456789abcdef0123456789abcdef01234567',
+    ref: 'refs/heads/main',
+    dirty: false,
+  };
+  const result = packageSourcePlugin(options, { sourceRevision });
   assert.equal(result.output, output);
   assert.equal(readFileSync(join(output, 'UE5HTML5Exporter', 'Source', 'portable.cpp'), 'utf8'), 'source');
   assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Binaries')), false);
@@ -118,6 +124,7 @@ test('source packager creates a clean Windows teammate bundle without native int
   assert.equal(existsSync(join(output, 'scripts', 'Verify-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'Install-UE5HTML5Exporter.cmd')), true);
   assert.equal(existsSync(join(output, 'TEAM_INSTALL.md')), true);
+  assert.deepEqual(JSON.parse(readFileSync(join(output, 'source-revision.json'), 'utf8')), sourceRevision);
 });
 
 test('source packager refuses Finder-style numbered duplicate files', () => {

@@ -18,6 +18,9 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   package-win64:
@@ -31,6 +34,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Require commit-clean certification source
+        shell: pwsh
+        run: |
+          $changes = (& git status --porcelain | Out-String).Trim()
+          if ($changes) { throw "Certification source changed after checkout:`n$changes" }
       - name: Check Windows Unreal workstation
         shell: pwsh
         env:
@@ -72,18 +80,46 @@ jobs:
             Map = $env:UE_MAP_PATH
             PackageOutput = "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-$env:GITHUB_RUN_ID"
             ExportOutput = "$env:RUNNER_TEMP\UE5HTML5Exporter-Certified-Export-$env:GITHUB_RUN_ID"
+            SourceCommit = $env:GITHUB_SHA
+            SourceRef = $env:GITHUB_REF
+            Repository = $env:GITHUB_REPOSITORY
+            PluginPackageArtifact = "UE5HTML5Exporter-Win64-$env:GITHUB_SHA.zip"
+            ExportArtifact = "UE5HTML5Exporter-Certified-Export-$env:GITHUB_SHA.zip"
           }
           if ($env:UE_ENGINE_ROOT) { $arguments.EngineRoot = $env:UE_ENGINE_ROOT }
           .\scripts\Verify-UE5HTML5Exporter.ps1 @arguments
-      - uses: actions/upload-artifact@v4
+      - name: Create commit-bound certification bundle
+        shell: pwsh
+        env:
+          UE_PROJECT_PATH: ${{ inputs.project_path }}
+        run: |
+          $bundle = "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-Certification-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          $pluginDirectory = "$env:RUNNER_TEMP\UE5HTML5Exporter-Win64-$env:GITHUB_RUN_ID"
+          $pluginZip = Join-Path $bundle "UE5HTML5Exporter-Win64-$env:GITHUB_SHA.zip"
+          Compress-Archive -Path "$pluginDirectory\*" -DestinationPath $pluginZip -CompressionLevel Optimal
+          $subjects = @($pluginZip)
+          if ($env:UE_PROJECT_PATH) {
+            $exportDirectory = "$env:RUNNER_TEMP\UE5HTML5Exporter-Certified-Export-$env:GITHUB_RUN_ID"
+            $exportZip = Join-Path $bundle "UE5HTML5Exporter-Certified-Export-$env:GITHUB_SHA.zip"
+            Compress-Archive -Path "$exportDirectory\*" -DestinationPath $exportZip -CompressionLevel Optimal
+            Copy-Item -LiteralPath (Join-Path $exportDirectory 'workstation-certification.json') -Destination $bundle
+            Copy-Item -LiteralPath (Join-Path $exportDirectory 'workstation-certification.sha256') -Destination $bundle
+            $subjects += $exportZip
+          }
+          $checksumLines = foreach ($subject in $subjects) {
+            $hash = (Get-FileHash -LiteralPath $subject -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([System.IO.Path]::GetFileName($subject))"
+          }
+          $checksumLines | Set-Content -LiteralPath (Join-Path $bundle 'SHA256SUMS.txt') -Encoding ascii
+          Write-Host "Created Win64 certification bundle for $env:GITHUB_SHA at $bundle"
+      - name: Attest Win64 certification artifacts
+        uses: actions/attest@v4
         with:
-          name: UE5HTML5Exporter-Win64
-          path: ${{ runner.temp }}\UE5HTML5Exporter-Win64-${{ github.run_id }}
-          if-no-files-found: error
-      - name: Upload certified Unreal export
-        if: inputs.project_path != ''
+          subject-path: ${{ runner.temp }}/UE5HTML5Exporter-Win64-Certification-${{ github.run_id }}/*.zip
+      - name: Upload Win64 certification bundle
         uses: actions/upload-artifact@v4
         with:
-          name: UE5HTML5Exporter-Certified-Export
-          path: ${{ runner.temp }}\UE5HTML5Exporter-Certified-Export-${{ github.run_id }}
+          name: UE5HTML5Exporter-Win64-Certification-${{ github.sha }}
+          path: ${{ runner.temp }}\UE5HTML5Exporter-Win64-Certification-${{ github.run_id }}
           if-no-files-found: error
