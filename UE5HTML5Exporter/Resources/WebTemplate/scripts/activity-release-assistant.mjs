@@ -53,6 +53,11 @@ Windows:  release-discord-activity.cmd
 macOS:    ./release-discord-activity.command
 Linux:    ./release-discord-activity.sh
 
+Live production:
+Windows:  release-discord-activity-production.cmd
+macOS:    ./release-discord-activity-production.command
+Linux:    ./release-discord-activity-production.sh
+
 The launcher reads public project identity directly from Unreal, installs pinned
 Vercel and Supabase CLIs locally, then prints the fail-closed dry-run plan. With
 --guided, it asks whether to apply that exact plan in the same terminal. No
@@ -160,7 +165,10 @@ export async function runReleaseAssistant(argv, {
     return releaseStatus;
   }
 
-  const approved = await confirmApply('\nDry run passed. Configure services and create this deployment now? [y/N] ');
+  const approvalQuestion = options.forwarded.includes('--promote')
+    ? '\nDry run passed. Deploy, verify, and promote this exact build to live production now? [y/N] '
+    : '\nDry run passed. Configure services and create this deployment now? [y/N] ';
+  const approved = await confirmApply(approvalQuestion);
   if (!approved) {
     stdout('No hosted changes were made. Run this launcher again when you are ready.');
     return 0;

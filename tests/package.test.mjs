@@ -72,12 +72,18 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/release-discord-activity.cmd',
     'Resources/WebTemplate/release-discord-activity.command',
     'Resources/WebTemplate/release-discord-activity.sh',
+    'Resources/WebTemplate/release-discord-activity-production.cmd',
+    'Resources/WebTemplate/release-discord-activity-production.command',
+    'Resources/WebTemplate/release-discord-activity-production.sh',
     'Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1',
   ]) assert.ok(existsSync(new URL(path, plugin)), `${path} is missing; run npm run build`);
 
   assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /Start-DiscordActivityRelease\.ps1/);
   assert.match(read('Resources/WebTemplate/release-discord-activity.command'), /activity-release-assistant\.mjs --guided/);
   assert.match(read('Resources/WebTemplate/release-discord-activity.sh'), /activity-release-assistant\.mjs --guided/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity-production.cmd'), /--environment production --promote/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity-production.command'), /--environment production --promote/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity-production.sh'), /--environment production --promote/);
   const windowsReleaseBootstrap = read('Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1');
   assert.match(windowsReleaseBootstrap, /\$PinnedNodeVersion = '22\.23\.2'/);
   assert.match(windowsReleaseBootstrap, /https:\/\/nodejs\.org\/dist\/v\$PinnedNodeVersion/);
@@ -177,6 +183,8 @@ test('production template includes the Discord Activity API, Vercel adapter, and
       'Resources/WebTemplate/preview-discord-activity.sh',
       'Resources/WebTemplate/certify-browser.command',
       'Resources/WebTemplate/certify-browser.sh',
+      'Resources/WebTemplate/release-discord-activity-production.command',
+      'Resources/WebTemplate/release-discord-activity-production.sh',
     ]) assert.ok(statSync(new URL(path, plugin)).mode & 0o100, `${path} must be executable`);
   }
 });

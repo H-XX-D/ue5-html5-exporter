@@ -156,7 +156,10 @@ namespace
             TEXT("scripts/activity-release-assistant.mjs"),
             TEXT("release-discord-activity.cmd"),
             TEXT("release-discord-activity.command"),
-            TEXT("release-discord-activity.sh")
+            TEXT("release-discord-activity.sh"),
+            TEXT("release-discord-activity-production.cmd"),
+            TEXT("release-discord-activity-production.command"),
+            TEXT("release-discord-activity-production.sh")
         };
         return Files;
     }

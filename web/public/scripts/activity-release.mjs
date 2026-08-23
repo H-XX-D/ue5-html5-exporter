@@ -59,6 +59,7 @@ export function parseActivityReleaseArgs(argv) {
     directory: process.cwd(),
     environment: 'preview',
     generateStateSecret: false,
+    promote: false,
     vercelOnlySecrets: false,
     supabaseCliKeys: false,
   };
@@ -68,6 +69,7 @@ export function parseActivityReleaseArgs(argv) {
     else if (argument === '--no-deploy') options.deploy = false;
     else if (argument === '--no-migrate') options.migrate = false;
     else if (argument === '--generate-state-secret') options.generateStateSecret = true;
+    else if (argument === '--promote') options.promote = true;
     else if (argument === '--vercel-only-secrets') options.vercelOnlySecrets = true;
     else if (argument === '--supabase-cli-keys') options.supabaseCliKeys = true;
     else if (argument === '--directory') options.directory = argv[++index];
@@ -80,6 +82,12 @@ export function parseActivityReleaseArgs(argv) {
   }
   if (!['preview', 'production'].includes(options.environment)) {
     throw new Error('--environment must be preview or production.');
+  }
+  if (options.promote && options.environment !== 'production') {
+    throw new Error('--promote requires --environment production.');
+  }
+  if (options.promote && !options.deploy) {
+    throw new Error('--promote cannot be used with --no-deploy.');
   }
   options.directory = resolve(options.directory);
   if (options.envFile) options.envFile = resolve(options.envFile);
@@ -101,6 +109,7 @@ Project targets (optional when set in Unreal Project Settings):
 
 Options:
   --environment <target>        preview (default) or production
+  --promote                     Promote the exact verified production deployment
   --generate-state-secret       Generate ACTIVITY_STATE_SECRET in memory when absent
   --vercel-only-secrets         Prompt hidden for missing secrets only when applying
   --supabase-cli-keys           Discover API keys in memory from authenticated Supabase CLI
@@ -115,7 +124,9 @@ activity-handoff.json and explicit arguments must match them. --apply links the
 exact selected projects, runs a
 Supabase migration dry-run before db push, writes Vercel values through stdin,
 runs the online identity/security preflight, and creates a Preview deployment.
-Production uses --prod --skip-domain and is never promoted automatically.
+Production uses --prod --skip-domain. It remains staged unless --promote is
+explicitly supplied; promotion happens only after the exact deployment passes
+the hosted public/iframe/manifest/API checks.
 With --vercel-only-secrets, missing server secrets are held only in process
 memory and Vercel; the public env file is never updated. --supabase-cli-keys
 discovers the publishable and secret API keys without writing either to disk.`;
@@ -316,6 +327,17 @@ function supabaseHostname(projectRef) {
   return `${projectRef}.supabase.co`;
 }
 
+function productionHostname(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
+    return url.host;
+  } catch {
+    return null;
+  }
+}
+
 export function validateReleaseSelection(
   options,
   environment,
@@ -350,6 +372,9 @@ export function validateReleaseSelection(
   if (!selectedVercelProject) errors.push('--vercel-project is required when the export is not already linked.');
   if (vercelLink && requestedVercelProject && vercelLink.projectName !== requestedVercelProject) {
     errors.push(`Export is linked to Vercel project ${vercelLink.projectName}, not ${requestedVercelProject}.`);
+  }
+  if (handoffTargets.productionUrl && !productionHostname(handoffTargets.productionUrl)) {
+    errors.push('Unreal Production URL must be a public HTTPS URL without user information, query parameters, or fragments.');
   }
   if (handoffTargets.discordApplicationId
       && environment.DISCORD_CLIENT_ID
@@ -429,10 +454,19 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     })),
     onlinePreflight: true,
     deployment: options.deploy
-      ? (options.environment === 'production' ? 'staged production (--skip-domain)' : 'preview')
+      ? (options.environment === 'production'
+        ? (options.promote
+          ? 'staged production (--skip-domain), verify exact deployment, then promote'
+          : 'staged production (--skip-domain)')
+        : 'preview')
       : 'skipped by operator',
+    promotion: options.promote
+      ? 'promote exact verified deployment to current production'
+      : 'not requested',
     discordUrlMappings: {
-      '/': '<deployment-host returned after apply>',
+      '/': options.promote && selection.handoffTargets.productionUrl
+        ? (productionHostname(selection.handoffTargets.productionUrl) || '<invalid-production-host>')
+        : '<deployment-host returned after apply>',
       ...(!placeholder(environment.SUPABASE_JWT_PRIVATE_KEY) ? {
         '/supabase': selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : null,
       } : {}),
@@ -520,11 +554,12 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
   const errors = [];
   const warnings = [];
   const checks = [];
+  let manifestIdentity = null;
   let origin;
   try {
     origin = new URL(deploymentUrlValue);
   } catch {
-    return { errors: ['Vercel did not return a valid deployment URL.'], warnings, checks };
+    return { errors: ['Vercel did not return a valid deployment URL.'], warnings, checks, manifestIdentity };
   }
 
   const request = async (path, accept) => {
@@ -549,6 +584,7 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       errors: [`Deployment is not publicly reachable: ${error.message || error}.`],
       warnings,
       checks,
+      manifestIdentity,
     };
   }
   if (root.status >= 300 && root.status < 400) {
@@ -579,6 +615,9 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       if (!isSupportedManifestSchema(manifest.schema)) {
         errors.push('Hosted export manifest has an unexpected schema.');
       } else {
+        if (/^sha256:[a-f0-9]{64}$/i.test(String(manifest.assetPack?.version || ''))) {
+          manifestIdentity = manifest.assetPack.version.toLowerCase();
+        }
         checks.push(`Hosted Unreal export manifest is valid (${Number(manifest.actorCount || 0)} actors).`);
       }
     }
@@ -602,7 +641,7 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
     errors.push(`Hosted Activity API check failed: ${error.message || error}.`);
   }
 
-  return { errors, warnings, checks };
+  return { errors, warnings, checks, manifestIdentity };
 }
 
 export async function executeActivityRelease(options, environment, {
@@ -694,6 +733,53 @@ export async function executeActivityRelease(options, environment, {
       plan,
     };
   }
+  if (options.promote && url && !hosted.manifestIdentity) {
+    return {
+      ok: false,
+      applied: true,
+      errors: ['The staged deployment did not expose a content-addressed asset-pack identity, so the workflow cannot prove which build would be promoted. Re-export with the current plugin and try again.'],
+      warnings: resultWarnings,
+      checks: resultChecks,
+      uploadedVariables,
+      deploymentUrl: url,
+      plan,
+    };
+  }
+  let promoted = false;
+  let publicUrl = url;
+  if (options.promote && url) {
+    run('vercel', ['promote', url, '--yes']);
+    promoted = true;
+    const configuredProductionUrl = selection.handoffTargets.productionUrl;
+    if (configuredProductionUrl) {
+      publicUrl = configuredProductionUrl;
+      const production = await verifyDeployment(configuredProductionUrl);
+      resultWarnings.push(...production.warnings);
+      resultChecks.push(...production.checks);
+      const productionErrors = [...production.errors];
+      if (!production.manifestIdentity) {
+        productionErrors.push('The stable production URL did not expose a content-addressed asset-pack identity after promotion.');
+      } else if (production.manifestIdentity !== hosted.manifestIdentity) {
+        productionErrors.push(`The stable production URL serves ${production.manifestIdentity}, not the verified staged build ${hosted.manifestIdentity}.`);
+      }
+      if (productionErrors.length) {
+        return {
+          ok: false,
+          applied: true,
+          promoted,
+          errors: productionErrors.map((error) => `Production was promoted, but follow-up verification failed: ${error}`),
+          warnings: resultWarnings,
+          checks: resultChecks,
+          uploadedVariables,
+          deploymentUrl: url,
+          productionUrl: configuredProductionUrl,
+          plan,
+        };
+      }
+    } else {
+      resultWarnings.push('Production was promoted, but Unreal has no stable production URL configured. Set Production URL in Unreal Project Settings before the next release so the public alias can be verified and printed for Discord.');
+    }
+  }
   return {
     ok: true,
     applied: true,
@@ -702,8 +788,10 @@ export async function executeActivityRelease(options, environment, {
     checks: resultChecks,
     uploadedVariables,
     deploymentUrl: url,
+    promoted,
+    productionUrl: promoted ? (selection.handoffTargets.productionUrl || null) : null,
     discordUrlMappings: {
-      '/': url ? new URL(url).host : '<deployment skipped>',
+      '/': publicUrl ? new URL(publicUrl).host : '<deployment skipped>',
       ...(!placeholder(releaseEnvironment.SUPABASE_JWT_PRIVATE_KEY) ? {
         '/supabase': supabaseHostname(selection.selectedSupabaseProjectRef),
       } : {}),
@@ -725,6 +813,7 @@ function printResult(result) {
     console.log('Discord Activity release workflow applied.');
     for (const check of result.checks || []) console.log(`- ${check}`);
     if (result.deploymentUrl) console.log(`Deployment: ${result.deploymentUrl}`);
+    if (result.promoted) console.log(`Promoted production: ${result.productionUrl || result.deploymentUrl}`);
     console.log('Discord URL mappings:');
     for (const [prefix, host] of Object.entries(result.discordUrlMappings)) console.log(`- ${prefix} -> ${host}`);
   }

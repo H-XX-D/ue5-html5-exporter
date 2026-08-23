@@ -125,6 +125,21 @@ test('guided release asks after a successful dry run and applies only after yes'
   assert.ok(calls.every((call) => call.cwd === root));
 });
 
+test('guided production publish names the live promotion before confirmation', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
+  const questions = [];
+  const status = await runReleaseAssistant(['--guided', '--environment', 'production', '--promote'], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    runner() { return { status: 0 }; },
+    async confirmApply(question) { questions.push(question); return false; },
+    stdout() {},
+  });
+  assert.equal(status, 0);
+  assert.equal(questions.length, 1);
+  assert.match(questions[0], /promote this exact build to live production/i);
+});
+
 test('guided release makes no hosted changes after no or a failed dry run', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
   const declinedCalls = [];
@@ -225,6 +240,7 @@ test('release workflow parses a Windows-safe explicit project plan', () => {
     '--supabase-project-ref', 'abcdefghijklmnopqrst',
     '--vercel-project', 'my-discord-game',
     '--environment', 'production',
+    '--promote',
     '--vercel-only-secrets',
     '--supabase-cli-keys',
     '--apply',
@@ -232,9 +248,21 @@ test('release workflow parses a Windows-safe explicit project plan', () => {
   assert.equal(options.supabaseProjectRef, 'abcdefghijklmnopqrst');
   assert.equal(options.vercelProject, 'my-discord-game');
   assert.equal(options.environment, 'production');
+  assert.equal(options.promote, true);
   assert.equal(options.vercelOnlySecrets, true);
   assert.equal(options.supabaseCliKeys, true);
   assert.equal(options.apply, true);
+});
+
+test('release workflow refuses promotion outside an applied production deployment', () => {
+  assert.throws(
+    () => parseActivityReleaseArgs(['--promote']),
+    /requires --environment production/,
+  );
+  assert.throws(
+    () => parseActivityReleaseArgs(['--environment', 'production', '--promote', '--no-deploy']),
+    /cannot be used with --no-deploy/,
+  );
 });
 
 test('release workflow refuses cross-project Supabase and Vercel configuration', () => {
@@ -595,6 +623,129 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
     assert.equal(upload.input, `${env[name]}\n`);
     assert.ok(upload.args.includes('--sensitive'));
   }
+});
+
+test('production publish promotes only after staged verification and verifies the stable URL', async () => {
+  const root = exportFixture();
+  const handoffPath = join(root, 'activity-handoff.json');
+  const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+  handoff.projectTargets.productionUrl = 'https://game.example';
+  writeFileSync(handoffPath, JSON.stringify(handoff));
+  const options = {
+    apply: true,
+    deploy: true,
+    migrate: false,
+    promote: true,
+    directory: root,
+    environment: 'production',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+    vercelProject: 'my-discord-game',
+  };
+  const calls = [];
+  const verified = [];
+  const result = await executeActivityRelease(options, validEnvironment(), {
+    runner(command, args, invocation) {
+      calls.push({ command, args, input: invocation.input });
+      return {
+        status: 0,
+        stdout: command === 'vercel' && args[0] === 'deploy'
+          ? 'https://my-discord-game-staged.vercel.app\n'
+          : '',
+        stderr: '',
+      };
+    },
+    verifyServices: async () => ({ errors: [], warnings: [], checks: ['services verified'] }),
+    verifyDeployment: async (url) => {
+      verified.push(url);
+      return {
+        errors: [], warnings: [], checks: [`verified ${url}`], manifestIdentity: `sha256:${'a'.repeat(64)}`,
+      };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.promoted, true);
+  assert.equal(result.deploymentUrl, 'https://my-discord-game-staged.vercel.app');
+  assert.equal(result.productionUrl, 'https://game.example');
+  assert.deepEqual(verified, [
+    'https://my-discord-game-staged.vercel.app',
+    'https://game.example',
+  ]);
+  const deployIndex = calls.findIndex((call) => call.command === 'vercel' && call.args[0] === 'deploy');
+  const promoteIndex = calls.findIndex((call) => call.command === 'vercel' && call.args[0] === 'promote');
+  assert.ok(deployIndex >= 0);
+  assert.ok(promoteIndex > deployIndex);
+  assert.deepEqual(calls[deployIndex].args, ['deploy', '--prod', '--skip-domain', '--yes']);
+  assert.deepEqual(calls[promoteIndex].args, [
+    'promote', 'https://my-discord-game-staged.vercel.app', '--yes',
+  ]);
+  assert.deepEqual(result.discordUrlMappings, {
+    '/': 'game.example',
+    '/supabase': 'abcdefghijklmnopqrst.supabase.co',
+  });
+});
+
+test('failed staged verification prevents production promotion', async () => {
+  const root = exportFixture();
+  const calls = [];
+  const result = await executeActivityRelease({
+    apply: true,
+    deploy: true,
+    migrate: false,
+    promote: true,
+    directory: root,
+    environment: 'production',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+    vercelProject: 'my-discord-game',
+  }, validEnvironment(), {
+    runner(command, args) {
+      calls.push({ command, args });
+      return {
+        status: 0,
+        stdout: command === 'vercel' && args[0] === 'deploy'
+          ? 'https://broken-staged.vercel.app\n'
+          : '',
+        stderr: '',
+      };
+    },
+    verifyServices: async () => ({ errors: [], warnings: [], checks: [] }),
+    verifyDeployment: async () => ({ errors: ['hosted check failed'], warnings: [], checks: [] }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(calls.some((call) => call.command === 'vercel' && call.args[0] === 'promote'), false);
+});
+
+test('missing staged build identity prevents production promotion', async () => {
+  const root = exportFixture();
+  const calls = [];
+  const result = await executeActivityRelease({
+    apply: true,
+    deploy: true,
+    migrate: false,
+    promote: true,
+    directory: root,
+    environment: 'production',
+    supabaseProjectRef: 'abcdefghijklmnopqrst',
+    vercelProject: 'my-discord-game',
+  }, validEnvironment(), {
+    runner(command, args) {
+      calls.push({ command, args });
+      return {
+        status: 0,
+        stdout: command === 'vercel' && args[0] === 'deploy'
+          ? 'https://unidentified-staged.vercel.app\n'
+          : '',
+        stderr: '',
+      };
+    },
+    verifyServices: async () => ({ errors: [], warnings: [], checks: [] }),
+    verifyDeployment: async () => ({ errors: [], warnings: [], checks: [] }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.includes('cannot prove which build')));
+  assert.equal(calls.some((call) => call.command === 'vercel' && call.args[0] === 'promote'), false);
 });
 
 test('guided apply discovers Supabase keys then prompts only for remaining private inputs', async () => {
