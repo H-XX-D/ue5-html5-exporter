@@ -27,6 +27,9 @@ export const REQUIRED_EXPORT_FILES = [
   'preview-discord-activity.cmd',
   'preview-discord-activity.command',
   'preview-discord-activity.sh',
+  'certify-browser.cmd',
+  'certify-browser.command',
+  'certify-browser.sh',
   'release-discord-activity.cmd',
   'release-discord-activity.command',
   'release-discord-activity.sh',
@@ -75,6 +78,7 @@ const MANIFEST_SCHEMAS = new Set([
 ]);
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
 const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
+const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v1';
 const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
 const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
@@ -123,6 +127,56 @@ function readJsonArtifact(root, path, errors) {
   } catch {
     errors.push(`Export artifact contains invalid JSON: ${path}`);
     return null;
+  }
+}
+
+function validateBrowserCertification(root, errors) {
+  const certificationPath = join(root, 'browser-certification.json');
+  if (!existsSync(certificationPath)) return;
+  const report = readJsonArtifact(root, 'browser-certification.json', errors);
+  const manifest = readJsonArtifact(root, 'export-manifest.json', errors);
+  if (!report || !manifest) return;
+  if (report.schema !== BROWSER_CERTIFICATION_SCHEMA) {
+    errors.push(`browser-certification.json must use ${BROWSER_CERTIFICATION_SCHEMA}.`);
+  }
+  if (report.status !== 'passed') {
+    errors.push('browser-certification.json does not contain a passing browser run.');
+  }
+  if (report.manifestSchema !== manifest.schema) {
+    errors.push('browser-certification.json manifest schema does not match export-manifest.json.');
+  }
+  if (report.exporterVersion !== manifest.exporterVersion) {
+    errors.push('browser-certification.json exporter version does not match export-manifest.json.');
+  }
+  if (report.assetPack?.version !== manifest.assetPack?.version) {
+    errors.push('browser-certification.json asset-pack version does not match export-manifest.json.');
+  }
+  const resources = Array.from(manifest.assetPack?.resources || [], ({ path }) => String(path || '')).sort();
+  if (report.assetPack?.resourceCount !== resources.length) {
+    errors.push('browser-certification.json resource count does not match export-manifest.json.');
+  }
+  for (const [stage, mode] of [['cold', 'network-cached'], ['warm', 'cache-hit']]) {
+    const coverage = report.assetPack?.[stage]?.coverage;
+    const paths = Array.isArray(coverage)
+      ? coverage.filter((entry) => entry?.passed === true && entry.mode === mode).map((entry) => entry.path).sort()
+      : [];
+    if (JSON.stringify(paths) !== JSON.stringify(resources)) {
+      errors.push(`browser-certification.json ${stage} coverage does not prove ${mode} for every asset-pack resource.`);
+    }
+  }
+  if (report.runtime?.blueprintReady !== true || report.runtime?.firstPersonEnabled !== true) {
+    errors.push('browser-certification.json does not prove Blueprint and first-person runtime readiness.');
+  }
+  if (!Number.isInteger(report.targetPractice?.shots)
+      || report.targetPractice.shots < 1
+      || !Number.isFinite(report.targetPractice?.scoreDelta)
+      || report.targetPractice.scoreDelta <= 0
+      || report.targetPractice?.afterShots?.depletedTargets < 1
+      || report.targetPractice?.afterRespawn?.activeTargets < 1) {
+    errors.push('browser-certification.json does not prove target shots, positive score, depletion, and respawn.');
+  }
+  if (report.privacy?.credentialsAccessed !== false || report.privacy?.personalPlayerDataCollected !== false) {
+    errors.push('browser-certification.json privacy boundary is invalid.');
   }
 }
 
@@ -659,6 +713,7 @@ export function validateActivityExport({
     }
   }
   validateUnrealHandoff(root, errors, warnings);
+  validateBrowserCertification(root, errors);
 
   if (!packageOnly) {
     const environment = validateActivityEnvironment(env);

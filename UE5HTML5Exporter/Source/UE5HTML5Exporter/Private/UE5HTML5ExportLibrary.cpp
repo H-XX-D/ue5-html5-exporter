@@ -455,6 +455,7 @@ namespace
         {
             ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run the local Discord preview and exercise every project-owned custom adapter before release; static declaration and registration checks do not certify behavior.")));
         }
+        ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("For a first-person target-range export, run the included certify-browser launcher and retain its passing browser-certification.json report.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Review the non-secret project targets copied from Unreal Project Settings; the release tool refuses mismatched Discord, Vercel, or Supabase identities.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Re-run the release tool with --apply to migrate Supabase, configure Vercel, verify services, and create a deployment.")));
@@ -480,6 +481,8 @@ namespace
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
         Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v5"));
+        const TSharedPtr<IPlugin> ExporterPlugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
+        Root->SetStringField(TEXT("exporterVersion"), ExporterPlugin.IsValid() ? ExporterPlugin->GetDescriptor().VersionName : TEXT("unknown"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         Root->SetBoolField(TEXT("selectionOnly"), !SelectedActors.IsEmpty());
         Root->SetNumberField(TEXT("actorCount"), Result.ActorCount);
@@ -897,7 +900,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     }
 
     const FString ExportReadme =
-        TEXT("# UE5 Web Export\n\nRun `python3 serve.py` for an ordinary browser preview, or use the preview-discord-activity launcher to exercise Discord Blueprint logic with the official local SDK mock.\n\n")
+        TEXT("# UE5 Web Export\n\nRun `python3 serve.py` for an ordinary browser preview, use the preview-discord-activity launcher to exercise Discord Blueprint logic with the official local SDK mock, or use the certify-browser launcher to prove cold/warm asset delivery and baseline FPS target behavior.\n\n")
         TEXT("Upload this entire folder to any static host. Keep `index.html`, `runtime/`, and `assets/` together.\n")
         TEXT("For a Discord Activity, deploy this folder to an HTTPS host and follow `DISCORD_ACTIVITY_WORKFLOW.md`.\n")
         TEXT("The bundled Vercel adapter is the default; the Activity API endpoint is configurable in index.html.\n")
@@ -906,6 +909,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
         TEXT("Reusable scene and Blueprint data are integrity-checked and cached under this Activity origin. A changed asset-pack hash creates a new cache, and cache unavailability falls back to the network.\n")
+        TEXT("A passing `browser-certification.json` proves the local exported browser runtime, cache, center-ray target hit, score, and respawn only; real Discord/mobile/multi-client testing remains required.\n")
         TEXT("Create project-owned native replacements from Tools > HTML5 Export > Open Custom Web Adapters Folder, then declare them in custom-adapters.json and implement them with `window.UE5HTML5.registerFunction(name, implementation)`.\n")
         TEXT("Project-adapter coverage still requires local Discord preview and real gameplay validation.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));

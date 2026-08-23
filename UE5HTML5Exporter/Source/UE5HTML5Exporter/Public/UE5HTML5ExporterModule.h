@@ -19,7 +19,9 @@ private:
     void CheckBlueprintCompatibilityInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);
     void ExportDiscordActivityPreviewInteractive();
+    void ExportBrowserCertificationInteractive();
     bool LaunchDiscordActivityPreview(const FString& OutputDirectory);
+    bool LaunchBrowserCertification(const FString& OutputDirectory);
     void StopDiscordActivityPreview();
 
     FProcHandle PreviewServerProcess;

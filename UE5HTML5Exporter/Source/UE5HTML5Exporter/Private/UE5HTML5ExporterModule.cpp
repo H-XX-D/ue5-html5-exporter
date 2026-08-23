@@ -41,6 +41,17 @@ namespace
 #endif
     }
 
+    FString BrowserCertificationLauncher(const FString& OutputDirectory)
+    {
+#if PLATFORM_WINDOWS
+        return FPaths::Combine(OutputDirectory, TEXT("certify-browser.cmd"));
+#elif PLATFORM_MAC
+        return FPaths::Combine(OutputDirectory, TEXT("certify-browser.command"));
+#else
+        return FPaths::Combine(OutputDirectory, TEXT("certify-browser.sh"));
+#endif
+    }
+
     FString BundledPythonExecutable()
     {
 #if PLATFORM_WINDOWS
@@ -124,6 +135,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("PreviewDiscordActivityTooltip", "Export to the project's Saved folder and launch a local-only browser preview backed by Discord's official SDK mock. No credentials or deployment required."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5CertifyBrowserFPS",
+        LOCTEXT("CertifyBrowserFPS", "Export & Certify Browser FPS"),
+        LOCTEXT("CertifyBrowserFPSTooltip", "Export the current level, prove cold and warm asset delivery, fire the real first-person center ray, and write a machine-readable target score/respawn certificate."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportBrowserCertificationInteractive)));
 
     Section.AddMenuEntry(
         "UE5HTML5ExportLevel",
@@ -560,6 +578,49 @@ void FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive()
             *Result.OutputDirectory)));
 }
 
+void FUE5HTML5ExporterModule::ExportBrowserCertificationInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoCertificationWorld", "Open a level before starting browser FPS certification."));
+        return;
+    }
+
+    const FString CertificationDirectory = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UE5HTML5/BrowserCertification")));
+    StopDiscordActivityPreview();
+    IFileManager::Get().DeleteDirectory(*CertificationDirectory, false, true);
+
+    const FUE5HTML5ExportResult Result = FUE5HTML5ExportLibrary::ExportWorld(World, CertificationDirectory, {});
+    if (!Result.bSuccess)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(
+            LOCTEXT("BrowserCertificationExportFailed", "Browser FPS certification export failed:\n{0}"),
+            FText::FromString(Result.Error)));
+        return;
+    }
+
+    if (!LaunchBrowserCertification(Result.OutputDirectory))
+    {
+        FPlatformProcess::ExploreFolder(*Result.OutputDirectory);
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT(
+                "BrowserCertificationLaunchFailed",
+                "Unreal could not start browser certification automatically. The export folder is open; run the certify-browser launcher for this operating system."));
+        return;
+    }
+
+    FMessageDialog::Open(
+        EAppMsgType::Ok,
+        FText::FromString(FString::Printf(
+            TEXT("Browser FPS certification started.\n\n")
+            TEXT("The browser will perform a cold load, reload from the verified exporter cache, shoot the target through the real first-person controller, confirm score and respawn, then write:\n%s\n\n")
+            TEXT("This local certificate does not contact Discord, Vercel, or Supabase and does not replace final in-Discord multi-client testing."),
+            *FPaths::Combine(Result.OutputDirectory, TEXT("browser-certification.json")))));
+}
+
 bool FUE5HTML5ExporterModule::LaunchDiscordActivityPreview(const FString& OutputDirectory)
 {
     const FString ServeScript = FPaths::Combine(OutputDirectory, TEXT("serve.py"));
@@ -589,6 +650,39 @@ bool FUE5HTML5ExporterModule::LaunchDiscordActivityPreview(const FString& Output
     }
 
     const FString Launcher = DiscordActivityPreviewLauncher(OutputDirectory);
+    return FPaths::FileExists(Launcher)
+        && FPlatformProcess::LaunchFileInDefaultExternalApplication(*Launcher);
+}
+
+bool FUE5HTML5ExporterModule::LaunchBrowserCertification(const FString& OutputDirectory)
+{
+    const FString ServeScript = FPaths::Combine(OutputDirectory, TEXT("serve.py"));
+    if (!FPaths::FileExists(ServeScript))
+    {
+        return false;
+    }
+
+    const FString Python = BundledPythonExecutable();
+    if (FPaths::FileExists(Python))
+    {
+        const FString Arguments = FString::Printf(TEXT("\"%s\" --certify"), *ServeScript);
+        PreviewServerProcess = FPlatformProcess::CreateProc(
+            *Python,
+            *Arguments,
+            false,
+            false,
+            false,
+            nullptr,
+            0,
+            *OutputDirectory,
+            nullptr);
+        if (PreviewServerProcess.IsValid())
+        {
+            return true;
+        }
+    }
+
+    const FString Launcher = BrowserCertificationLauncher(OutputDirectory);
     return FPaths::FileExists(Launcher)
         && FPlatformProcess::LaunchFileInDefaultExternalApplication(*Launcher);
 }

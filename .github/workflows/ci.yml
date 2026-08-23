@@ -35,6 +35,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: UE5HTML5Exporter\Resources\WebTemplate\preview-discord-activity.cmd --check
+      - name: Run Windows browser certification launcher check
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: UE5HTML5Exporter\Resources\WebTemplate\certify-browser.cmd --check
       - name: Run Windows plugin installer launcher check
         if: runner.os == 'Windows'
         shell: cmd
@@ -47,6 +51,10 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: UE5HTML5Exporter/Resources/WebTemplate/preview-discord-activity.command --check
+      - name: Run macOS browser certification launcher check
+        if: runner.os == 'macOS'
+        shell: bash
+        run: UE5HTML5Exporter/Resources/WebTemplate/certify-browser.command --check
       - name: Run Linux Activity release launcher
         if: runner.os == 'Linux'
         shell: bash
@@ -55,6 +63,10 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: UE5HTML5Exporter/Resources/WebTemplate/preview-discord-activity.sh --check
+      - name: Run Linux browser certification launcher check
+        if: runner.os == 'Linux'
+        shell: bash
+        run: UE5HTML5Exporter/Resources/WebTemplate/certify-browser.sh --check
       - name: Create source teammate bundle
         if: runner.os == 'Linux'
         run: npm run package:source -- --output "$RUNNER_TEMP/UE5HTML5Exporter-Source"

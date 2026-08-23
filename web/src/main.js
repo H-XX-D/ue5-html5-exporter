@@ -7,6 +7,7 @@ import { loadProjectAdapters, normalizeAdapterName } from './project-adapters.js
 import { BrowserRuntimeAdapters } from './runtime-adapters.js';
 import { TargetPracticeRuntime } from './target-practice.js';
 import { createAssetPackCache } from './asset-pack-cache.js';
+import { createBrowserCertification } from './browser-certification.js';
 import './style.css';
 
 const canvas = document.querySelector('#scene');
@@ -70,6 +71,7 @@ let targetPractice = null;
 let activityBridge = null;
 let exportManifest = null;
 let assetPackCache = null;
+const browserCertification = createBrowserCertification();
 let sceneStats = 'Preparing renderer…';
 let deliveryStats = '';
 const pendingCustomFunctions = new Map();
@@ -109,6 +111,7 @@ window.UE5HTML5 = {
   get projectAdaptersReady() { return ensureProjectAdapters(); },
   get exportManifest() { return exportManifest; },
   get assetCache() { return assetPackCache; },
+  get certification() { return browserCertification; },
 };
 
 function ensureProjectAdapters() {
@@ -379,6 +382,12 @@ function load(url, label = 'scene.glb', { revokeAfterLoad = false } = {}) {
     loading.hidden = true;
     if (revokeAfterLoad) URL.revokeObjectURL(url);
     await configureBlueprintLogic();
+    await browserCertification.complete({
+      manifest: exportManifest,
+      runtime: blueprintRuntime,
+      gameplay: firstPersonController,
+      targetPractice,
+    });
   }, (event) => {
     const percent = event.total ? Math.round((event.loaded / event.total) * 100) : 35;
     progress.style.width = `${Math.min(percent, 100)}%`;
@@ -392,6 +401,7 @@ function load(url, label = 'scene.glb', { revokeAfterLoad = false } = {}) {
     errorMessage.textContent = `${error.message || error}. ${hint}`;
     sceneStats = 'Scene unavailable';
     updateStats();
+    void browserCertification.fail(error, exportManifest);
   });
 }
 
@@ -443,6 +453,17 @@ async function boot() {
   } catch (error) {
     console.warn('Exported asset-pack cache is unavailable:', error);
     assetPackCache = null;
+    if (browserCertification.enabled) {
+      await browserCertification.fail(error, manifest);
+      return;
+    }
+  }
+
+  try {
+    if (await browserCertification.prepare(assetPackCache, manifest)) return;
+  } catch (error) {
+    await browserCertification.fail(error, manifest);
+    return;
   }
 
   if (!assetPackCache) {
@@ -460,6 +481,7 @@ async function boot() {
     errorMessage.textContent = `The exported scene did not pass its asset-pack integrity check: ${error.message || error}`;
     sceneStats = 'Scene unavailable';
     updateStats();
+    await browserCertification.fail(error, manifest);
   }
 }
 

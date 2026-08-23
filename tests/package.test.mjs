@@ -65,6 +65,9 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/preview-discord-activity.cmd',
     'Resources/WebTemplate/preview-discord-activity.command',
     'Resources/WebTemplate/preview-discord-activity.sh',
+    'Resources/WebTemplate/certify-browser.cmd',
+    'Resources/WebTemplate/certify-browser.command',
+    'Resources/WebTemplate/certify-browser.sh',
     'Resources/WebTemplate/release-discord-activity.cmd',
     'Resources/WebTemplate/release-discord-activity.command',
     'Resources/WebTemplate/release-discord-activity.sh',
@@ -130,16 +133,29 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(activity, /DiscordSDKMock/);
   assert.match(activity, /preview-player/);
   assert.match(viewer, /ue5_discord_preview/);
+  assert.match(viewer, /ue5-html5-browser-certification\/v1/);
+  assert.match(viewer, /ue5_certify/);
 
   const serve = read('Resources/WebTemplate/serve.py');
   assert.match(serve, /127\.0\.0\.1/);
   assert.match(serve, /ue5_discord_preview=1/);
+  assert.match(serve, /__ue5html5_certification__/);
+  assert.match(serve, /--certify/);
+  assert.match(serve, /X-UE5HTML5-Certification-Token/);
   assert.match(serve, /--check/);
+  const windowsCertificationLauncher = read('Resources/WebTemplate/certify-browser.cmd');
+  assert.match(windowsCertificationLauncher, /serve\.py" --certify/);
+  assert.match(windowsCertificationLauncher, /setlocal EnableDelayedExpansion/);
+  assert.match(windowsCertificationLauncher, /exit \/b !cert_status!/);
+  assert.match(read('Resources/WebTemplate/certify-browser.command'), /serve\.py --certify/);
+  assert.match(read('Resources/WebTemplate/certify-browser.sh'), /serve\.py --certify/);
   if (process.platform !== 'win32') {
     for (const path of [
       'Resources/WebTemplate/serve.py',
       'Resources/WebTemplate/preview-discord-activity.command',
       'Resources/WebTemplate/preview-discord-activity.sh',
+      'Resources/WebTemplate/certify-browser.command',
+      'Resources/WebTemplate/certify-browser.sh',
     ]) assert.ok(statSync(new URL(path, plugin)).mode & 0o100, `${path} must be executable`);
   }
 });
@@ -159,6 +175,7 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /missingRequiredTargets/);
   assert.match(source, /blueprintCompatibility/);
   assert.match(source, /ue5-html5-export\/v5/);
+  assert.match(source, /SetStringField\(TEXT\("exporterVersion"\)/);
   assert.match(source, /custom-adapters\.json/);
   assert.match(source, /custom-adapters\.js/);
   assert.match(source, /customAdapterNodeCount/);
@@ -202,6 +219,13 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /Export & Preview Discord Blueprint Logic/);
   assert.match(module, /ExportDiscordActivityPreviewInteractive/);
   assert.match(module, /LaunchDiscordActivityPreview/);
+  assert.match(module, /Export & Certify Browser FPS/);
+  assert.match(module, /ExportBrowserCertificationInteractive/);
+  assert.match(module, /LaunchBrowserCertification/);
+  assert.match(module, /browser-certification\.json/);
+  assert.match(module, /certify-browser\.cmd/);
+  assert.match(module, /certify-browser\.command/);
+  assert.match(module, /certify-browser\.sh/);
   assert.match(module, /StopDiscordActivityPreview/);
   assert.match(module, /Binaries\/ThirdParty\/Python3\/Win64\/python\.exe/);
   assert.match(module, /Binaries\/ThirdParty\/Python3\/Mac\/bin\/python3/);

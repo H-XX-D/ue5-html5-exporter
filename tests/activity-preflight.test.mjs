@@ -225,9 +225,43 @@ test('Activity package preflight verifies the current reusable asset-pack contra
       schema: 'ue5-html5-custom-adapters/v1', functions: [],
     }));
     writeAssetDelivery(root);
-    writeAssetPack(root);
+    const pack = writeAssetPack(root);
+    const currentManifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    currentManifest.exporterVersion = 'test-version';
+    writeFileSync(manifestPath, JSON.stringify(currentManifest));
+
+    const coverage = (mode) => pack.resources.map(({ path }) => ({ path, mode, passed: true }));
+    const browserCertificationPath = join(root, 'browser-certification.json');
+    const browserCertification = {
+      schema: 'ue5-html5-browser-certification/v1',
+      status: 'passed',
+      exporterVersion: currentManifest.exporterVersion,
+      manifestSchema: currentManifest.schema,
+      assetPack: {
+        version: pack.version,
+        resourceCount: pack.resources.length,
+        cold: { coverage: coverage('network-cached') },
+        warm: { coverage: coverage('cache-hit') },
+      },
+      runtime: { blueprintReady: true, firstPersonEnabled: true },
+      targetPractice: {
+        shots: 3,
+        scoreDelta: 100,
+        afterShots: { depletedTargets: 1 },
+        afterRespawn: { activeTargets: 1 },
+      },
+      privacy: { credentialsAccessed: false, personalPlayerDataCollected: false },
+    };
+    writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
 
     assert.deepEqual(validateActivityExport({ directory: root, packageOnly: true }).errors, []);
+    writeFileSync(browserCertificationPath, JSON.stringify({
+      ...browserCertification,
+      assetPack: { ...browserCertification.assetPack, version: `sha256:${'0'.repeat(64)}` },
+    }));
+    assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
+      .some((error) => error.includes('browser-certification.json asset-pack version')));
+    writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
     writeFileSync(join(root, 'assets/scene.glb'), 'tampered-scene');
     assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
       .some((error) => error.includes('assetPack SHA-256')));
