@@ -191,11 +191,12 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
   assert.match(source, /activity-handoff\.json/);
-  assert.match(source, /ue5-discord-activity-handoff\/v7/);
+  assert.match(source, /ue5-discord-activity-handoff\/v8/);
   assert.match(source, /projectTargets/);
   assert.match(source, /missingRequiredTargets/);
   assert.match(source, /blueprintCompatibility/);
-  assert.match(source, /ue5-html5-export\/v6/);
+  assert.match(source, /ue5-html5-export\/v7/);
+  assert.match(source, /discordRequirements/);
   assert.match(source, /SetStringField\(TEXT\("exporterVersion"\)/);
   assert.match(source, /custom-adapters\.json/);
   assert.match(source, /custom-adapters\.js/);

@@ -19,6 +19,7 @@ import {
   hydrateUnrealPublicEnvironment,
   loadReleaseEnvironment,
   parseActivityReleaseArgs,
+  readActivityHandoffRequirements,
   readActivityHandoffTargets,
   runCommand,
   validateReleaseSelection,
@@ -320,6 +321,38 @@ test('release workflow hydrates public service identity directly from Unreal han
   assert.equal(hydrated.DISCORD_CLIENT_ID, handoff.projectTargets.discordApplicationId);
   assert.equal(hydrated.DISCORD_PUBLIC_KEY, handoff.projectTargets.discordPublicKey);
   assert.equal(hydrated.SUPABASE_URL, 'https://abcdefghijklmnopqrst.supabase.co');
+});
+
+test('release workflow automatically enables the scope required by Rich Presence Blueprints', () => {
+  const root = exportFixture();
+  const handoffPath = join(root, 'activity-handoff.json');
+  const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+  handoff.discordRequirements = {
+    schema: 'ue5-discord-activity-requirements/v1',
+    usedBlueprintFunctions: ['DiscordActivitySetRichPresence'],
+    features: ['rich-presence'],
+    requiredOAuthScopes: ['identify', 'rpc.activities.write'],
+    requiredEnvironment: { DISCORD_ENABLE_RICH_PRESENCE: 'true' },
+  };
+  writeFileSync(handoffPath, JSON.stringify(handoff));
+
+  assert.deepEqual(readActivityHandoffRequirements(root), handoff.discordRequirements);
+  const disabled = { ...validEnvironment(), DISCORD_ENABLE_RICH_PRESENCE: 'false' };
+  assert.ok(validateReleaseSelection(
+    { directory: root, environment: 'preview' }, disabled, null,
+  ).errors.some((error) => error.includes('require DISCORD_ENABLE_RICH_PRESENCE=true')));
+
+  const hydrated = hydrateUnrealPublicEnvironment({ directory: root }, disabled);
+  assert.equal(hydrated.DISCORD_ENABLE_RICH_PRESENCE, 'true');
+  const plan = buildActivityReleasePlan(
+    { directory: root, environment: 'preview', deploy: true, migrate: true }, hydrated, null,
+  );
+  assert.deepEqual(plan.discordRequirements.requiredOAuthScopes, ['identify', 'rpc.activities.write']);
+  assert.equal(
+    plan.vercelEnvironment.find(({ name }) => name === 'DISCORD_ENABLE_RICH_PRESENCE').source,
+    'unreal-blueprint-inference',
+  );
+  assert.deepEqual(plan.errors, []);
 });
 
 test('release workflow rejects arguments and Discord environment that drift from Unreal targets', () => {

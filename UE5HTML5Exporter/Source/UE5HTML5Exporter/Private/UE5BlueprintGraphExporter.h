@@ -16,6 +16,7 @@ struct FUE5BlueprintExportSummary
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
     TArray<FString> UnsupportedNodes;
+    TSet<FString> UsedFunctions;
     FString Error;
     TArray<FString> Warnings;
 };

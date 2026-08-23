@@ -64,19 +64,21 @@ const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const DISCORD_PRIMARY_ENTRY_POINT = 4;
 const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
-const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v7';
+const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v8';
 const HANDOFF_SCHEMAS = new Set([
   'ue5-discord-activity-handoff/v4',
   'ue5-discord-activity-handoff/v5',
   'ue5-discord-activity-handoff/v6',
+  'ue5-discord-activity-handoff/v7',
   CURRENT_HANDOFF_SCHEMA,
 ]);
-const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v6';
+const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v7';
 const MANIFEST_SCHEMAS = new Set([
   'ue5-html5-export/v2',
   'ue5-html5-export/v3',
   'ue5-html5-export/v4',
   'ue5-html5-export/v5',
+  'ue5-html5-export/v6',
   CURRENT_MANIFEST_SCHEMA,
 ]);
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
@@ -84,6 +86,7 @@ const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
 const LEGACY_ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
 const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v3';
 const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
+const DISCORD_REQUIREMENTS_SCHEMA = 'ue5-discord-activity-requirements/v1';
 const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
   ['discordApplicationId', 'Discord Application ID'],
@@ -103,6 +106,54 @@ const PROJECT_TARGET_KEYS = new Set([
   'missingRequiredTargets',
 ]);
 const SECRET_TARGET_KEY = /(?:secret|token|password|private.?key|bot.?token|service.?role)/i;
+
+function discordFeature(functionName) {
+  const name = String(functionName || '').toLowerCase();
+  if (['discordactivitysetrichpresence', 'discordactivityclearrichpresence'].includes(name)) return 'rich-presence';
+  if (name === 'discordactivitychooseandshareimage') return 'image-sharing';
+  if (name === 'discordactivityopeninvitedialog') return 'invitations';
+  if (['discordactivitysharelink', 'discordactivitygetlaunchcontext'].includes(name)) return 'launch-sharing';
+  if (name === 'discordactivityopenexternallink') return 'external-links';
+  if (name === 'discordactivitygetparticipants') return 'participants';
+  if (name.includes('entitlement') || ['discordactivitygetskus', 'discordactivitystartpurchase'].includes(name)) return 'monetization';
+  if (name.includes('worldstate') || name.includes('playerstate')) return 'persistence';
+  if (name === 'discordactivitybroadcast') return 'realtime';
+  if (name.includes('orientation') || name.includes('interactivepip') || name.includes('platformbehaviors')) return 'display-controls';
+  if (name === 'discordactivitygetlocale') return 'locale';
+  if (name === 'discordactivityencouragehardwareacceleration') return 'hardware-acceleration';
+  if (name === 'isdiscordactivityready') return 'activity-core';
+  return '';
+}
+
+export function inferDiscordRequirements(logic) {
+  const usedBlueprintFunctions = [...new Set((logic?.programs || [])
+    .flatMap((program) => program?.graphs || [])
+    .flatMap((graph) => graph?.nodes || [])
+    .filter((node) => node?.kind === 'callFunction' && discordFeature(node?.function))
+    .map((node) => String(node.function)))]
+    .sort();
+  const features = [...new Set(usedBlueprintFunctions.map(discordFeature))].sort();
+  const richPresence = features.includes('rich-presence');
+  return {
+    schema: DISCORD_REQUIREMENTS_SCHEMA,
+    usedBlueprintFunctions,
+    features,
+    requiredOAuthScopes: richPresence ? ['identify', 'rpc.activities.write'] : ['identify'],
+    requiredEnvironment: richPresence ? { DISCORD_ENABLE_RICH_PRESENCE: 'true' } : {},
+  };
+}
+
+function validateDiscordRequirements(manifest, handoff, logic, errors) {
+  const expected = inferDiscordRequirements(logic);
+  for (const [label, actual] of [
+    ['export-manifest.json.discordRequirements', manifest.discordRequirements],
+    ['activity-handoff.json.discordRequirements', handoff.discordRequirements],
+  ]) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      errors.push(`${label} does not match Discord functions in logic/blueprints.json.`);
+    }
+  }
+}
 
 function placeholder(value) {
   return !value || /(?:replace[_ -]?me|your[_ -]|\.\.\.)/i.test(value);
@@ -294,7 +345,13 @@ function browserPayloadMetrics(root) {
 }
 
 function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
-  const required = [ASSET_DELIVERY_SCHEMA, 'ue5-html5-export/v4', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema);
+  const required = [
+    ASSET_DELIVERY_SCHEMA,
+    'ue5-html5-export/v4',
+    'ue5-html5-export/v5',
+    'ue5-html5-export/v6',
+    CURRENT_MANIFEST_SCHEMA,
+  ].includes(manifest.schema);
   const manifestDelivery = manifest.assetDelivery;
   const handoffDelivery = handoff.assetDelivery;
   if (!manifestDelivery && !handoffDelivery && !required) {
@@ -367,7 +424,8 @@ function assetPackFiles(root, includeAdapterModule = false) {
 }
 
 function validateAssetPack(root, manifest, handoff, errors, warnings) {
-  const required = manifest.schema === CURRENT_MANIFEST_SCHEMA || handoff.schema === CURRENT_HANDOFF_SCHEMA;
+  const required = ['ue5-html5-export/v6', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema)
+    || ['ue5-discord-activity-handoff/v7', CURRENT_HANDOFF_SCHEMA].includes(handoff.schema);
   const manifestPack = manifest.assetPack;
   const handoffPack = handoff.assetPack;
   if (!manifestPack && !handoffPack && !required) {
@@ -618,9 +676,22 @@ function validateUnrealHandoff(root, errors, warnings) {
   if (logic.schema !== 'ue-blueprint-ir/v1' || !Array.isArray(logic.programs)) {
     errors.push('logic/blueprints.json has an unsupported schema.');
   }
+  if (Array.isArray(logic.programs)
+      && (manifest.schema === CURRENT_MANIFEST_SCHEMA || handoff.schema === CURRENT_HANDOFF_SCHEMA)) {
+    validateDiscordRequirements(manifest, handoff, logic, errors);
+  }
 
-  const requiresAdapterContract = ['ue5-html5-export/v4', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema)
-    || ['ue5-discord-activity-handoff/v5', CURRENT_HANDOFF_SCHEMA].includes(handoff.schema);
+  const requiresAdapterContract = [
+    'ue5-html5-export/v4',
+    'ue5-html5-export/v5',
+    'ue5-html5-export/v6',
+    CURRENT_MANIFEST_SCHEMA,
+  ].includes(manifest.schema) || [
+    'ue5-discord-activity-handoff/v5',
+    'ue5-discord-activity-handoff/v6',
+    'ue5-discord-activity-handoff/v7',
+    CURRENT_HANDOFF_SCHEMA,
+  ].includes(handoff.schema);
   const manifestCounts = compatibilityCounts(
     manifest.blueprintCompatibility,
     'export-manifest.json.blueprintCompatibility',

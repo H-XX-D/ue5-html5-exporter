@@ -27,6 +27,7 @@ struct FUE5HTML5ExportResult
     int32 CustomAdapterBlueprintNodeCount = 0;
     int32 SupportedBlueprintNodeCount = 0;
     int32 UnsupportedBlueprintNodeCount = 0;
+    TSet<FString> UsedBlueprintFunctions;
     int64 BrowserPayloadBytes = 0;
     int64 BrowserPayloadBudgetBytes = 0;
     int64 IndexBytes = 0;

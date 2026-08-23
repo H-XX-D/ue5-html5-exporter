@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import {
   REQUIRED_EXPORT_FILES,
   REQUIRED_EXPORT_PATTERNS,
+  inferDiscordRequirements,
   validateActivityEnvironment,
   validateActivityExport,
   verifyActivityServices,
@@ -198,6 +199,29 @@ test('Activity preflight accepts a complete private configuration', () => {
   assert.deepEqual(validateActivityEnvironment(validEnvironment()).errors, []);
 });
 
+test('Discord requirements are inferred only from used Blueprint calls', () => {
+  const requirements = inferDiscordRequirements({
+    programs: [{
+      graphs: [{
+        nodes: [
+          { kind: 'callFunction', function: 'DiscordActivityChooseAndShareImage' },
+          { kind: 'callFunction', function: 'DiscordActivitySetRichPresence' },
+          { kind: 'callFunction', function: 'DiscordActivitySetRichPresence' },
+          { kind: 'functionEntry', function: 'DiscordActivityClearRichPresence' },
+          { kind: 'callFunction', function: 'PrintString' },
+        ],
+      }],
+    }],
+  });
+  assert.deepEqual(requirements, {
+    schema: 'ue5-discord-activity-requirements/v1',
+    usedBlueprintFunctions: ['DiscordActivityChooseAndShareImage', 'DiscordActivitySetRichPresence'],
+    features: ['image-sharing', 'rich-presence'],
+    requiredOAuthScopes: ['identify', 'rpc.activities.write'],
+    requiredEnvironment: { DISCORD_ENABLE_RICH_PRESENCE: 'true' },
+  });
+});
+
 test('Activity package preflight verifies the current reusable asset-pack contract and detects tampering', () => {
   const root = exportFixture();
   try {
@@ -216,9 +240,9 @@ test('Activity package preflight verifies the current reusable asset-pack contra
       supportedNodeCount: 2,
       unsupportedNodeCount: 0,
     };
-    manifest.schema = 'ue5-html5-export/v6';
+    manifest.schema = 'ue5-html5-export/v7';
     manifest.blueprintCompatibility = modernCounts;
-    handoff.schema = 'ue5-discord-activity-handoff/v7';
+    handoff.schema = 'ue5-discord-activity-handoff/v8';
     handoff.blueprintCompatibility = modernCounts;
     logic.projectAdapters = {
       schema: 'ue5-html5-custom-adapters/v1',
@@ -227,6 +251,9 @@ test('Activity package preflight verifies the current reusable asset-pack contra
       declaredFunctionCount: 0,
     };
     logic.programs[0].compatibility.projectAdapterCount = 0;
+    const discordRequirements = inferDiscordRequirements(logic);
+    manifest.discordRequirements = discordRequirements;
+    handoff.discordRequirements = discordRequirements;
     writeFileSync(manifestPath, JSON.stringify(manifest));
     writeFileSync(handoffPath, JSON.stringify(handoff));
     writeFileSync(logicPath, JSON.stringify(logic));
@@ -291,6 +318,17 @@ test('Activity package preflight verifies the current reusable asset-pack contra
     writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
 
     assert.deepEqual(validateActivityExport({ directory: root, packageOnly: true }).errors, []);
+    const validHandoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    writeFileSync(handoffPath, JSON.stringify({
+      ...validHandoff,
+      discordRequirements: {
+        ...validHandoff.discordRequirements,
+        requiredOAuthScopes: ['identify', 'rpc.activities.write'],
+      },
+    }));
+    assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
+      .some((error) => error.includes('does not match Discord functions')));
+    writeFileSync(handoffPath, JSON.stringify(validHandoff));
     writeFileSync(browserCertificationPath, JSON.stringify({
       ...browserCertification,
       assetPack: { ...browserCertification.assetPack, version: `sha256:${'0'.repeat(64)}` },

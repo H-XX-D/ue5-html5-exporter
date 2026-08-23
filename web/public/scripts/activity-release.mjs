@@ -10,6 +10,7 @@ import { parseEnv } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 import {
+  inferDiscordRequirements,
   validateActivityExport,
   verifyActivityServices,
 } from './activity-preflight.mjs';
@@ -187,6 +188,7 @@ export async function completeVercelOnlySecrets(options, environment, {
 export function hydrateUnrealPublicEnvironment(options, environment) {
   const hydrated = { ...environment };
   const targets = readActivityHandoffTargets(options.directory);
+  const requirements = readActivityHandoffRequirements(options.directory);
   const projectRef = options.supabaseProjectRef || targets.supabaseProjectRef;
   if (placeholder(hydrated.DISCORD_CLIENT_ID) && targets.discordApplicationId) {
     hydrated.DISCORD_CLIENT_ID = targets.discordApplicationId;
@@ -196,6 +198,9 @@ export function hydrateUnrealPublicEnvironment(options, environment) {
   }
   if (placeholder(hydrated.SUPABASE_URL) && projectRef) {
     hydrated.SUPABASE_URL = `https://${projectRef}.supabase.co`;
+  }
+  if (requirements.requiredEnvironment?.DISCORD_ENABLE_RICH_PRESENCE === 'true') {
+    hydrated.DISCORD_ENABLE_RICH_PRESENCE = 'true';
   }
   return hydrated;
 }
@@ -281,6 +286,13 @@ function readActivityHandoffContract(directory) {
   }
 }
 
+export function readActivityHandoffRequirements(directory) {
+  const requirements = readActivityHandoffContract(directory)?.discordRequirements;
+  return requirements?.schema === 'ue5-discord-activity-requirements/v1'
+    ? requirements
+    : inferDiscordRequirements({ programs: [] });
+}
+
 export function readActivityHandoffTargets(directory) {
   const handoff = readActivityHandoffContract(directory);
   if (!handoff) return {};
@@ -312,6 +324,7 @@ export function validateReleaseSelection(
   const errors = [];
   const warnings = [];
   const handoff = readActivityHandoffContract(options.directory);
+  const discordRequirements = readActivityHandoffRequirements(options.directory);
   if (handoff?.projectTargets
       && handoff.projectTargets.configured !== true) {
     const missing = Array.isArray(handoff.projectTargets.missingRequiredTargets)
@@ -360,12 +373,17 @@ export function validateReleaseSelection(
       && !/^(?:1|true|yes|on)$/i.test(String(environment.DISCORD_REQUIRE_PROXY_AUTH || ''))) {
     warnings.push('Production is selected while Discord proxy authentication is disabled.');
   }
+  if (discordRequirements.requiredEnvironment?.DISCORD_ENABLE_RICH_PRESENCE === 'true'
+      && !/^(?:1|true|yes|on)$/i.test(String(environment.DISCORD_ENABLE_RICH_PRESENCE || ''))) {
+    errors.push('Exported Rich Presence Blueprint nodes require DISCORD_ENABLE_RICH_PRESENCE=true.');
+  }
   return {
     errors,
     warnings,
     selectedVercelProject,
     selectedSupabaseProjectRef,
     handoffTargets,
+    discordRequirements,
   };
 }
 
@@ -388,6 +406,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     supabaseProjectRef: selection.selectedSupabaseProjectRef || null,
     discordApplicationId,
     discordInstallUrl,
+    discordRequirements: selection.discordRequirements,
     productionUrl: selection.handoffTargets.productionUrl || null,
     packagePreflight: true,
     supabase: options.migrate
@@ -396,7 +415,10 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     vercelEnvironment: variableNames.map((name) => ({
       name,
       sensitive: SENSITIVE_ENVIRONMENT.includes(name),
-      source: options.supabaseCliKeys
+      source: name === 'DISCORD_ENABLE_RICH_PRESENCE'
+          && selection.discordRequirements.requiredEnvironment?.DISCORD_ENABLE_RICH_PRESENCE === 'true'
+        ? 'unreal-blueprint-inference'
+        : options.supabaseCliKeys
           && ['SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY'].includes(name)
           && placeholder(environment[name])
         ? 'supabase-cli-at-apply'

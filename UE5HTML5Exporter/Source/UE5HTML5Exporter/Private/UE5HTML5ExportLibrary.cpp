@@ -379,10 +379,74 @@ namespace
         return Delivery;
     }
 
+    FString DiscordFeatureForFunction(const FString& Function)
+    {
+        const FString Name = Function.ToLower();
+        if (Name == TEXT("discordactivitysetrichpresence") || Name == TEXT("discordactivityclearrichpresence")) return TEXT("rich-presence");
+        if (Name == TEXT("discordactivitychooseandshareimage")) return TEXT("image-sharing");
+        if (Name == TEXT("discordactivityopeninvitedialog")) return TEXT("invitations");
+        if (Name == TEXT("discordactivitysharelink") || Name == TEXT("discordactivitygetlaunchcontext")) return TEXT("launch-sharing");
+        if (Name == TEXT("discordactivityopenexternallink")) return TEXT("external-links");
+        if (Name == TEXT("discordactivitygetparticipants")) return TEXT("participants");
+        if (Name.Contains(TEXT("entitlement")) || Name == TEXT("discordactivitygetskus") || Name == TEXT("discordactivitystartpurchase")) return TEXT("monetization");
+        if (Name.Contains(TEXT("worldstate")) || Name.Contains(TEXT("playerstate"))) return TEXT("persistence");
+        if (Name == TEXT("discordactivitybroadcast")) return TEXT("realtime");
+        if (Name.Contains(TEXT("orientation")) || Name.Contains(TEXT("interactivepip")) || Name.Contains(TEXT("platformbehaviors"))) return TEXT("display-controls");
+        if (Name == TEXT("discordactivitygetlocale")) return TEXT("locale");
+        if (Name == TEXT("discordactivityencouragehardwareacceleration")) return TEXT("hardware-acceleration");
+        if (Name == TEXT("isdiscordactivityready")) return TEXT("activity-core");
+        return FString();
+    }
+
+    bool RequiresDiscordRichPresence(const FUE5HTML5ExportResult& Result)
+    {
+        for (const FString& Function : Result.UsedBlueprintFunctions)
+        {
+            if (DiscordFeatureForFunction(Function) == TEXT("rich-presence")) return true;
+        }
+        return false;
+    }
+
+    TSharedRef<FJsonObject> BuildDiscordRequirements(const FUE5HTML5ExportResult& Result)
+    {
+        TArray<FString> UsedFunctions;
+        TSet<FString> Features;
+        const bool bRequiresRichPresence = RequiresDiscordRichPresence(Result);
+        for (const FString& Function : Result.UsedBlueprintFunctions)
+        {
+            const FString Feature = DiscordFeatureForFunction(Function);
+            if (Feature.IsEmpty()) continue;
+            UsedFunctions.Add(Function);
+            Features.Add(Feature);
+        }
+        UsedFunctions.Sort();
+        TArray<FString> FeatureNames = Features.Array();
+        FeatureNames.Sort();
+
+        auto JsonStrings = [](const TArray<FString>& Values)
+        {
+            TArray<TSharedPtr<FJsonValue>> ResultValues;
+            for (const FString& Value : Values) ResultValues.Add(MakeShared<FJsonValueString>(Value));
+            return ResultValues;
+        };
+
+        TSharedRef<FJsonObject> Requirements = MakeShared<FJsonObject>();
+        Requirements->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-requirements/v1"));
+        Requirements->SetArrayField(TEXT("usedBlueprintFunctions"), JsonStrings(UsedFunctions));
+        Requirements->SetArrayField(TEXT("features"), JsonStrings(FeatureNames));
+        TArray<FString> Scopes = { TEXT("identify") };
+        if (bRequiresRichPresence) Scopes.Add(TEXT("rpc.activities.write"));
+        Requirements->SetArrayField(TEXT("requiredOAuthScopes"), JsonStrings(Scopes));
+        TSharedRef<FJsonObject> RequiredEnvironment = MakeShared<FJsonObject>();
+        if (bRequiresRichPresence) RequiredEnvironment->SetStringField(TEXT("DISCORD_ENABLE_RICH_PRESENCE"), TEXT("true"));
+        Requirements->SetObjectField(TEXT("requiredEnvironment"), RequiredEnvironment);
+        return Requirements;
+    }
+
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v7"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v8"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
         const bool bNeedsRuntimeValidation = Result.CustomAdapterBlueprintNodeCount > 0;
@@ -407,6 +471,7 @@ namespace
         Activity->SetStringField(TEXT("workflow"), TEXT("DISCORD_ACTIVITY_WORKFLOW.md"));
         Activity->SetStringField(TEXT("releaseTool"), TEXT("scripts/activity-release.mjs"));
         Root->SetObjectField(TEXT("discordActivity"), Activity);
+        Root->SetObjectField(TEXT("discordRequirements"), BuildDiscordRequirements(Result));
 
         TSharedRef<FJsonObject> ProjectTargets = MakeShared<FJsonObject>();
         ProjectTargets->SetStringField(TEXT("source"), TEXT("Unreal Project Settings > Plugins > UE5 HTML5 Discord Activity"));
@@ -435,6 +500,10 @@ namespace
             FString(TEXT("ACTIVITY_STATE_SECRET")) })
         {
             RequiredEnvironment.Add(MakeShared<FJsonValueString>(Name));
+        }
+        if (RequiresDiscordRichPresence(Result))
+        {
+            RequiredEnvironment.Add(MakeShared<FJsonValueString>(TEXT("DISCORD_ENABLE_RICH_PRESENCE")));
         }
         Root->SetArrayField(TEXT("releaseEnvironment"), RequiredEnvironment);
 
@@ -473,6 +542,10 @@ namespace
         {
             ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run the local Discord preview and exercise every project-owned custom adapter before release; static declaration and registration checks do not certify behavior.")));
         }
+        if (RequiresDiscordRichPresence(Result))
+        {
+            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Rich Presence Blueprint calls were detected; the guided release will enable DISCORD_ENABLE_RICH_PRESENCE and request rpc.activities.write automatically.")));
+        }
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("For a first-person target-range export, run the included certify-browser launcher and retain its passing browser-certification.json report.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Review the non-secret project targets copied from Unreal Project Settings; the release tool refuses mismatched Discord, Vercel, or Supabase identities.")));
@@ -498,7 +571,7 @@ namespace
     bool WriteManifest(const FString& OutputDirectory, UWorld* World, const TSet<AActor*>& SelectedActors, FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v6"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v7"));
         const TSharedPtr<IPlugin> ExporterPlugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
         Root->SetStringField(TEXT("exporterVersion"), ExporterPlugin.IsValid() ? ExporterPlugin->GetDescriptor().VersionName : TEXT("unknown"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
@@ -545,6 +618,7 @@ namespace
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
         Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
+        Root->SetObjectField(TEXT("discordRequirements"), BuildDiscordRequirements(Result));
         Root->SetObjectField(TEXT("assetDelivery"), BuildAssetDelivery(Result));
         Root->SetObjectField(TEXT("assetPack"), BuildAssetPackJson(Result));
 
@@ -879,6 +953,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     Result.CustomAdapterBlueprintNodeCount = BlueprintSummary.CustomAdapterNodeCount;
     Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
     Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;
+    Result.UsedBlueprintFunctions = BlueprintSummary.UsedFunctions;
     Result.Warnings.Append(BlueprintSummary.Warnings);
 
     UGLTFExportOptions* Options = NewObject<UGLTFExportOptions>();

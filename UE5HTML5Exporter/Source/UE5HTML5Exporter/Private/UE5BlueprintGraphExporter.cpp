@@ -367,7 +367,11 @@ namespace
         Json->SetNumberField(TEXT("y"), Node->NodePosY);
         if (!Event.IsEmpty()) Json->SetStringField(TEXT("event"), Event);
         if (IsSupportedBrowserInputEvent(Event)) Json->SetStringField(TEXT("eventAdapter"), TEXT("browser-touch-controls"));
-        if (!Function.IsEmpty()) Json->SetStringField(TEXT("function"), Function);
+        if (!Function.IsEmpty())
+        {
+            Json->SetStringField(TEXT("function"), Function);
+            if (Kind == TEXT("callFunction")) Summary.UsedFunctions.Add(Function);
+        }
         const FString Variable = VariableName(Node);
         if (!Variable.IsEmpty()) Json->SetStringField(TEXT("variable"), Variable);
         if (Kind == TEXT("inputAction"))
