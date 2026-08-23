@@ -1,6 +1,7 @@
 #include "UE5HTML5ExportLibrary.h"
 #include "UE5BlueprintGraphExporter.h"
 #include "UE5HTML5DiscordActivitySettings.h"
+#include "UE5HTML5SHA256.h"
 
 #include "Components/ActorComponent.h"
 #include "Dom/JsonObject.h"
@@ -10,7 +11,6 @@
 #include "Exporters/GLTFExporter.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
-#include "HAL/PlatformMisc.h"
 #include "HAL/PlatformFileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
@@ -245,6 +245,12 @@ namespace
 
     bool BuildAssetPack(const FString& OutputDirectory, FUE5HTML5ExportResult& Result, FString& OutError)
     {
+        if (!UE5HTML5::VerifySHA256())
+        {
+            OutError = TEXT("The portable SHA-256 implementation failed its known-vector self-check.");
+            return false;
+        }
+
         TArray<FString> Files;
         IFileManager::Get().FindFilesRecursive(
             Files,
@@ -281,16 +287,10 @@ namespace
                 OutError = FString::Printf(TEXT("Could not read asset-pack resource: %s"), *File);
                 return false;
             }
-            FSHA256Signature Signature;
-            if (!FPlatformMisc::GetSHA256Signature(Bytes.GetData(), static_cast<uint32>(Bytes.Num()), Signature))
-            {
-                OutError = FString::Printf(TEXT("Could not hash asset-pack resource: %s"), *File);
-                return false;
-            }
             FUE5HTML5AssetPackResource Resource;
             Resource.Path = BrowserRelativePath(OutputDirectory, File);
             Resource.Kind = AssetPackKind(Resource.Path);
-            Resource.SHA256 = Signature.ToString().ToLower();
+            Resource.SHA256 = UE5HTML5::SHA256Hex(Bytes.GetData(), static_cast<uint64>(Bytes.Num()));
             Resource.Bytes = FileSize;
             Result.AssetPackResources.Add(Resource);
             Result.AssetPackBytes += FileSize;
@@ -298,21 +298,9 @@ namespace
         }
 
         FTCHARToUTF8 CanonicalUtf8(*Canonical);
-        if (CanonicalUtf8.Length() > static_cast<int64>(MAX_uint32))
-        {
-            OutError = TEXT("Asset-pack index is too large to hash.");
-            return false;
-        }
-        FSHA256Signature PackSignature;
-        if (!FPlatformMisc::GetSHA256Signature(
-                CanonicalUtf8.Get(),
-                static_cast<uint32>(CanonicalUtf8.Length()),
-                PackSignature))
-        {
-            OutError = TEXT("Could not hash the asset-pack index.");
-            return false;
-        }
-        Result.AssetPackVersion = PackSignature.ToString().ToLower();
+        Result.AssetPackVersion = UE5HTML5::SHA256Hex(
+            reinterpret_cast<const uint8*>(CanonicalUtf8.Get()),
+            static_cast<uint64>(CanonicalUtf8.Length()));
         return true;
     }
 

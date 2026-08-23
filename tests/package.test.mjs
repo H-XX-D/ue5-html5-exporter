@@ -164,7 +164,15 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /customAdapterNodeCount/);
   assert.match(source, /assetDelivery/);
   assert.match(source, /ue5-html5-asset-pack\/v1/);
-  assert.match(source, /GetSHA256Signature/);
+  assert.match(source, /UE5HTML5::SHA256Hex/);
+  assert.doesNotMatch(source, /GetSHA256Signature|FPlatformMisc/);
+  const sha256 = read('Source/UE5HTML5Exporter/Private/UE5HTML5SHA256.cpp');
+  assert.match(sha256, /class FSHA256State/);
+  assert.match(sha256, /TotalBytes \* 8u/);
+  assert.match(sha256, /0123456789abcdef/);
+  assert.match(sha256, /e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855/);
+  assert.match(sha256, /ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad/);
+  assert.match(source, /VerifySHA256/);
   assert.match(source, /browserPayloadBytes/);
   assert.match(source, /not a Discord platform limit or a performance certification/);
   assert.match(source, /unreal-export-needs-blueprint-adapters/);
