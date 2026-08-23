@@ -177,6 +177,7 @@ vercel promote DEPLOYMENT_URL
 
 1. Select the verified Discord application whose Application ID matches `DISCORD_CLIENT_ID`.
 2. Enable **Activities**, then enable both **Guild Install** and **User Install** so the Activity can launch in servers, DMs, and group DMs.
+   Keep Discord's provided install link. The release plan prints the exact URL as `discordInstallUrl`; it has the form `https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID`. Choose **Add to My Apps** for user access or **Add to Server** for guild access. An unpublished Activity remains limited to its owner, developer-team members, and approved testers, so grant development access before asking a teammate to use the link.
 3. Add the required root URL mapping:
 
    ```text
@@ -198,6 +199,8 @@ vercel promote DEPLOYMENT_URL
    - Opening the Vercel URL directly still loads the standalone viewer but does not establish an Activity session.
 
 The live certificate proves two distinct authenticated accounts checked into one Discord Activity instance during its ten-minute window and that Discord reported at least two instance participants. It does not prove exact simultaneity, Broadcast/game-state convergence, reconnect recovery, account-isolated saves, mobile layout/performance, purchases, or native Unreal compilation. Record those results separately instead of treating the certificate as an all-purpose release approval.
+
+If an in-development Activity is missing from the Developer Activity Shelf, first confirm that Discord **Developer Mode** is enabled, the signed-in Discord account owns the application or belongs to its team, **Enable Activities** is on, **Web** is selected under Supported Platforms, and the application has the `EMBEDDED` flag plus a global Primary Entry Point. Search the exact application name. If the configuration is correct but the ordinary App Launcher still lacks the app, open `discordInstallUrl`, choose **Add to My Apps**, then reopen the shelf. Restarting Discord is a last client-cache refresh step; it is not evidence that the hosted Activity itself works.
 
 ## Blueprint and JavaScript bridge
 

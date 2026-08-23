@@ -504,8 +504,14 @@ test('guided dry-run needs no environment file when Unreal targets are configure
   const result = await executeActivityRelease(options, loadReleaseEnvironment({}, {}));
   assert.equal(result.ok, true);
   assert.equal(result.plan.discordApplicationId, handoff.projectTargets.discordApplicationId);
+  assert.equal(
+    result.plan.discordInstallUrl,
+    `https://discord.com/oauth2/authorize?client_id=${handoff.projectTargets.discordApplicationId}`,
+  );
   assert.equal(result.plan.vercelProject, handoff.projectTargets.vercelProjectName);
   assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('Guild Install and User Install')));
+  assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes(result.plan.discordInstallUrl)));
+  assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('Add to My Apps')));
   assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('Public Client disabled')));
   assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('/supabase')));
   const sources = Object.fromEntries(result.plan.vercelEnvironment.map((entry) => [entry.name, entry.source]));

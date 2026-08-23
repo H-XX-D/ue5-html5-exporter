@@ -371,6 +371,10 @@ export function validateReleaseSelection(
 
 export function buildActivityReleasePlan(options, environment, vercelLink = readVercelLink(options.directory)) {
   const selection = validateReleaseSelection(options, environment, vercelLink);
+  const discordApplicationId = selection.handoffTargets.discordApplicationId || environment.DISCORD_CLIENT_ID || null;
+  const discordInstallUrl = discordApplicationId
+    ? `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(discordApplicationId)}`
+    : null;
   const variableNames = [...PUBLIC_ENVIRONMENT, ...SENSITIVE_ENVIRONMENT]
     .filter((name) => Boolean(environment[name])
       || (options.vercelOnlySecrets && REQUIRED_SENSITIVE_ENVIRONMENT.includes(name))
@@ -382,7 +386,8 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     environment: options.environment,
     vercelProject: selection.selectedVercelProject || null,
     supabaseProjectRef: selection.selectedSupabaseProjectRef || null,
-    discordApplicationId: selection.handoffTargets.discordApplicationId || environment.DISCORD_CLIENT_ID || null,
+    discordApplicationId,
+    discordInstallUrl,
     productionUrl: selection.handoffTargets.productionUrl || null,
     packagePreflight: true,
     supabase: options.migrate
@@ -411,6 +416,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     },
     discordPortalChecklist: [
       'Installation: enable both Guild Install and User Install.',
+      `Installation: use ${discordInstallUrl || 'the Discord-provided install link'} to choose Add to My Apps for user access or Add to Server for guild access. Private development access still requires the application owner, a developer-team member, or an approved tester.`,
       'OAuth2: add a redirect URI; https://127.0.0.1 is sufficient when only the Embedded App SDK handles authorization.',
       'OAuth2: leave Public Client disabled; this export exchanges authorization codes in the Vercel server function and keeps the client secret off the browser.',
       'Activities: enable Activities and keep a global Primary Entry Point using DISCORD_LAUNCH_ACTIVITY.',
