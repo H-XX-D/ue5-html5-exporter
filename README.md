@@ -23,6 +23,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Strict **Import/Export Public Discord Activity Targets…** commands so a release operator can hand Unreal teammates one cross-platform JSON file instead of asking them to copy four service IDs; unknown fields, malformed values, and partial target sets are rejected before `DefaultGame.ini` changes
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 - Automatic mobile FPS movement/look/jump/fire controls that execute the stock `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` Blueprint branches before using a browser fallback
+- A drag-and-drop **UE5 HTML5 Practice Target** actor and Blueprint-spawnable target component; health, damage per shot, score, hit reaction, depletion, and respawn are configured in Unreal and run in the browser without JavaScript
 - A readiness chain that rejects incomplete Unreal targets, missing Discord launch commands, Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing the portal checklist and URL mappings
 - A double-click Windows installer that selects a `.uproject`, checks the exact Unreal/compiler toolchain, installs the plugin, and launches the project without requiring command-line or web-development knowledge
 - A commit-bound Win64 certification workflow with per-file SHA-256 inventories, a detached report checksum, and GitHub-signed SLSA provenance for downloadable Windows artifacts
@@ -103,6 +104,12 @@ Search the Blueprint palette for **UE5 HTML5 → Discord Activity**. The runtime
 Add the **UE5 HTML5 Discord Activity Listener** interface to a Blueprint to receive connection readiness, safe unavailable/error/warning diagnostics, multiplayer Broadcast messages, opaque Presence state, connected-participant changes, server-verified entitlement changes, and Discord display/mobile events without SDK code. Incoming data exists only in browser memory unless game logic explicitly saves it; the exporter does not create player profiles or persist participant identity.
 
 State and Broadcast payloads are JSON strings. Save nodes accept an optional expected revision: leave it at `-1` for unconditional save, or pass the revision from the previous load/save to reject stale concurrent writes.
+
+## Zero-code FPS targets
+
+For a target-range prototype, drag **UE5 HTML5 Practice Target** into the level from the Unreal actor palette and place it directly ahead at the player's crosshair height. Select its **Target Rules** component and set **Max Health**, **Damage Per Shot**, **Score Value**, **Respawn**, **Respawn Delay**, and **Hit Flash** in Details. You can instead add **UE5 HTML5 Target** to an existing Blueprint actor. Keep Actor Labels unique: the exporter uses the label/name to bind each definition to its glTF object. The generated FPS runtime then applies center-screen raycast hits, hides depleted targets, updates the score/remaining-target HUD, and respawns them when configured. **Reset view** also resets the range. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md#build-a-first-target-range-entirely-in-unreal) for the exact three-shot smoke test and binding troubleshooting.
+
+For native Unreal play, call **Apply Target Practice Damage** on the same component from the project's weapon trace/projectile and use **On Target Hit**, **On Target Depleted**, and **On Target Respawned** for game-specific effects. The exported first-person fallback supplies the browser shot automatically. This component is deliberately a prototype loop, not an authoritative competitive damage system; multiplayer combat should validate hits on a trusted server adapter.
 
 ## Automated export
 

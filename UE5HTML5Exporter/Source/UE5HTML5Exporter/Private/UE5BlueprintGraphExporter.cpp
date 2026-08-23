@@ -48,6 +48,7 @@
 #include "Modules/ModuleManager.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "UE5HTML5TargetComponent.h"
 #include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
 
@@ -521,6 +522,34 @@ namespace
     {
         TSharedRef<FJsonObject> Gameplay = MakeShared<FJsonObject>();
         Gameplay->SetStringField(TEXT("profile"), TEXT("scene"));
+        TArray<TSharedPtr<FJsonValue>> TargetDefinitions;
+        if (World)
+        {
+            for (TActorIterator<AActor> It(World); It; ++It)
+            {
+                const AActor* Actor = *It;
+                const UUE5HTML5TargetComponent* Target = Actor
+                    ? Actor->FindComponentByClass<UUE5HTML5TargetComponent>()
+                    : nullptr;
+                if (!Actor || !Target)
+                {
+                    continue;
+                }
+
+                TSharedRef<FJsonObject> TargetJson = MakeShared<FJsonObject>();
+                TargetJson->SetStringField(TEXT("id"), Actor->GetPathName());
+                TargetJson->SetStringField(TEXT("label"), Actor->GetActorLabel());
+                TargetJson->SetStringField(TEXT("objectName"), Actor->GetName());
+                TargetJson->SetNumberField(TEXT("maxHealth"), FMath::Max(1, Target->MaxHealth));
+                TargetJson->SetNumberField(TEXT("damagePerShot"), FMath::Max(1, Target->DamagePerShot));
+                TargetJson->SetNumberField(TEXT("scoreValue"), FMath::Max(0, Target->ScoreValue));
+                TargetJson->SetBoolField(TEXT("respawn"), Target->bRespawn);
+                TargetJson->SetNumberField(TEXT("respawnDelaySeconds"), FMath::Max(0.05f, Target->RespawnDelaySeconds));
+                TargetJson->SetNumberField(TEXT("hitFlashSeconds"), FMath::Max(0.0f, Target->HitFlashSeconds));
+                TargetDefinitions.Add(MakeShared<FJsonValueObject>(TargetJson));
+            }
+        }
+        Gameplay->SetArrayField(TEXT("targets"), TargetDefinitions);
         if (!GameModeClass) return Gameplay;
 
         const AGameModeBase* GameMode = GameModeClass->GetDefaultObject<AGameModeBase>();

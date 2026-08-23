@@ -5,6 +5,7 @@ import { BlueprintRuntime } from './blueprint-runtime.js';
 import { FirstPersonController } from './first-person-controller.js';
 import { loadProjectAdapters, normalizeAdapterName } from './project-adapters.js';
 import { BrowserRuntimeAdapters } from './runtime-adapters.js';
+import { TargetPracticeRuntime } from './target-practice.js';
 import './style.css';
 
 const canvas = document.querySelector('#scene');
@@ -24,6 +25,9 @@ const blueprintLog = document.querySelector('#blueprint-log');
 const activityStatus = document.querySelector('#activity-status');
 const fpsHud = document.querySelector('#fps-hud');
 const fpsPrompt = document.querySelector('#fps-prompt');
+const targetStatus = document.querySelector('#fps-target-status');
+const targetScore = document.querySelector('#fps-target-score');
+const targetCount = document.querySelector('#fps-target-count');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -61,6 +65,7 @@ let blueprintRuntime = null;
 let blueprintDocument = null;
 let runtimeAdapters = null;
 let firstPersonController = null;
+let targetPractice = null;
 let activityBridge = null;
 let exportManifest = null;
 let sceneStats = 'Preparing renderer…';
@@ -95,6 +100,7 @@ window.UE5HTML5 = {
   get runtime() { return blueprintRuntime; },
   get adapters() { return runtimeAdapters; },
   get gameplay() { return firstPersonController; },
+  get targetPractice() { return targetPractice; },
   get activity() { return activityBridge; },
   get activityReady() { return activityPromise; },
   get projectAdapters() { return projectAdapters; },
@@ -182,6 +188,9 @@ function clearContent() {
   runtimeAdapters = null;
   firstPersonController?.dispose();
   firstPersonController = null;
+  targetPractice?.dispose();
+  targetPractice = null;
+  targetStatus.hidden = true;
   fpsHud.hidden = true;
   controls.enabled = true;
   if (!content) return;
@@ -245,6 +254,14 @@ async function configureBlueprintLogic() {
       print: showBlueprintMessage,
       diagnostic: () => blueprintDocument && blueprintRuntime && showLogicReport(blueprintDocument, blueprintRuntime),
     }, window);
+    targetPractice = new TargetPracticeRuntime(content, blueprintDocument.gameplay?.targets, {
+      state: (state) => {
+        targetStatus.hidden = state.configuredTargets === 0;
+        targetScore.textContent = String(state.score);
+        targetCount.textContent = `${state.activeTargets}/${state.configuredTargets}`;
+        targetStatus.dataset.bound = state.boundTargets === state.configuredTargets ? 'complete' : 'partial';
+      },
+    });
     firstPersonController = new FirstPersonController(camera, canvas, content, blueprintDocument.gameplay, {
       state: ({ locked, touch }) => {
         fpsHud.hidden = false;
@@ -261,7 +278,8 @@ async function configureBlueprintLogic() {
       touchJumpStart: (args) => Boolean(blueprintRuntime?.call('Touch Jump Start', null, args)),
       touchJumpEnd: (args) => Boolean(blueprintRuntime?.call('Touch Jump End', null, args)),
       shoot: (hit) => {
-        const args = { value: true, actionValue: true, triggerEvent: 'Started', hit };
+        const targetHit = targetPractice?.applyHit(hit) || null;
+        const args = { value: true, actionValue: true, triggerEvent: 'Started', hit, targetHit };
         blueprintRuntime?.call('IA_Shoot', null, args);
         blueprintRuntime?.call('InputAction_IA_Shoot', null, args);
       },
@@ -366,7 +384,10 @@ function load(url, label = 'scene.glb') {
 }
 
 document.querySelector('#reset').addEventListener('click', () => {
-  if (firstPersonController?.enabled) firstPersonController.teleportToStart();
+  if (firstPersonController?.enabled) {
+    firstPersonController.teleportToStart();
+    targetPractice?.reset();
+  }
   else if (content) frameObject(content);
 });
 document.querySelector('#fullscreen').addEventListener('click', () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());

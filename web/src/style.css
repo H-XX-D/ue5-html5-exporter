@@ -133,6 +133,21 @@ button:hover, .file-button:hover { border-color: #6fe7cb88; background: #17232e;
   font-size: 12px;
   white-space: nowrap;
 }
+.fps-target-status {
+  position: absolute;
+  left: calc(24px + var(--sail));
+  top: calc(92px + var(--sait));
+  display: flex;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid #6fe7cb55;
+  border-radius: 9px;
+  background: #09111ae8;
+  color: #c9d5e1;
+  font: 600 12px/1 ui-monospace, monospace;
+}
+.fps-target-status strong { color: #7fffd4; }
+.fps-target-status[data-bound="partial"] { border-color: #ffb45466; }
 
 .touch-controls {
   position: absolute;

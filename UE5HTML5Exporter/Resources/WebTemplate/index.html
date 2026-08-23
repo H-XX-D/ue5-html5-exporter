@@ -7,8 +7,8 @@
     <meta name="ue5-activity-api" content="/api/activity" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070b10'/%3E%3Cpath d='M17 17v21c0 8 5 12 15 12s15-4 15-12V17h-9v21c0 3-2 5-6 5s-6-2-6-5V17z' fill='%237fffd4'/%3E%3C/svg%3E" />
     <title>UE5 Web Export</title>
-    <script type="module" crossorigin src="./runtime/viewer-CqJn0V0f.js"></script>
-    <link rel="stylesheet" crossorigin href="./runtime/index-I_jSZ3PW.css">
+    <script type="module" crossorigin src="./runtime/viewer-CxBuvyqt.js"></script>
+    <link rel="stylesheet" crossorigin href="./runtime/index-C5i14C9N.css">
   </head>
   <body>
     <main id="viewport" aria-label="3D scene">
@@ -47,6 +47,11 @@
       <div id="fps-hud" class="fps-hud" hidden>
         <span class="crosshair" aria-hidden="true"></span>
         <span id="fps-prompt" class="fps-prompt">Click to play · WASD move · Mouse look · Space jump · Click shoot</span>
+        <span id="fps-target-status" class="fps-target-status" hidden>
+          Score <strong id="fps-target-score">0</strong>
+          <span aria-hidden="true">·</span>
+          Targets <strong id="fps-target-count">0/0</strong>
+        </span>
       </div>
       <div id="touch-controls" class="touch-controls" aria-label="Touch game controls" hidden>
         <div class="touch-look" data-touch-look aria-label="Drag to look"></div>

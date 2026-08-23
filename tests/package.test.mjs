@@ -397,6 +397,37 @@ test('first-person controller converts Unreal coordinates and consumes exported 
   }, { maxTouchPoints: 5 }), false);
 });
 
+test('Unreal target component exports a no-JavaScript target-practice contract', () => {
+  const component = read('Source/UE5HTML5ExporterRuntime/Public/UE5HTML5TargetComponent.h');
+  const implementation = read('Source/UE5HTML5ExporterRuntime/Private/UE5HTML5TargetComponent.cpp');
+  const targetActor = read('Source/UE5HTML5ExporterRuntime/Public/UE5HTML5PracticeTargetActor.h');
+  const targetActorImplementation = read('Source/UE5HTML5ExporterRuntime/Private/UE5HTML5PracticeTargetActor.cpp');
+  const exporter = read('Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.cpp');
+  const main = readFileSync(new URL('../web/src/main.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+
+  assert.match(component, /BlueprintSpawnableComponent/);
+  assert.match(component, /MaxHealth/);
+  assert.match(component, /DamagePerShot/);
+  assert.match(component, /ScoreValue/);
+  assert.match(component, /RespawnDelaySeconds/);
+  assert.match(component, /ApplyTargetPracticeDamage/);
+  assert.match(component, /OnTargetDepleted/);
+  assert.match(implementation, /SetActorHiddenInGame\(true\)/);
+  assert.match(implementation, /SetTimer/);
+  assert.match(targetActor, /UE5 HTML5 Practice Target/);
+  assert.match(targetActor, /TargetRules/);
+  assert.match(targetActorImplementation, /Engine\/BasicShapes\/Cube/);
+  assert.match(targetActorImplementation, /CreateDefaultSubobject<UUE5HTML5TargetComponent>/);
+  assert.match(exporter, /FindComponentByClass<UUE5HTML5TargetComponent>/);
+  assert.match(exporter, /SetArrayField\(TEXT\("targets"\)/);
+  assert.match(exporter, /hitFlashSeconds/);
+  assert.match(main, /TargetPracticeRuntime/);
+  assert.match(main, /targetPractice\?\.applyHit\(hit\)/);
+  assert.match(html, /fps-target-score/);
+  assert.match(html, /fps-target-count/);
+});
+
 test('mobile first-person controls provide move, look, jump, and fire without pointer lock', async () => {
   const THREE = await import('three');
   const { FirstPersonController } = await import('../web/src/first-person-controller.js');

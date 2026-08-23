@@ -44,6 +44,14 @@ The listener interface emits `Connection State Changed`, `Ready`, `Unavailable`,
 
 Diagnostics follow a strict privacy boundary. The bridge forwards normalized state/reason/error/command codes and fixed messages only. Raw SDK error objects, response bodies, stack traces, access tokens, user identifiers, private Realtime topics, and Supabase details stay out of Blueprint event arguments and are never persisted by this adapter.
 
+## First-person target practice
+
+`UE5 HTML5 Practice Target` is a ready-to-place cube actor, while `UE5 HTML5 Target` is a Blueprint-spawnable component for existing actors. The graph exporter writes the placed actor identity plus health, per-shot damage, score, hit-flash time, and respawn policy under `gameplay.targets`. The browser binds each definition to the matching glTF actor label/name, applies the existing center-screen raycast, and owns only the local target-range state and HUD.
+
+The component exposes `Apply Target Practice Damage`, `On Target Hit`, `On Target Depleted`, and `On Target Respawned` so the same values can drive native Unreal play. Browser fallback fire automatically drives the exported target contract and also continues to raise the normal `IA_Shoot` Blueprint input event. Only bound targets contribute to the active/depleted counts. If the HUD begins at `Targets 0/1`, the metadata exported but its visible glTF actor did not bind; save the level, confirm a unique Actor Label on the mesh-owning actor, and export again. Ordinary scene geometry never becomes a scoring target.
+
+This is a convenience adapter for prototypes, training ranges, and cooperative Activity games. Browser hit results are client-controlled and must not be treated as authoritative competitive combat without a project-owned server validation adapter.
+
 ### Local Blueprint preview
 
 **Tools → HTML5 Export → Export & Preview Discord Blueprint Logic** creates a disposable export under the Unreal project's `Saved` directory and launches it on `127.0.0.1` with `?ue5_discord_preview=1`. That flag is ignored on non-loopback hosts. The browser uses Discord's packaged `DiscordSDKMock`, a synthetic **Mock Player**, looped-back Broadcast events, mock purchase entitlements, and browser-local world/player state with the same optimistic revision checks as production. No Discord, Vercel, Supabase, OAuth, raw player identity, or billing system is contacted.
