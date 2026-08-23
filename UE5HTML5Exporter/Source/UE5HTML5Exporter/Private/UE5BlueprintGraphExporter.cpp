@@ -319,7 +319,13 @@ namespace
         return Json;
     }
 
-    TSharedRef<FJsonObject> SerializeNode(const UEdGraphNode* Node, const FString& GraphName, const TSet<FString>& BlueprintFunctions, FUE5BlueprintExportSummary& Summary, TArray<TSharedPtr<FJsonValue>>& Unsupported)
+    TSharedRef<FJsonObject> SerializeNode(
+        const UEdGraphNode* Node,
+        const FString& BlueprintName,
+        const FString& GraphName,
+        const TSet<FString>& BlueprintFunctions,
+        FUE5BlueprintExportSummary& Summary,
+        TArray<TSharedPtr<FJsonValue>>& Unsupported)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         const FString Kind = NodeKind(Node);
@@ -397,6 +403,19 @@ namespace
         else
         {
             ++Summary.UnsupportedNodeCount;
+            FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+            NodeTitle.ReplaceInline(TEXT("\r"), TEXT(" "));
+            NodeTitle.ReplaceInline(TEXT("\n"), TEXT(" "));
+            const FString FunctionDetail = Function.IsEmpty()
+                ? FString()
+                : FString::Printf(TEXT(" — function %s"), *Function);
+            Summary.UnsupportedNodes.Add(FString::Printf(
+                TEXT("%s / %s / %s [%s]%s"),
+                *BlueprintName,
+                *GraphName,
+                *NodeTitle,
+                *Node->GetClass()->GetName(),
+                *FunctionDetail));
             TSharedRef<FJsonObject> Issue = MakeShared<FJsonObject>();
             Issue->SetStringField(TEXT("graph"), GraphName);
             Issue->SetStringField(TEXT("node"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
@@ -779,7 +798,13 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, con
             TArray<TSharedPtr<FJsonValue>> Nodes;
             for (const UEdGraphNode* Node : Graph->Nodes)
             {
-                if (Node) Nodes.Add(MakeShared<FJsonValueObject>(SerializeNode(Node, Graph->GetName(), BlueprintFunctions, Summary, Unsupported)));
+                if (Node) Nodes.Add(MakeShared<FJsonValueObject>(SerializeNode(
+                    Node,
+                    Blueprint->GetName(),
+                    Graph->GetName(),
+                    BlueprintFunctions,
+                    Summary,
+                    Unsupported)));
             }
             GraphJson->SetArrayField(TEXT("nodes"), Nodes);
             GraphValues.Add(MakeShared<FJsonValueObject>(GraphJson));

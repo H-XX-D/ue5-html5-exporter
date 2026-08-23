@@ -151,6 +151,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("DiscordActivityReadinessTooltip", "Check the exporter and runtime prerequisites before measuring Blueprint compatibility during export."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5BlueprintCompatibility",
+        LOCTEXT("BlueprintCompatibility", "Check Blueprint Web Compatibility…"),
+        LOCTEXT("BlueprintCompatibilityTooltip", "Scan the current map's exported Blueprint scope without exporting scene assets, then write a readable adapter report."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive)));
 }
 
 void FUE5HTML5ExporterModule::OpenDiscordActivitySettings()
@@ -204,6 +211,58 @@ void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()
         return;
     }
     FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+}
+
+void FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoCompatibilityWorld", "Open a level before checking Blueprint web compatibility."));
+        return;
+    }
+
+    const FString OutputDirectory = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UE5HTML5/BlueprintCompatibility")));
+    const FUE5HTML5BlueprintCompatibilityReport Report =
+        FUE5HTML5ExportLibrary::AnalyzeBlueprintCompatibility(World, OutputDirectory);
+    if (!Report.bSuccess)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(
+            LOCTEXT("BlueprintCompatibilityFailed", "Blueprint compatibility check failed:\n{0}"),
+            FText::FromString(Report.Error)));
+        return;
+    }
+
+    FString Message = FString::Printf(
+        TEXT("BLUEPRINT WEB COMPATIBILITY\n\n")
+        TEXT("%d of %d nodes are supported across %d Blueprints and %d actor instances.\n"),
+        Report.SupportedNodeCount,
+        Report.NodeCount,
+        Report.BlueprintCount,
+        Report.ActorInstanceCount);
+    if (Report.UnsupportedNodeCount == 0)
+    {
+        Message += TEXT("\nNo unsupported nodes were found in the current export scope.\n");
+    }
+    else
+    {
+        Message += FString::Printf(TEXT("\n%d nodes require web adapters:\n"), Report.UnsupportedNodeCount);
+        const int32 VisibleCount = FMath::Min(Report.UnsupportedNodes.Num(), 12);
+        for (int32 Index = 0; Index < VisibleCount; ++Index)
+        {
+            Message += FString::Printf(TEXT("  - %s\n"), *Report.UnsupportedNodes[Index]);
+        }
+        if (Report.UnsupportedNodes.Num() > VisibleCount)
+        {
+            Message += FString::Printf(TEXT("  ... and %d more in the report.\n"), Report.UnsupportedNodes.Num() - VisibleCount);
+        }
+    }
+    Message += TEXT("\nThis fast check does not export scene assets or certify browser runtime behavior.\n\nOpen the complete report folder now?");
+    if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) == EAppReturnType::Yes)
+    {
+        FPlatformProcess::ExploreFolder(*Report.OutputDirectory);
+    }
 }
 
 void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const bool bDiscordGuided)

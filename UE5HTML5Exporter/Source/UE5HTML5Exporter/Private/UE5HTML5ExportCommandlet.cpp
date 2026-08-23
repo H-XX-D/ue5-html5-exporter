@@ -3,6 +3,7 @@
 #include "FileHelpers.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/Paths.h"
 #include "UE5HTML5ExportLibrary.h"
 
 UUE5HTML5ExportCommandlet::UUE5HTML5ExportCommandlet()
@@ -18,12 +19,19 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
     FString MapPath;
     FString OutputDirectory;
     const bool bCheckOnly = FParse::Param(*Params, TEXT("CheckOnly"));
+    const bool bBlueprintCheckOnly = FParse::Param(*Params, TEXT("BlueprintCheckOnly"));
+    const bool bFailOnUnsupported = FParse::Param(*Params, TEXT("FailOnUnsupported"));
     FParse::Value(*Params, TEXT("Map="), MapPath);
     FParse::Value(*Params, TEXT("Output="), OutputDirectory);
 
-    if (MapPath.IsEmpty() || (!bCheckOnly && OutputDirectory.IsEmpty()))
+    if (bCheckOnly && bBlueprintCheckOnly)
     {
-        UE_LOG(LogTemp, Error, TEXT("Usage: -run=UE5HTML5Export -Map=/Game/Maps/Main [-CheckOnly | -Output=/absolute/output/folder]"));
+        UE_LOG(LogTemp, Error, TEXT("Choose either -CheckOnly or -BlueprintCheckOnly, not both."));
+        return 2;
+    }
+    if (MapPath.IsEmpty() || (!bCheckOnly && !bBlueprintCheckOnly && OutputDirectory.IsEmpty()))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Usage: -run=UE5HTML5Export -Map=/Game/Maps/Main [-CheckOnly | -BlueprintCheckOnly [-FailOnUnsupported] [-Output=/absolute/report/folder] | -Output=/absolute/export/folder]"));
         return 2;
     }
 
@@ -55,6 +63,41 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
             return 5;
         }
         UE_LOG(LogTemp, Display, TEXT("Discord Activity readiness check passed."));
+        return 0;
+    }
+
+    if (bBlueprintCheckOnly)
+    {
+        if (OutputDirectory.IsEmpty())
+        {
+            OutputDirectory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UE5HTML5/BlueprintCompatibility"));
+        }
+        const FUE5HTML5BlueprintCompatibilityReport Report =
+            FUE5HTML5ExportLibrary::AnalyzeBlueprintCompatibility(World, OutputDirectory);
+        if (!Report.bSuccess)
+        {
+            UE_LOG(LogTemp, Error, TEXT("Blueprint compatibility check failed: %s"), *Report.Error);
+            return 4;
+        }
+        UE_LOG(
+            LogTemp,
+            Display,
+            TEXT("Blueprint compatibility: %d/%d nodes supported across %d Blueprints and %d actor instances; %d require adapters."),
+            Report.SupportedNodeCount,
+            Report.NodeCount,
+            Report.BlueprintCount,
+            Report.ActorInstanceCount,
+            Report.UnsupportedNodeCount);
+        for (const FString& Node : Report.UnsupportedNodes)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Unsupported Blueprint node: %s"), *Node);
+        }
+        UE_LOG(LogTemp, Display, TEXT("Blueprint compatibility report: %s"), *Report.ReportPath);
+        if (bFailOnUnsupported && Report.UnsupportedNodeCount > 0)
+        {
+            UE_LOG(LogTemp, Error, TEXT("Blueprint compatibility gate failed because -FailOnUnsupported was set."));
+            return 6;
+        }
         return 0;
     }
 

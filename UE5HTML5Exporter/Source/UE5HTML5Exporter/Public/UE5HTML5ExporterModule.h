@@ -13,6 +13,7 @@ private:
     void RegisterMenus();
     void OpenDiscordActivitySettings();
     void CheckDiscordActivityReadinessInteractive();
+    void CheckBlueprintCompatibilityInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);
     void ExportDiscordActivityPreviewInteractive();
     bool LaunchDiscordActivityPreview(const FString& OutputDirectory);

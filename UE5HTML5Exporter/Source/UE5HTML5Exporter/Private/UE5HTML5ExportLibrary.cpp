@@ -410,6 +410,90 @@ FUE5HTML5ReadinessReport FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(U
     return Report;
 }
 
+FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCompatibility(
+    UWorld* World,
+    const FString& OutputDirectory)
+{
+    FUE5HTML5BlueprintCompatibilityReport Report;
+    if (!World)
+    {
+        Report.Error = TEXT("No Unreal world is loaded.");
+        return Report;
+    }
+    if (OutputDirectory.IsEmpty())
+    {
+        Report.Error = TEXT("Choose a Blueprint compatibility report directory.");
+        return Report;
+    }
+
+    Report.OutputDirectory = FPaths::ConvertRelativePathToFull(OutputDirectory);
+    if (!IFileManager::Get().MakeDirectory(*Report.OutputDirectory, true))
+    {
+        Report.Error = FString::Printf(TEXT("Could not create compatibility report directory: %s"), *Report.OutputDirectory);
+        return Report;
+    }
+
+    TArray<AActor*> Actors;
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        Actors.Add(*It);
+    }
+
+    const FUE5BlueprintExportSummary Summary = FUE5BlueprintGraphExporter::Export(World, Actors, Report.OutputDirectory);
+    if (!Summary.bSuccess)
+    {
+        Report.Error = Summary.Error;
+        return Report;
+    }
+
+    Report.BlueprintCount = Summary.BlueprintCount;
+    Report.ActorInstanceCount = Summary.ActorInstanceCount;
+    Report.NodeCount = Summary.NodeCount;
+    Report.SupportedNodeCount = Summary.SupportedNodeCount;
+    Report.UnsupportedNodeCount = Summary.UnsupportedNodeCount;
+    Report.UnsupportedNodes = Summary.UnsupportedNodes;
+    Report.ReportPath = FPaths::Combine(Report.OutputDirectory, TEXT("BLUEPRINT_COMPATIBILITY.txt"));
+
+    FString Text = FString::Printf(
+        TEXT("UE5 HTML5 BLUEPRINT COMPATIBILITY\n")
+        TEXT("=================================\n\n")
+        TEXT("Map: %s\n")
+        TEXT("Blueprints: %d\n")
+        TEXT("Actor instances: %d\n")
+        TEXT("Supported nodes: %d / %d\n")
+        TEXT("Nodes requiring web adapters: %d\n\n"),
+        *World->GetPathName(),
+        Report.BlueprintCount,
+        Report.ActorInstanceCount,
+        Report.SupportedNodeCount,
+        Report.NodeCount,
+        Report.UnsupportedNodeCount);
+
+    if (Report.UnsupportedNodes.IsEmpty())
+    {
+        Text += TEXT("No unsupported Blueprint nodes were found in the current export scope.\n");
+    }
+    else
+    {
+        Text += TEXT("NODES REQUIRING ADAPTERS\n------------------------\n");
+        for (const FString& Node : Report.UnsupportedNodes)
+        {
+            Text += FString::Printf(TEXT("- %s\n"), *Node);
+        }
+    }
+    Text += TEXT("\nScope: placed Blueprint actors plus the map's runtime GameMode, Pawn, PlayerController, HUD, GameState, PlayerState, and Spectator classes.\n")
+        TEXT("This is a fast translator-coverage audit. It does not export scene assets and does not certify runtime behavior, networking, Discord authentication, device performance, or browser fidelity.\n")
+        TEXT("Machine-readable IR: logic/blueprints.json\n");
+
+    if (!FFileHelper::SaveStringToFile(Text, *Report.ReportPath))
+    {
+        Report.Error = FString::Printf(TEXT("Could not write compatibility report: %s"), *Report.ReportPath);
+        return Report;
+    }
+    Report.bSuccess = true;
+    return Report;
+}
+
 FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const FString& OutputDirectory, const TSet<AActor*>& SelectedActors)
 {
     FUE5HTML5ExportResult Result;

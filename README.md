@@ -18,6 +18,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - Discord Activity Blueprint nodes plus automatic connection/error, multiplayer, participant, entitlement, layout/orientation/thermal events, Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
 - A dry-run-first cross-platform release command that links the explicitly selected Supabase/Vercel projects, migrates, verifies, and deploys without printing server secrets
 - A one-click **Export & Preview Discord Blueprint Logic** command that runs Discord's official SDK mock locally with offline Broadcast, mock purchases, and revisioned game-state persistence—before any portal, credential, or deployment work
+- A fast **Check Blueprint Web Compatibility…** command that scans the same placed/runtime Blueprint scope without exporting scene assets, lists exact adapter work in Unreal, and writes a readable report plus machine-readable IR
 - Project Settings for shared non-secret Discord Application ID/public key, Vercel project, Supabase project ref, and production URL; Unreal blocks guided export until the required set is complete and release tooling refuses cross-project drift
 - Content-hashed web bundles, Discord mobile safe areas, bounded API rate-limit handling, and optional signed proxy-request enforcement for production
 - Automatic mobile FPS movement/look/jump/fire controls that execute the stock `Primary Thumbstick`, `Secondary Thumbstick`, `Touch Jump Start`, and `Touch Jump End` Blueprint branches before using a browser fallback
@@ -79,6 +80,8 @@ For the lowest-friction path, first choose **Tools → HTML5 Export → Discord 
 
 During gameplay development, choose **Tools → HTML5 Export → Export & Preview Discord Blueprint Logic**. Unreal exports to `Saved/UE5HTML5/DiscordActivityPreview`, starts its bundled Python on loopback, and opens the browser in explicit mock mode. Discord lifecycle, participant, Broadcast, Rich Presence/share, purchase, and world/player persistence Blueprint paths can run without a Discord application or backend. Preview saves remain in browser-local game storage and use the production revision-conflict contract. The mock cannot prove OAuth, Discord's proxy, Supabase Realtime, purchases, mobile clients, or deployment headers; the final guided release and two-client Discord test remain required.
 
+For a faster logic-only iteration, choose **Tools → HTML5 Export → Check Blueprint Web Compatibility…**. It scans placed Blueprint actors plus the map's runtime GameMode, Pawn, PlayerController, HUD, GameState, PlayerState, and Spectator classes without running glTF or copying the web runtime. Unreal shows the first unsupported nodes immediately and writes the complete `Saved/UE5HTML5/BlueprintCompatibility/BLUEPRINT_COMPATIBILITY.txt` report beside `logic/blueprints.json`. This checks translator coverage only; it does not claim the browser behavior or Discord integration is correct.
+
 ### Asset delivery and performance budget
 
 Every new export records the exact bytes for `index.html`, `runtime/**`, `assets/**`, and `logic/**` in both `export-manifest.json` and `activity-handoff.json`. The Unreal completion dialog and commandlet show the total, the configured budget, and the largest browser artifact. Package preflight recalculates the files instead of trusting the manifest, so a modified GLB or runtime bundle cannot retain stale size claims.
@@ -111,6 +114,20 @@ UnrealEditor-Cmd \
 ```
 
 On Windows, use `UnrealEditor-Cmd.exe`.
+
+To run only the fast Blueprint compatibility audit, omit the scene export:
+
+```bash
+UnrealEditor-Cmd \
+  /absolute/path/MyGame.uproject \
+  -run=UE5HTML5Export \
+  -Map=/Game/Maps/Main \
+  -BlueprintCheckOnly \
+  -Output=/absolute/path/compatibility-report \
+  -unattended -nop4
+```
+
+Add `-FailOnUnsupported` when CI should exit with code `6` if any node still needs a web adapter. Without it, unsupported nodes are warnings and the audit exits successfully after writing the report.
 
 ## Compatibility
 

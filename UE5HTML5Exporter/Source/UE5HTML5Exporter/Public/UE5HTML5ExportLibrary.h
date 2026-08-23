@@ -36,9 +36,24 @@ struct FUE5HTML5ReadinessReport
     TArray<FString> Notes;
 };
 
+struct FUE5HTML5BlueprintCompatibilityReport
+{
+    bool bSuccess = false;
+    FString OutputDirectory;
+    FString ReportPath;
+    FString Error;
+    int32 BlueprintCount = 0;
+    int32 ActorInstanceCount = 0;
+    int32 NodeCount = 0;
+    int32 SupportedNodeCount = 0;
+    int32 UnsupportedNodeCount = 0;
+    TArray<FString> UnsupportedNodes;
+};
+
 class FUE5HTML5ExportLibrary
 {
 public:
     static FUE5HTML5ReadinessReport CheckDiscordActivityReadiness(UWorld* World);
+    static FUE5HTML5BlueprintCompatibilityReport AnalyzeBlueprintCompatibility(UWorld* World, const FString& OutputDirectory);
     static FUE5HTML5ExportResult ExportWorld(UWorld* World, const FString& OutputDirectory, const TSet<AActor*>& SelectedActors);
 };

@@ -150,6 +150,12 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /Export Discord Activity/);
   assert.match(module, /NEEDS BLUEPRINT ADAPTERS/);
   assert.match(module, /CheckDiscordActivityReadinessInteractive/);
+  assert.match(module, /Check Blueprint Web Compatibility/);
+  assert.match(module, /CheckBlueprintCompatibilityInteractive/);
+  assert.match(module, /AnalyzeBlueprintCompatibility/);
+  assert.match(module, /BLUEPRINT WEB COMPATIBILITY/);
+  assert.match(module, /ProjectSavedDir/);
+  assert.match(module, /BlueprintCompatibility/);
   assert.match(module, /LaunchDiscordActivityReleaseAssistant/);
   assert.match(module, /Export & Preview Discord Blueprint Logic/);
   assert.match(module, /ExportDiscordActivityPreviewInteractive/);
@@ -172,6 +178,9 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(library, /credentials remain with the release operator/);
   assert.match(library, /scripts\/activity-release-assistant\.mjs/);
   assert.match(library, /release-discord-activity\.cmd/);
+  assert.match(library, /AnalyzeBlueprintCompatibility/);
+  assert.match(library, /BLUEPRINT_COMPATIBILITY\.txt/);
+  assert.match(library, /fast translator-coverage audit/);
 });
 
 test('Unreal Project Settings expose only non-secret Discord Activity targets', () => {
@@ -199,6 +208,10 @@ test('Unreal commandlet exposes the same readiness policy for workstation automa
   assert.match(commandlet, /FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness\(World\)/);
   assert.match(commandlet, /Discord Activity readiness check passed/);
   assert.match(commandlet, /Readiness blocker/);
+  assert.match(commandlet, /BlueprintCheckOnly/);
+  assert.match(commandlet, /FailOnUnsupported/);
+  assert.match(commandlet, /AnalyzeBlueprintCompatibility/);
+  assert.match(commandlet, /return 6/);
 });
 
 test('Blueprint exporter preserves graph pins and writes browser IR', () => {
@@ -207,6 +220,8 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /Pin->LinkedTo/);
   assert.match(source, /blueprints\.json/);
   assert.match(source, /unsupportedCount/);
+  assert.match(source, /UnsupportedNodes/);
+  assert.match(source, /BlueprintName/);
   assert.match(source, /UInputMappingContext::StaticClass/);
   assert.match(source, /UBehaviorTree::StaticClass/);
   assert.match(source, /UWidgetBlueprint::StaticClass/);
