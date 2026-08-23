@@ -70,6 +70,10 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/release-discord-activity.sh',
   ]) assert.ok(existsSync(new URL(path, plugin)), `${path} is missing; run npm run build`);
 
+  assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /activity-release-assistant\.mjs --guided/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity.command'), /activity-release-assistant\.mjs --guided/);
+  assert.match(read('Resources/WebTemplate/release-discord-activity.sh'), /activity-release-assistant\.mjs --guided/);
+
   const migrationDirectory = new URL('Resources/WebTemplate/supabase/migrations/', plugin);
   assert.ok(existsSync(migrationDirectory));
   const coreMigration = read('Resources/WebTemplate/supabase/migrations/20260822094350_discord_activity_core.sql');

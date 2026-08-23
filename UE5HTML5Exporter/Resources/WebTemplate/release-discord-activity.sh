@@ -1,6 +1,6 @@
 #!/bin/sh
 cd -- "$(dirname -- "$0")" || exit 1
-node scripts/activity-release-assistant.mjs "$@"
+node scripts/activity-release-assistant.mjs --guided "$@"
 status=$?
 if [ "${UE5_ACTIVITY_NO_PAUSE:-0}" != "1" ]; then
   printf '\nPress Return to close...'

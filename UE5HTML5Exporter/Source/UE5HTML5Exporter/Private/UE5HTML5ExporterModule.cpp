@@ -393,7 +393,7 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
         static_cast<double>(Result.LargestBrowserArtifactBytes) / 1024.0 / 1024.0);
 
     const FString NextAction = bDiscordGuided
-        ? TEXT("Start the Discord Activity release assistant now?\n\nIt opens in a terminal and begins with a non-mutating dry run. Private credentials remain outside Unreal.")
+        ? TEXT("Start the Discord Activity release assistant now?\n\nIt opens in a terminal, begins with a non-mutating dry run, then asks before applying that exact plan. Private credentials remain outside Unreal.")
         : TEXT("Open the export folder now?");
     const FString Message = FString::Printf(
         TEXT("Exported %d actors to:\n%s\n\n%s\n\n%s\n\n")

@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const RELEASE_TOOL_PACKAGES = [
@@ -22,6 +23,7 @@ export function parseReleaseAssistantArgs(argv) {
     envFile: DEFAULT_ENV_FILE,
     explicitEnvFile: false,
     install: true,
+    guided: false,
     forwarded: [],
     help: false,
   };
@@ -29,6 +31,8 @@ export function parseReleaseAssistantArgs(argv) {
     const argument = argv[index];
     if (argument === '--skip-install') {
       options.install = false;
+    } else if (argument === '--guided') {
+      options.guided = true;
     } else if (argument === '--env-file') {
       const value = argv[++index];
       if (!value) throw new Error('--env-file requires a path.');
@@ -50,17 +54,31 @@ macOS:    ./release-discord-activity.command
 Linux:    ./release-discord-activity.sh
 
 The launcher reads public project identity directly from Unreal, installs pinned
-Vercel and Supabase CLIs locally, then prints the fail-closed dry-run plan. No
+Vercel and Supabase CLIs locally, then prints the fail-closed dry-run plan. With
+--guided, it asks whether to apply that exact plan in the same terminal. No
 environment file is required for the guided workflow.
 
-Add --apply only after reviewing that plan. All activity-release options are
-passed through unchanged. At apply time, Supabase API keys are discovered through
-the authenticated CLI and remaining secrets use hidden input; none are saved by
-the assistant. Use --env-file only for CI or advanced overrides.`;
+The platform launchers enable --guided automatically. Answering No, a failed dry
+run, or non-interactive use makes no hosted changes. Advanced automation may pass
+--apply directly. All activity-release options are passed through unchanged. At
+apply time, Supabase API keys are discovered through the authenticated CLI and
+remaining secrets use hidden input; none are saved by the assistant. Use
+--env-file only for CI or advanced overrides.`;
 }
 
 function defaultRunner(command, args, options) {
   return spawnSync(command, args, { ...options, stdio: 'inherit', shell: false });
+}
+
+async function defaultConfirmApply(question) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(question);
+    return /^(y|yes)$/i.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
 }
 
 function requiredDependencies(directory, platform) {
@@ -73,12 +91,13 @@ function requiredDependencies(directory, platform) {
   ];
 }
 
-export function runReleaseAssistant(argv, {
+export async function runReleaseAssistant(argv, {
   directory = EXPORT_DIRECTORY,
   nodeVersion = process.versions.node,
   platform = process.platform,
   exists = existsSync,
   runner = defaultRunner,
+  confirmApply = defaultConfirmApply,
   stdout = console.log,
   stderr = console.error,
 } = {}) {
@@ -136,9 +155,26 @@ export function runReleaseAssistant(argv, {
     stderr(`Could not start the release workflow: ${release.error.message}`);
     return 1;
   }
-  return release.status ?? 1;
+  const releaseStatus = release.status ?? 1;
+  if (releaseStatus !== 0 || !options.guided || options.forwarded.includes('--apply')) {
+    return releaseStatus;
+  }
+
+  const approved = await confirmApply('\nDry run passed. Configure services and create this deployment now? [y/N] ');
+  if (!approved) {
+    stdout('No hosted changes were made. Run this launcher again when you are ready.');
+    return 0;
+  }
+
+  const applyArgs = [...releaseArgs, '--apply'];
+  const apply = runner(npm, applyArgs, { cwd: directory });
+  if (apply.error) {
+    stderr(`Could not start the release workflow: ${apply.error.message}`);
+    return 1;
+  }
+  return apply.status ?? 1;
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  process.exitCode = runReleaseAssistant(process.argv.slice(2));
+  process.exitCode = await runReleaseAssistant(process.argv.slice(2));
 }

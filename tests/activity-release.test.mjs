@@ -40,10 +40,10 @@ test('release assistant keeps the underlying workflow arguments Windows-safe', (
   assert.deepEqual(options.forwarded, ['--environment', 'preview', '--apply']);
 });
 
-test('release assistant needs no environment file for the guided workflow', () => {
+test('release assistant needs no environment file for the guided workflow', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
   const calls = [];
-  const status = runReleaseAssistant([], {
+  const status = await runReleaseAssistant([], {
     directory: root,
     nodeVersion: '22.12.0',
     runner(command, args) { calls.push({ command, args }); return { status: 0 }; },
@@ -56,10 +56,10 @@ test('release assistant needs no environment file for the guided workflow', () =
   assert.ok(calls[1].args.includes('--supabase-cli-keys'));
 });
 
-test('release assistant rejects an explicitly requested missing environment file', () => {
+test('release assistant rejects an explicitly requested missing environment file', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
   const errors = [];
-  const status = runReleaseAssistant(['--env-file', 'missing.env'], {
+  const status = await runReleaseAssistant(['--env-file', 'missing.env'], {
     directory: root,
     nodeVersion: '22.12.0',
     stderr(message) { errors.push(message); },
@@ -68,11 +68,11 @@ test('release assistant rejects an explicitly requested missing environment file
   assert.ok(errors.some((message) => message.includes('was not found')));
 });
 
-test('release assistant installs pinned local tools and preserves dry-run by default', () => {
+test('release assistant installs pinned local tools and preserves dry-run by default', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
   writeFileSync(join(root, '.env.activity.local'), 'DISCORD_CLIENT_ID=123\n');
   const calls = [];
-  const status = runReleaseAssistant([], {
+  const status = await runReleaseAssistant([], {
     directory: root,
     nodeVersion: '22.12.0',
     platform: 'win32',
@@ -93,6 +93,68 @@ test('release assistant installs pinned local tools and preserves dry-run by def
   assert.ok(calls[1].args.includes('--supabase-cli-keys'));
   assert.equal(calls[1].args.includes('--apply'), false);
   assert.ok(calls.every((call) => call.cwd === root));
+});
+
+test('guided release asks after a successful dry run and applies only after yes', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
+  const calls = [];
+  const questions = [];
+  const status = await runReleaseAssistant(['--guided', '--environment', 'production'], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    platform: 'win32',
+    runner(command, args, invocation) {
+      calls.push({ command, args, cwd: invocation.cwd });
+      return { status: 0 };
+    },
+    async confirmApply(question) {
+      questions.push(question);
+      return true;
+    },
+    stdout() {},
+  });
+  assert.equal(status, 0);
+  assert.equal(questions.length, 1);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1].args.includes('--apply'), false);
+  assert.equal(calls[2].args.at(-1), '--apply');
+  assert.ok(calls[2].args.includes('--vercel-only-secrets'));
+  assert.ok(calls[2].args.includes('--supabase-cli-keys'));
+  assert.ok(calls.every((call) => call.cwd === root));
+});
+
+test('guided release makes no hosted changes after no or a failed dry run', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ue5-activity-assistant-'));
+  const declinedCalls = [];
+  const messages = [];
+  const declined = await runReleaseAssistant(['--guided'], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    runner(command, args) { declinedCalls.push({ command, args }); return { status: 0 }; },
+    async confirmApply() { return false; },
+    stdout(message) { messages.push(message); },
+  });
+  assert.equal(declined, 0);
+  assert.equal(declinedCalls.length, 2);
+  assert.equal(declinedCalls.some((call) => call.args.includes('--apply')), false);
+  assert.ok(messages.some((message) => message.includes('No hosted changes')));
+
+  const failedCalls = [];
+  let prompted = false;
+  const failed = await runReleaseAssistant(['--guided'], {
+    directory: root,
+    nodeVersion: '22.12.0',
+    runner(command, args) {
+      failedCalls.push({ command, args });
+      return { status: failedCalls.length === 1 ? 0 : 7 };
+    },
+    async confirmApply() { prompted = true; return true; },
+    stdout() {},
+  });
+  assert.equal(failed, 7);
+  assert.equal(prompted, false);
+  assert.equal(failedCalls.length, 2);
+  assert.equal(failedCalls.some((call) => call.args.includes('--apply')), false);
 });
 
 function validEnvironment() {

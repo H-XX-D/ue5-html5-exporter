@@ -53,7 +53,7 @@ Before exporting, open **Tools → HTML5 Export → Discord Activity Project Set
 
 After **Export Discord Activity…**, Unreal offers to start the correct one-command assistant immediately. You can also launch it later by double-clicking `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. The assistant reads public identity from `activity-handoff.json`, installs pinned Vercel and Supabase CLIs locally, and invokes the release workflow without creating an environment file. No global CLI installation or web-project command knowledge is required.
 
-The assistant and the underlying Node.js 22 command are dry-run-only unless `--apply` is present. They read public targets from `activity-handoff.json`, check that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuse to silently switch an existing Vercel link.
+The platform launcher always runs the non-mutating plan first, then asks a plain yes/no question before it invokes `--apply` in the same terminal. Answering No, a failed plan, or non-interactive use performs no hosted changes. The underlying Node.js 22 command remains dry-run-only unless `--apply` is present. Both paths read public targets from `activity-handoff.json`, check that `DISCORD_CLIENT_ID`, `DISCORD_PUBLIC_KEY`, and `SUPABASE_URL` agree, and refuse to silently switch an existing Vercel link.
 
 For manual or CI use, the same zero-file dry-run is:
 
@@ -64,13 +64,13 @@ npm run release:activity -- \
   --supabase-cli-keys
 ```
 
-That manual command remains useful for CI and custom automation. The workstation launchers perform the install and select both safe modes automatically. Pass `--apply` only after the dry-run plan names the intended Discord, Vercel, and Supabase projects. `.env.example` remains available solely for optional CI/advanced overrides.
+That manual command remains useful for CI and custom automation. The workstation launchers perform the install, select both safe modes, and offer the apply step only after the dry-run plan succeeds. Advanced automation may pass `--apply` directly. `.env.example` remains available solely for optional CI/advanced overrides.
 
 If an older export has no configured project targets, supply `--supabase-project-ref YOUR_PROJECT_REF --vercel-project YOUR_VERCEL_PROJECT`. When the handoff does contain targets, explicit arguments must match them exactly.
 
 On Windows PowerShell, enter the same command on one line. Neither safe mode reads private values during dry-run. After `--apply` is added, `--supabase-cli-keys` retrieves modern `sb_publishable_...` and `sb_secret_...` keys through the authenticated CLI without printing them. `--vercel-only-secrets` requests Discord credentials and the deliberately imported Supabase private signing JWK through hidden input, derives its key ID, and generates `ACTIVITY_STATE_SECRET` in memory. The application-side values are sent directly to Vercel and never written locally. CI may instead inject existing values into the process environment.
 
-After reviewing the dry-run, add `--apply`. The tool then:
+After reviewing the dry-run, answer Yes in the workstation launcher or add `--apply` to the manual command. The tool then:
 
 1. hydrates public identity from Unreal, discovers Supabase API keys in memory, completes the remaining private configuration, and verifies the exported package;
 2. verifies both CLIs are installed;
