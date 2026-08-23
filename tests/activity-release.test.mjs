@@ -219,10 +219,11 @@ test('release workflow defaults to Unreal project targets without copying secret
   assert.equal(result.selectedSupabaseProjectRef, targets.supabaseProjectRef);
 });
 
-test('current handoff refuses release when Unreal public targets are incomplete', async () => {
+test('v5 handoff refuses release when Unreal public targets are incomplete', async () => {
   const root = exportFixture();
   const handoffPath = join(root, 'activity-handoff.json');
   const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+  handoff.schema = 'ue5-discord-activity-handoff/v5';
   handoff.projectTargets.configured = false;
   handoff.projectTargets.discordPublicKey = '';
   handoff.projectTargets.missingRequiredTargets = ['Discord Public Key'];

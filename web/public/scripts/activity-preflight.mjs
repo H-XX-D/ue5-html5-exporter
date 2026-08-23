@@ -33,6 +33,8 @@ export const REQUIRED_EXPORT_FILES = [
   'scripts/activity-release-assistant.mjs',
   'scripts/activity-release.mjs',
   'supabase/migrations/20260822094350_discord_activity_core.sql',
+  'supabase/migrations/20260823011755_optimize_discord_activity_realtime_rls.sql',
+  'supabase/migrations/20260823011922_restrict_discord_activity_service_role_privileges.sql',
   'vercel.json',
   'package.json',
 ];

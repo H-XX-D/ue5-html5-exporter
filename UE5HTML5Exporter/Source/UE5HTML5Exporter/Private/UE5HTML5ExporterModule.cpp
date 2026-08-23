@@ -3,6 +3,7 @@
 #include "DesktopPlatformModule.h"
 #include "Editor.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "ISettingsModule.h"

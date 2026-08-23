@@ -313,8 +313,8 @@ export function validateReleaseSelection(
   const errors = [];
   const warnings = [];
   const handoff = readActivityHandoffContract(options.directory);
-  if (handoff?.schema === 'ue5-discord-activity-handoff/v4'
-      && handoff?.projectTargets?.configured !== true) {
+  if (handoff?.projectTargets
+      && handoff.projectTargets.configured !== true) {
     const missing = Array.isArray(handoff.projectTargets.missingRequiredTargets)
       ? handoff.projectTargets.missingRequiredTargets.join(', ')
       : 'required public targets';

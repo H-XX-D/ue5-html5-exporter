@@ -16,8 +16,10 @@ create table public.discord_activity_player_state (
 
 -- The keys are HMAC outputs generated only by the Vercel backend. They are
 -- opaque and cannot be reversed into a Discord user or Activity instance ID.
-grant select, insert, update, delete on public.discord_activity_world_state to service_role;
-grant select, insert, update, delete on public.discord_activity_player_state to service_role;
+revoke all on public.discord_activity_world_state from service_role;
+revoke all on public.discord_activity_player_state from service_role;
+grant select, insert, update on public.discord_activity_world_state to service_role;
+grant select, insert, update on public.discord_activity_player_state to service_role;
 revoke all on public.discord_activity_world_state from anon, authenticated;
 revoke all on public.discord_activity_player_state from anon, authenticated;
 
@@ -136,8 +138,8 @@ for select
 to authenticated
 using (
   realtime.messages.extension in ('broadcast', 'presence')
-  and (auth.jwt() ->> 'activity_topic') ~ '^activity:[0-9a-f]{64}$'
-  and (select realtime.topic()) = (auth.jwt() ->> 'activity_topic')
+  and ((select auth.jwt()) ->> 'activity_topic') ~ '^activity:[0-9a-f]{64}$'
+  and (select realtime.topic()) = ((select auth.jwt()) ->> 'activity_topic')
 );
 
 create policy "discord instance token can send realtime"
@@ -146,6 +148,6 @@ for insert
 to authenticated
 with check (
   realtime.messages.extension in ('broadcast', 'presence')
-  and (auth.jwt() ->> 'activity_topic') ~ '^activity:[0-9a-f]{64}$'
-  and (select realtime.topic()) = (auth.jwt() ->> 'activity_topic')
+  and ((select auth.jwt()) ->> 'activity_topic') ~ '^activity:[0-9a-f]{64}$'
+  and (select realtime.topic()) = ((select auth.jwt()) ->> 'activity_topic')
 );
