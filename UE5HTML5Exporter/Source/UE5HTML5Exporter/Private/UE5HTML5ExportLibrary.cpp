@@ -150,6 +150,7 @@ namespace
             TEXT("vercel.json"),
             TEXT("package.json"),
             TEXT(".env.example"),
+            TEXT(".vercelignore"),
             TEXT("DISCORD_ACTIVITY_WORKFLOW.md"),
             TEXT("scripts/activity-preflight.mjs"),
             TEXT("scripts/activity-release.mjs"),

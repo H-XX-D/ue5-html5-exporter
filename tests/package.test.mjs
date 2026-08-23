@@ -58,6 +58,7 @@ test('production template includes the Discord Activity API, Vercel adapter, and
     'Resources/WebTemplate/vercel.json',
     'Resources/WebTemplate/package.json',
     'Resources/WebTemplate/.env.example',
+    'Resources/WebTemplate/.vercelignore',
     'Resources/WebTemplate/DISCORD_ACTIVITY_WORKFLOW.md',
     'Resources/WebTemplate/scripts/activity-preflight.mjs',
     'Resources/WebTemplate/scripts/activity-release.mjs',
@@ -84,6 +85,8 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(read('Resources/WebTemplate/release-discord-activity-production.cmd'), /--environment production --promote/);
   assert.match(read('Resources/WebTemplate/release-discord-activity-production.command'), /--environment production --promote/);
   assert.match(read('Resources/WebTemplate/release-discord-activity-production.sh'), /--environment production --promote/);
+  assert.match(read('Resources/WebTemplate/.vercelignore'), /activity-release-receipt\.json/);
+  assert.match(read('Resources/WebTemplate/.vercelignore'), /browser-certification\.json/);
   const windowsReleaseBootstrap = read('Resources/WebTemplate/scripts/Start-DiscordActivityRelease.ps1');
   assert.match(windowsReleaseBootstrap, /\$PinnedNodeVersion = '22\.23\.2'/);
   assert.match(windowsReleaseBootstrap, /https:\/\/nodejs\.org\/dist\/v\$PinnedNodeVersion/);

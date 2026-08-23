@@ -1,6 +1,7 @@
+.vercel
+node_modules
 .env
 .env.*
 !.env.example
-.vercel
-node_modules
 activity-release-receipt.json
+browser-certification.json

@@ -22,6 +22,7 @@ export const REQUIRED_EXPORT_FILES = [
   'export-manifest.json',
   'activity-handoff.json',
   '.env.example',
+  '.vercelignore',
   'api/activity.mjs',
   'serve.py',
   'preview-discord-activity.cmd',

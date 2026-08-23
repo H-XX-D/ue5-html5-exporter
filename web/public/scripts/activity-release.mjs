@@ -2,7 +2,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
@@ -37,6 +37,9 @@ export const PUBLIC_ENVIRONMENT = [
   'DISCORD_PUBLIC_KEY',
   'SUPABASE_JWT_KEY_ID',
 ];
+
+export const RELEASE_RECEIPT_SCHEMA = 'ue5-discord-activity-release-receipt/v1';
+export const RELEASE_RECEIPT_FILENAME = 'activity-release-receipt.json';
 
 const DEFAULT_ENVIRONMENT = {
   DISCORD_ENABLE_RICH_PRESENCE: 'false',
@@ -556,6 +559,8 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
   const checks = [];
   let manifestIdentity = null;
   let assetPackIdentity = null;
+  let manifestSchema = null;
+  let exporterVersion = null;
   let origin;
   try {
     origin = new URL(deploymentUrlValue);
@@ -566,6 +571,8 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       checks,
       manifestIdentity,
       assetPackIdentity,
+      manifestSchema,
+      exporterVersion,
     };
   }
 
@@ -593,6 +600,8 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       checks,
       manifestIdentity,
       assetPackIdentity,
+      manifestSchema,
+      exporterVersion,
     };
   }
   if (root.status >= 300 && root.status < 400) {
@@ -623,6 +632,8 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       if (!isSupportedManifestSchema(manifest.schema)) {
         errors.push('Hosted export manifest has an unexpected schema.');
       } else {
+        manifestSchema = String(manifest.schema);
+        exporterVersion = String(manifest.exporterVersion || '') || null;
         manifestIdentity = `sha256:${createHash('sha256')
           .update(JSON.stringify(manifest))
           .digest('hex')}`;
@@ -652,7 +663,67 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
     errors.push(`Hosted Activity API check failed: ${error.message || error}.`);
   }
 
-  return { errors, warnings, checks, manifestIdentity, assetPackIdentity };
+  return {
+    errors,
+    warnings,
+    checks,
+    manifestIdentity,
+    assetPackIdentity,
+    manifestSchema,
+    exporterVersion,
+  };
+}
+
+export function createActivityReleaseReceipt(result, {
+  environment,
+  migrated,
+  now = new Date(),
+} = {}) {
+  if (!result?.ok || !result?.applied || !result?.deploymentUrl) {
+    throw new Error('A release receipt requires a successfully verified deployment.');
+  }
+  const createdAt = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(createdAt.getTime())) throw new Error('Release receipt time is invalid.');
+  const publicUrl = result.productionUrl || result.deploymentUrl;
+  return {
+    schema: RELEASE_RECEIPT_SCHEMA,
+    status: result.promoted
+      ? (result.productionUrl ? 'verified-production' : 'promoted-production-stable-url-unverified')
+      : 'verified-preview',
+    createdAtUtc: createdAt.toISOString(),
+    environment: String(environment || (result.promoted ? 'production' : 'preview')),
+    promoted: Boolean(result.promoted),
+    deploymentUrl: result.deploymentUrl,
+    publicUrl,
+    exporter: {
+      version: result.exporterVersion || null,
+      manifestSchema: result.manifestSchema || null,
+    },
+    identities: {
+      manifest: result.manifestIdentity || null,
+      assetPack: result.assetPackIdentity || null,
+    },
+    discordUrlMappings: { ...(result.discordUrlMappings || {}) },
+    verification: {
+      localExportPassed: true,
+      servicePreflightPassed: true,
+      publicDeploymentPassed: true,
+      stableProductionPassed: Boolean(result.promoted && result.productionUrl),
+      supabaseMigrationApplied: Boolean(migrated),
+    },
+    privacy: {
+      containsSecrets: false,
+      containsPlayerData: false,
+      containsBillingData: false,
+    },
+  };
+}
+
+export function writeActivityReleaseReceipt(directory, result, options = {}) {
+  const path = join(resolve(directory), RELEASE_RECEIPT_FILENAME);
+  const receipt = createActivityReleaseReceipt(result, options);
+  writeFileSync(path, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+  return path;
 }
 
 export async function executeActivityRelease(options, environment, {
@@ -796,7 +867,7 @@ export async function executeActivityRelease(options, environment, {
       resultWarnings.push('Production was promoted, but Unreal has no stable production URL configured. Set Production URL in Unreal Project Settings before the next release so the public alias can be verified and printed for Discord.');
     }
   }
-  return {
+  const result = {
     ok: true,
     applied: true,
     errors: [],
@@ -806,6 +877,10 @@ export async function executeActivityRelease(options, environment, {
     deploymentUrl: url,
     promoted,
     productionUrl: promoted ? (selection.handoffTargets.productionUrl || null) : null,
+    manifestIdentity: hosted.manifestIdentity || null,
+    assetPackIdentity: hosted.assetPackIdentity || null,
+    manifestSchema: hosted.manifestSchema || null,
+    exporterVersion: hosted.exporterVersion || null,
     discordUrlMappings: {
       '/': publicUrl ? new URL(publicUrl).host : '<deployment skipped>',
       ...(!placeholder(releaseEnvironment.SUPABASE_JWT_PRIVATE_KEY) ? {
@@ -814,6 +889,17 @@ export async function executeActivityRelease(options, environment, {
     },
     plan,
   };
+  if (url) {
+    try {
+      result.receiptPath = writeActivityReleaseReceipt(options.directory, result, {
+        environment: options.environment,
+        migrated: options.migrate,
+      });
+    } catch (error) {
+      result.warnings.push(`Deployment succeeded, but the local release receipt could not be written: ${error.message || error}.`);
+    }
+  }
+  return result;
 }
 
 function printResult(result) {
@@ -830,6 +916,7 @@ function printResult(result) {
     for (const check of result.checks || []) console.log(`- ${check}`);
     if (result.deploymentUrl) console.log(`Deployment: ${result.deploymentUrl}`);
     if (result.promoted) console.log(`Promoted production: ${result.productionUrl || result.deploymentUrl}`);
+    if (result.receiptPath) console.log(`Secret-free release receipt: ${result.receiptPath}`);
     console.log('Discord URL mappings:');
     for (const [prefix, host] of Object.entries(result.discordUrlMappings)) console.log(`- ${prefix} -> ${host}`);
   }

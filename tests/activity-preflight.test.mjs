@@ -397,6 +397,7 @@ test('Activity package preflight checks artifacts and detects a browser-bundled 
 
 test('Activity package preflight requires the Unreal-to-release-operator handoff contract', () => {
   assert.ok(REQUIRED_EXPORT_FILES.includes('activity-handoff.json'));
+  assert.ok(REQUIRED_EXPORT_FILES.includes('.vercelignore'));
   const root = exportFixture();
   try {
     rmSync(join(root, 'activity-handoff.json'));

@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
-  "Version": 52,
-  "VersionName": "0.3.53",
+  "Version": 53,
+  "VersionName": "0.3.54",
   "FriendlyName": "UE5 to HTML5 Exporter",
   "Description": "Exports an Unreal Engine level and a supported subset of Blueprint gameplay to a ready-to-host WebGL game.",
   "Category": "Importers & Exporters",

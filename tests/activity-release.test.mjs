@@ -11,9 +11,11 @@ import {
 } from '../web/public/scripts/activity-release-assistant.mjs';
 import {
   PUBLIC_ENVIRONMENT,
+  RELEASE_RECEIPT_SCHEMA,
   SENSITIVE_ENVIRONMENT,
   buildActivityReleasePlan,
   completeVercelOnlySecrets,
+  createActivityReleaseReceipt,
   discoverSupabaseApiKeys,
   executeActivityRelease,
   hydrateUnrealPublicEnvironment,
@@ -263,6 +265,19 @@ test('release workflow refuses promotion outside an applied production deploymen
     () => parseActivityReleaseArgs(['--environment', 'production', '--promote', '--no-deploy']),
     /cannot be used with --no-deploy/,
   );
+});
+
+test('release receipt does not call an unverified stable production URL verified', () => {
+  const receipt = createActivityReleaseReceipt({
+    ok: true,
+    applied: true,
+    promoted: true,
+    deploymentUrl: 'https://immutable-build.example',
+    productionUrl: null,
+    discordUrlMappings: { '/': 'immutable-build.example' },
+  }, { environment: 'production', migrated: false, now: '2026-08-23T16:00:00.000Z' });
+  assert.equal(receipt.status, 'promoted-production-stable-url-unverified');
+  assert.equal(receipt.verification.stableProductionPassed, false);
 });
 
 test('release workflow refuses cross-project Supabase and Vercel configuration', () => {
@@ -604,7 +619,15 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
   const result = await executeActivityRelease(options, env, {
     runner,
     verifyServices: async () => ({ errors: [], warnings: [], checks: ['services verified'] }),
-    verifyDeployment: async () => ({ errors: [], warnings: [], checks: ['public deployment verified'] }),
+    verifyDeployment: async () => ({
+      errors: [],
+      warnings: [],
+      checks: ['public deployment verified'],
+      manifestIdentity: `sha256:${'a'.repeat(64)}`,
+      assetPackIdentity: `sha256:${'b'.repeat(64)}`,
+      manifestSchema: CURRENT_MANIFEST_SCHEMA,
+      exporterVersion: '0.3.54',
+    }),
   });
   assert.equal(result.ok, true);
   assert.equal(result.deploymentUrl, 'https://my-discord-game-preview.vercel.app');
@@ -616,6 +639,19 @@ test('apply sends secrets only through stdin and stages preview deployment', asy
   assert.ok(calls.some((call) => call.command === 'supabase' && call.args.includes('--linked') && !call.args.includes('--dry-run')));
   assert.ok(calls.some((call) => call.command === 'vercel' && call.args[0] === 'deploy'));
   assert.ok(result.checks.includes('public deployment verified'));
+  const receipt = JSON.parse(readFileSync(result.receiptPath, 'utf8'));
+  assert.equal(receipt.schema, RELEASE_RECEIPT_SCHEMA);
+  assert.equal(receipt.status, 'verified-preview');
+  assert.equal(receipt.publicUrl, result.deploymentUrl);
+  assert.equal(receipt.identities.manifest, `sha256:${'a'.repeat(64)}`);
+  assert.equal(receipt.identities.assetPack, `sha256:${'b'.repeat(64)}`);
+  assert.deepEqual(receipt.privacy, {
+    containsSecrets: false,
+    containsPlayerData: false,
+    containsBillingData: false,
+  });
+  const serializedReceipt = JSON.stringify(receipt);
+  for (const name of SENSITIVE_ENVIRONMENT) assert.doesNotMatch(serializedReceipt, new RegExp(env[name]));
   const serializedArgs = JSON.stringify(calls.map(({ command, args }) => ({ command, args })));
   for (const name of SENSITIVE_ENVIRONMENT) assert.doesNotMatch(serializedArgs, new RegExp(env[name]));
   for (const name of SENSITIVE_ENVIRONMENT) {
@@ -663,6 +699,8 @@ test('production publish promotes only after staged verification and verifies th
         checks: [`verified ${url}`],
         manifestIdentity: `sha256:${'a'.repeat(64)}`,
         assetPackIdentity: `sha256:${'b'.repeat(64)}`,
+        manifestSchema: CURRENT_MANIFEST_SCHEMA,
+        exporterVersion: '0.3.54',
       };
     },
   });
@@ -687,6 +725,11 @@ test('production publish promotes only after staged verification and verifies th
     '/': 'game.example',
     '/supabase': 'abcdefghijklmnopqrst.supabase.co',
   });
+  const receipt = JSON.parse(readFileSync(result.receiptPath, 'utf8'));
+  assert.equal(receipt.status, 'verified-production');
+  assert.equal(receipt.publicUrl, 'https://game.example');
+  assert.equal(receipt.verification.stableProductionPassed, true);
+  assert.equal(receipt.verification.supabaseMigrationApplied, false);
 });
 
 test('failed staged verification prevents production promotion', async () => {
@@ -838,7 +881,7 @@ test('public deployment probe validates hosted export and enabled Activity API',
       requests.push({ pathname: url.pathname, redirect: options.redirect });
       if (url.pathname === '/') return new Response('<html></html>', { status: 200 });
       if (url.pathname === '/export-manifest.json') {
-        return Response.json({ schema: CURRENT_MANIFEST_SCHEMA, actorCount: 69 });
+        return Response.json({ schema: CURRENT_MANIFEST_SCHEMA, exporterVersion: '0.3.54', actorCount: 69 });
       }
       if (url.pathname === '/api/activity') return Response.json({ enabled: true, clientId: 'public' });
       return new Response(null, { status: 404 });
@@ -850,6 +893,8 @@ test('public deployment probe validates hosted export and enabled Activity API',
   assert.ok(result.checks.some((check) => check.includes('enabled:true')));
   assert.match(result.manifestIdentity, /^sha256:[a-f0-9]{64}$/);
   assert.equal(result.assetPackIdentity, null);
+  assert.equal(result.manifestSchema, CURRENT_MANIFEST_SCHEMA);
+  assert.equal(result.exporterVersion, '0.3.54');
   assert.deepEqual(requests.map(({ pathname }) => pathname), ['/', '/export-manifest.json', '/api/activity']);
   assert.ok(requests.every(({ redirect }) => redirect === 'manual'));
 });
