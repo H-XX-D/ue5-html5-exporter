@@ -6,6 +6,7 @@ import { FirstPersonController } from './first-person-controller.js';
 import { loadProjectAdapters, normalizeAdapterName } from './project-adapters.js';
 import { BrowserRuntimeAdapters } from './runtime-adapters.js';
 import { TargetPracticeRuntime } from './target-practice.js';
+import { createAssetPackCache } from './asset-pack-cache.js';
 import './style.css';
 
 const canvas = document.querySelector('#scene');
@@ -68,6 +69,7 @@ let firstPersonController = null;
 let targetPractice = null;
 let activityBridge = null;
 let exportManifest = null;
+let assetPackCache = null;
 let sceneStats = 'Preparing renderer…';
 let deliveryStats = '';
 const pendingCustomFunctions = new Map();
@@ -106,12 +108,16 @@ window.UE5HTML5 = {
   get projectAdapters() { return projectAdapters; },
   get projectAdaptersReady() { return ensureProjectAdapters(); },
   get exportManifest() { return exportManifest; },
+  get assetCache() { return assetPackCache; },
 };
 
 function ensureProjectAdapters() {
   projectAdaptersPromise ||= loadProjectAdapters({
     manifestUrl: new URL('./logic/custom-adapters.json', window.location.href),
     moduleUrl: new URL('./logic/custom-adapters.js', window.location.href),
+    fetchImpl: assetPackCache
+      ? () => assetPackCache.fetch('logic/custom-adapters.json')
+      : globalThis.fetch.bind(globalThis),
     isRegistered: (name) => pendingCustomFunctions.has(normalizeAdapterName(name)),
   }).then((value) => {
     projectAdapters = value;
@@ -138,16 +144,18 @@ function updateStats() {
 async function loadExportManifest() {
   try {
     const response = await fetch('./export-manifest.json', { cache: 'no-store' });
-    if (!response.ok) return;
+    if (!response.ok) return null;
     exportManifest = await response.json();
     const delivery = exportManifest?.assetDelivery;
-    if (!delivery || !Number.isSafeInteger(delivery.browserPayloadBytes)) return;
+    if (!delivery || !Number.isSafeInteger(delivery.browserPayloadBytes)) return exportManifest;
     const review = delivery.status === 'exceeds-advisory-budget';
     deliveryStats = `${formatBytes(delivery.browserPayloadBytes)} primary payload${review ? ' · delivery review' : ''}`;
     stats.dataset.delivery = review ? 'review' : 'within-budget';
     updateStats();
+    return exportManifest;
   } catch (error) {
     console.warn('Export manifest unavailable:', error);
+    return null;
   }
 }
 
@@ -247,7 +255,9 @@ async function configureBlueprintLogic() {
   blueprintRuntime = null;
   try {
     await ensureProjectAdapters();
-    const response = await fetch('./logic/blueprints.json', { cache: 'no-store' });
+    const response = assetPackCache
+      ? await assetPackCache.fetch('logic/blueprints.json')
+      : await fetch('./logic/blueprints.json', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     blueprintDocument = await response.json();
     runtimeAdapters = new BrowserRuntimeAdapters(content, blueprintDocument, {
@@ -351,7 +361,7 @@ function playAnimation(index) {
   mixer.clipAction(clips[index]).reset().fadeIn(0.2).play();
 }
 
-function load(url, label = 'scene.glb') {
+function load(url, label = 'scene.glb', { revokeAfterLoad = false } = {}) {
   loading.hidden = false;
   errorPanel.hidden = true;
   loadingLabel.textContent = `Loading ${label}…`;
@@ -367,11 +377,13 @@ function load(url, label = 'scene.glb') {
     updateStats();
     document.querySelector('#title').textContent = gltf.scene.name || label.replace(/\.(glb|gltf)$/i, '');
     loading.hidden = true;
+    if (revokeAfterLoad) URL.revokeObjectURL(url);
     await configureBlueprintLogic();
   }, (event) => {
     const percent = event.total ? Math.round((event.loaded / event.total) * 100) : 35;
     progress.style.width = `${Math.min(percent, 100)}%`;
   }, (error) => {
+    if (revokeAfterLoad) URL.revokeObjectURL(url);
     loading.hidden = true;
     errorPanel.hidden = false;
     const hint = window.location.protocol === 'file:'
@@ -419,5 +431,36 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 
-loadExportManifest();
-load('./assets/scene.glb');
+async function boot() {
+  const manifest = await loadExportManifest();
+  try {
+    assetPackCache = createAssetPackCache(manifest?.assetPack, {
+      baseUrl: window.location.href,
+    });
+    assetPackCache.addEventListener('statuschange', ({ detail }) => {
+      document.documentElement.dataset.assetCache = detail.mode;
+    });
+  } catch (error) {
+    console.warn('Exported asset-pack cache is unavailable:', error);
+    assetPackCache = null;
+  }
+
+  if (!assetPackCache) {
+    load('./assets/scene.glb');
+    return;
+  }
+  try {
+    const response = await assetPackCache.fetch('assets/scene.glb');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const sceneUrl = URL.createObjectURL(await response.blob());
+    load(sceneUrl, 'scene.glb', { revokeAfterLoad: true });
+  } catch (error) {
+    loading.hidden = true;
+    errorPanel.hidden = false;
+    errorMessage.textContent = `The exported scene did not pass its asset-pack integrity check: ${error.message || error}`;
+    sceneStats = 'Scene unavailable';
+    updateStats();
+  }
+}
+
+void boot();

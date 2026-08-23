@@ -5,6 +5,14 @@
 class AActor;
 class UWorld;
 
+struct FUE5HTML5AssetPackResource
+{
+    FString Path;
+    FString Kind;
+    FString SHA256;
+    int64 Bytes = 0;
+};
+
 struct FUE5HTML5ExportResult
 {
     bool bSuccess = false;
@@ -28,6 +36,9 @@ struct FUE5HTML5ExportResult
     FString LargestBrowserArtifactPath;
     int64 LargestBrowserArtifactBytes = 0;
     bool bBrowserPayloadExceedsAdvisoryBudget = false;
+    FString AssetPackVersion;
+    int64 AssetPackBytes = 0;
+    TArray<FUE5HTML5AssetPackResource> AssetPackResources;
 };
 
 struct FUE5HTML5ReadinessReport

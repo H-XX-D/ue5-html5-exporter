@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -59,10 +60,21 @@ const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const DISCORD_PRIMARY_ENTRY_POINT = 4;
 const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
-const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v5';
-const HANDOFF_SCHEMAS = new Set(['ue5-discord-activity-handoff/v4', CURRENT_HANDOFF_SCHEMA]);
-const MANIFEST_SCHEMAS = new Set(['ue5-html5-export/v2', 'ue5-html5-export/v3', 'ue5-html5-export/v4']);
+const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v6';
+const HANDOFF_SCHEMAS = new Set([
+  'ue5-discord-activity-handoff/v4',
+  'ue5-discord-activity-handoff/v5',
+  CURRENT_HANDOFF_SCHEMA,
+]);
+const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v5';
+const MANIFEST_SCHEMAS = new Set([
+  'ue5-html5-export/v2',
+  'ue5-html5-export/v3',
+  'ue5-html5-export/v4',
+  CURRENT_MANIFEST_SCHEMA,
+]);
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
+const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
 const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
 const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
@@ -129,7 +141,11 @@ function browserArtifactFiles(root) {
   };
   addFile(join(root, 'index.html'));
   for (const directory of ['runtime', 'assets', 'logic']) addDirectory(join(root, directory));
-  return files.sort((left, right) => relative(root, left).localeCompare(relative(root, right)));
+  return files.sort((left, right) => {
+    const leftPath = relative(root, left).split('\\').join('/');
+    const rightPath = relative(root, right).split('\\').join('/');
+    return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
+  });
 }
 
 function browserPayloadMetrics(root) {
@@ -166,7 +182,7 @@ function browserPayloadMetrics(root) {
 }
 
 function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
-  const required = manifest.schema === ASSET_DELIVERY_SCHEMA || manifest.schema === 'ue5-html5-export/v4';
+  const required = [ASSET_DELIVERY_SCHEMA, 'ue5-html5-export/v4', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema);
   const manifestDelivery = manifest.assetDelivery;
   const handoffDelivery = handoff.assetDelivery;
   if (!manifestDelivery && !handoffDelivery && !required) {
@@ -215,6 +231,109 @@ function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
     const payloadMiB = (actual.browserPayloadBytes / 1024 / 1024).toFixed(1);
     const budgetMiB = (budget / 1024 / 1024).toFixed(1);
     warnings.push(`Primary browser payload is ${payloadMiB} MiB, above the ${budgetMiB} MiB project advisory budget; optimize assets and test real Discord clients.`);
+  }
+}
+
+function assetPackFiles(root) {
+  const files = [];
+  const visit = (directory) => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const child = join(directory, entry.name);
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile()) files.push(child);
+    }
+  };
+  visit(join(root, 'assets'));
+  for (const path of ['logic/blueprints.json', 'logic/custom-adapters.json']) {
+    const file = join(root, path);
+    if (existsSync(file) && statSync(file).isFile()) files.push(file);
+  }
+  return files.sort((left, right) => relative(root, left).localeCompare(relative(root, right)));
+}
+
+function validateAssetPack(root, manifest, handoff, errors, warnings) {
+  const required = manifest.schema === CURRENT_MANIFEST_SCHEMA || handoff.schema === CURRENT_HANDOFF_SCHEMA;
+  const manifestPack = manifest.assetPack;
+  const handoffPack = handoff.assetPack;
+  if (!manifestPack && !handoffPack && !required) {
+    warnings.push('Legacy export has no reusable origin-scoped asset pack; export again with the current plugin to enable verified client caching.');
+    return;
+  }
+  if (!manifestPack || typeof manifestPack !== 'object' || Array.isArray(manifestPack)) {
+    errors.push('export-manifest.json.assetPack must describe the reusable browser asset pack.');
+    return;
+  }
+  if (!handoffPack || JSON.stringify(handoffPack) !== JSON.stringify(manifestPack)) {
+    errors.push('activity-handoff.json.assetPack must exactly match export-manifest.json.assetPack.');
+    return;
+  }
+  if (manifestPack.schema !== ASSET_PACK_SCHEMA
+      || manifestPack.strategy !== 'origin-scoped-cache-api'
+      || manifestPack.runtimeStrategy !== 'content-hashed-http-cache'
+      || manifestPack.scope !== 'activity-origin'
+      || manifestPack.integrity !== 'sha256'
+      || manifestPack.fallback !== 'network') {
+    errors.push(`assetPack must use the ${ASSET_PACK_SCHEMA} origin-scoped cache contract.`);
+  }
+  if (!Array.isArray(manifestPack.resources)) {
+    errors.push('assetPack.resources must be an array.');
+    return;
+  }
+
+  const actualFiles = assetPackFiles(root);
+  const actualPaths = actualFiles.map((file) => relative(root, file).split('\\').join('/'));
+  const declaredPaths = manifestPack.resources.map((resource) => String(resource?.path || ''));
+  if (JSON.stringify(declaredPaths) !== JSON.stringify([...declaredPaths].sort())) {
+    errors.push('assetPack.resources must be sorted by path.');
+  }
+  if (new Set(declaredPaths).size !== declaredPaths.length) {
+    errors.push('assetPack.resources contains duplicate paths.');
+  }
+  if (JSON.stringify(declaredPaths) !== JSON.stringify(actualPaths)) {
+    errors.push('assetPack.resources must include every exported assets/** file plus the Blueprint IR and adapter manifest, with no extra paths.');
+  }
+
+  let total = 0;
+  let canonical = '';
+  for (let index = 0; index < manifestPack.resources.length; index += 1) {
+    const resource = manifestPack.resources[index];
+    const path = declaredPaths[index];
+    let decodedSegments = [];
+    try {
+      decodedSegments = path.split('/').map((segment) => decodeURIComponent(segment));
+    } catch {
+      decodedSegments = ['..'];
+    }
+    if (!path
+        || path.startsWith('/')
+        || path.includes('\\')
+        || /[:?#]/.test(path)
+        || decodedSegments.some((segment) => !segment || segment === '.' || segment === '..' || /[/\\]/.test(segment))) {
+      errors.push(`assetPack.resources[${index}].path is unsafe.`);
+      continue;
+    }
+    const file = join(root, path);
+    if (!existsSync(file) || !statSync(file).isFile()) continue;
+    const bytes = statSync(file).size;
+    const digest = createHash('sha256').update(readFileSync(file)).digest('hex');
+    if (!Number.isSafeInteger(resource.bytes) || resource.bytes !== bytes) {
+      errors.push(`assetPack resource byte count does not match ${path}.`);
+    }
+    if (!/^[a-f0-9]{64}$/.test(resource.sha256 || '') || resource.sha256 !== digest) {
+      errors.push(`assetPack SHA-256 does not match ${path}.`);
+    }
+    const expectedKind = path === 'assets/scene.glb' ? 'scene'
+      : path === 'logic/blueprints.json' ? 'blueprint-ir'
+        : path === 'logic/custom-adapters.json' ? 'adapter-manifest' : 'asset';
+    if (resource.kind !== expectedKind) errors.push(`assetPack resource kind does not match ${path}.`);
+    total += bytes;
+    canonical += `${path}\n${bytes}\n${digest}\n`;
+  }
+  const version = `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+  if (manifestPack.version !== version) errors.push('assetPack.version does not match its canonical resource index.');
+  if (!Number.isSafeInteger(manifestPack.bytes) || manifestPack.bytes !== total) {
+    errors.push('assetPack.bytes does not match the declared resources.');
   }
 }
 
@@ -359,12 +478,13 @@ function validateUnrealHandoff(root, errors, warnings) {
   }
   validateProjectTargets(handoff.projectTargets, errors);
   validateAssetDelivery(root, manifest, handoff, errors, warnings);
+  validateAssetPack(root, manifest, handoff, errors, warnings);
   if (logic.schema !== 'ue-blueprint-ir/v1' || !Array.isArray(logic.programs)) {
     errors.push('logic/blueprints.json has an unsupported schema.');
   }
 
-  const requiresAdapterContract = manifest.schema === 'ue5-html5-export/v4'
-    || handoff.schema === CURRENT_HANDOFF_SCHEMA;
+  const requiresAdapterContract = ['ue5-html5-export/v4', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema)
+    || ['ue5-discord-activity-handoff/v5', CURRENT_HANDOFF_SCHEMA].includes(handoff.schema);
   const manifestCounts = compatibilityCounts(
     manifest.blueprintCompatibility,
     'export-manifest.json.blueprintCompatibility',

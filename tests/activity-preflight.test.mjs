@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
@@ -86,6 +87,55 @@ function writeAssetDelivery(root, advisoryBudgetBytes = 64 * 1024 * 1024) {
   return delivery;
 }
 
+function writeAssetPack(root) {
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const child = join(directory, entry.name);
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile()) files.push(child);
+    }
+  };
+  visit(join(root, 'assets'));
+  files.push(join(root, 'logic/blueprints.json'), join(root, 'logic/custom-adapters.json'));
+  files.sort();
+  let bytes = 0;
+  let canonical = '';
+  const resources = files.map((file) => {
+    const path = relative(root, file).split('\\').join('/');
+    const body = readFileSync(file);
+    const sha256 = createHash('sha256').update(body).digest('hex');
+    bytes += body.byteLength;
+    canonical += `${path}\n${body.byteLength}\n${sha256}\n`;
+    return {
+      path,
+      kind: path === 'assets/scene.glb' ? 'scene'
+        : path === 'logic/blueprints.json' ? 'blueprint-ir'
+          : path === 'logic/custom-adapters.json' ? 'adapter-manifest' : 'asset',
+      bytes: body.byteLength,
+      sha256,
+    };
+  });
+  const pack = {
+    schema: 'ue5-html5-asset-pack/v1',
+    strategy: 'origin-scoped-cache-api',
+    version: `sha256:${createHash('sha256').update(canonical).digest('hex')}`,
+    runtimeStrategy: 'content-hashed-http-cache',
+    scope: 'activity-origin',
+    integrity: 'sha256',
+    fallback: 'network',
+    bytes,
+    resources,
+  };
+  for (const filename of ['export-manifest.json', 'activity-handoff.json']) {
+    const path = join(root, filename);
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    value.assetPack = pack;
+    writeFileSync(path, JSON.stringify(value));
+  }
+  return pack;
+}
+
 function exportFixture() {
   const root = mkdtempSync(join(tmpdir(), 'ue5-activity-preflight-'));
   for (const path of REQUIRED_EXPORT_FILES) {
@@ -137,6 +187,53 @@ function exportFixture() {
 
 test('Activity preflight accepts a complete private configuration', () => {
   assert.deepEqual(validateActivityEnvironment(validEnvironment()).errors, []);
+});
+
+test('Activity package preflight verifies the current reusable asset-pack contract and detects tampering', () => {
+  const root = exportFixture();
+  try {
+    const manifestPath = join(root, 'export-manifest.json');
+    const handoffPath = join(root, 'activity-handoff.json');
+    const logicPath = join(root, 'logic/blueprints.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const handoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    const logic = JSON.parse(readFileSync(logicPath, 'utf8'));
+    const modernCounts = {
+      status: 'compatible',
+      blueprintCount: 1,
+      nodeCount: 2,
+      builtInSupportedNodeCount: 2,
+      customAdapterNodeCount: 0,
+      supportedNodeCount: 2,
+      unsupportedNodeCount: 0,
+    };
+    manifest.schema = 'ue5-html5-export/v5';
+    manifest.blueprintCompatibility = modernCounts;
+    handoff.schema = 'ue5-discord-activity-handoff/v6';
+    handoff.blueprintCompatibility = modernCounts;
+    logic.projectAdapters = {
+      schema: 'ue5-html5-custom-adapters/v1',
+      manifest: 'logic/custom-adapters.json',
+      module: 'logic/custom-adapters.js',
+      declaredFunctionCount: 0,
+    };
+    logic.programs[0].compatibility.projectAdapterCount = 0;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(handoffPath, JSON.stringify(handoff));
+    writeFileSync(logicPath, JSON.stringify(logic));
+    writeFileSync(join(root, 'logic/custom-adapters.json'), JSON.stringify({
+      schema: 'ue5-html5-custom-adapters/v1', functions: [],
+    }));
+    writeAssetDelivery(root);
+    writeAssetPack(root);
+
+    assert.deepEqual(validateActivityExport({ directory: root, packageOnly: true }).errors, []);
+    writeFileSync(join(root, 'assets/scene.glb'), 'tampered-scene');
+    assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
+      .some((error) => error.includes('assetPack SHA-256')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('Activity preflight keeps private Realtime optional for Discord auth and persistence', () => {

@@ -10,6 +10,7 @@
 #include "Exporters/GLTFExporter.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformMisc.h"
 #include "HAL/PlatformFileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
@@ -234,6 +235,112 @@ namespace
         Result.bBrowserPayloadExceedsAdvisoryBudget = Result.BrowserPayloadBytes > Result.BrowserPayloadBudgetBytes;
     }
 
+    FString AssetPackKind(const FString& Path)
+    {
+        if (Path == TEXT("assets/scene.glb")) return TEXT("scene");
+        if (Path == TEXT("logic/blueprints.json")) return TEXT("blueprint-ir");
+        if (Path == TEXT("logic/custom-adapters.json")) return TEXT("adapter-manifest");
+        return TEXT("asset");
+    }
+
+    bool BuildAssetPack(const FString& OutputDirectory, FUE5HTML5ExportResult& Result, FString& OutError)
+    {
+        TArray<FString> Files;
+        IFileManager::Get().FindFilesRecursive(
+            Files,
+            *FPaths::Combine(OutputDirectory, TEXT("assets")),
+            TEXT("*"),
+            true,
+            false,
+            false);
+        for (const FString& RelativePath : {
+            FString(TEXT("logic/blueprints.json")),
+            FString(TEXT("logic/custom-adapters.json")) })
+        {
+            const FString File = FPaths::Combine(OutputDirectory, RelativePath);
+            if (FPaths::FileExists(File)) Files.Add(File);
+        }
+        Files.Sort([&OutputDirectory](const FString& Left, const FString& Right) {
+            return BrowserRelativePath(OutputDirectory, Left) < BrowserRelativePath(OutputDirectory, Right);
+        });
+
+        Result.AssetPackResources.Reset();
+        Result.AssetPackBytes = 0;
+        FString Canonical;
+        for (const FString& File : Files)
+        {
+            const int64 FileSize = IFileManager::Get().FileSize(*File);
+            if (FileSize < 0 || FileSize > static_cast<int64>(MAX_uint32))
+            {
+                OutError = FString::Printf(TEXT("Asset-pack resource must be readable and no larger than 4 GiB: %s"), *File);
+                return false;
+            }
+            TArray<uint8> Bytes;
+            if (!FFileHelper::LoadFileToArray(Bytes, *File))
+            {
+                OutError = FString::Printf(TEXT("Could not read asset-pack resource: %s"), *File);
+                return false;
+            }
+            FSHA256Signature Signature;
+            if (!FPlatformMisc::GetSHA256Signature(Bytes.GetData(), static_cast<uint32>(Bytes.Num()), Signature))
+            {
+                OutError = FString::Printf(TEXT("Could not hash asset-pack resource: %s"), *File);
+                return false;
+            }
+            FUE5HTML5AssetPackResource Resource;
+            Resource.Path = BrowserRelativePath(OutputDirectory, File);
+            Resource.Kind = AssetPackKind(Resource.Path);
+            Resource.SHA256 = Signature.ToString().ToLower();
+            Resource.Bytes = FileSize;
+            Result.AssetPackResources.Add(Resource);
+            Result.AssetPackBytes += FileSize;
+            Canonical += FString::Printf(TEXT("%s\n%lld\n%s\n"), *Resource.Path, Resource.Bytes, *Resource.SHA256);
+        }
+
+        FTCHARToUTF8 CanonicalUtf8(*Canonical);
+        if (CanonicalUtf8.Length() > static_cast<int64>(MAX_uint32))
+        {
+            OutError = TEXT("Asset-pack index is too large to hash.");
+            return false;
+        }
+        FSHA256Signature PackSignature;
+        if (!FPlatformMisc::GetSHA256Signature(
+                CanonicalUtf8.Get(),
+                static_cast<uint32>(CanonicalUtf8.Length()),
+                PackSignature))
+        {
+            OutError = TEXT("Could not hash the asset-pack index.");
+            return false;
+        }
+        Result.AssetPackVersion = PackSignature.ToString().ToLower();
+        return true;
+    }
+
+    TSharedRef<FJsonObject> BuildAssetPackJson(const FUE5HTML5ExportResult& Result)
+    {
+        TSharedRef<FJsonObject> Pack = MakeShared<FJsonObject>();
+        Pack->SetStringField(TEXT("schema"), TEXT("ue5-html5-asset-pack/v1"));
+        Pack->SetStringField(TEXT("strategy"), TEXT("origin-scoped-cache-api"));
+        Pack->SetStringField(TEXT("version"), FString::Printf(TEXT("sha256:%s"), *Result.AssetPackVersion));
+        Pack->SetStringField(TEXT("runtimeStrategy"), TEXT("content-hashed-http-cache"));
+        Pack->SetStringField(TEXT("scope"), TEXT("activity-origin"));
+        Pack->SetStringField(TEXT("integrity"), TEXT("sha256"));
+        Pack->SetStringField(TEXT("fallback"), TEXT("network"));
+        Pack->SetNumberField(TEXT("bytes"), Result.AssetPackBytes);
+        TArray<TSharedPtr<FJsonValue>> Resources;
+        for (const FUE5HTML5AssetPackResource& Resource : Result.AssetPackResources)
+        {
+            TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
+            Value->SetStringField(TEXT("path"), Resource.Path);
+            Value->SetStringField(TEXT("kind"), Resource.Kind);
+            Value->SetNumberField(TEXT("bytes"), Resource.Bytes);
+            Value->SetStringField(TEXT("sha256"), Resource.SHA256);
+            Resources.Add(MakeShared<FJsonValueObject>(Value));
+        }
+        Pack->SetArrayField(TEXT("resources"), Resources);
+        return Pack;
+    }
+
     TSharedRef<FJsonObject> BuildAssetDelivery(const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Delivery = MakeShared<FJsonObject>();
@@ -269,7 +376,7 @@ namespace
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v5"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v6"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
         const bool bNeedsRuntimeValidation = Result.CustomAdapterBlueprintNodeCount > 0;
@@ -345,6 +452,7 @@ namespace
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
         Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
         Root->SetObjectField(TEXT("assetDelivery"), BuildAssetDelivery(Result));
+        Root->SetObjectField(TEXT("assetPack"), BuildAssetPackJson(Result));
 
         TArray<TSharedPtr<FJsonValue>> ReleaseSteps;
         if (!ProjectSettings->HasCompleteTargetSet())
@@ -383,7 +491,7 @@ namespace
     bool WriteManifest(const FString& OutputDirectory, UWorld* World, const TSet<AActor*>& SelectedActors, FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v4"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v5"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         Root->SetBoolField(TEXT("selectionOnly"), !SelectedActors.IsEmpty());
         Root->SetNumberField(TEXT("actorCount"), Result.ActorCount);
@@ -429,6 +537,7 @@ namespace
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
         Root->SetObjectField(TEXT("blueprintCompatibility"), Compatibility);
         Root->SetObjectField(TEXT("assetDelivery"), BuildAssetDelivery(Result));
+        Root->SetObjectField(TEXT("assetPack"), BuildAssetPackJson(Result));
 
         TArray<TSharedPtr<FJsonValue>> Unsupported;
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Blueprint nodes listed as unsupported in logic/blueprints.json")));
@@ -780,6 +889,13 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
             static_cast<double>(Result.BrowserPayloadBudgetBytes) / BytesPerMiB));
     }
 
+    FString AssetPackError;
+    if (!BuildAssetPack(Result.OutputDirectory, Result, AssetPackError))
+    {
+        Result.Error = FString::Printf(TEXT("The scene exported, but its reusable browser asset pack could not be indexed: %s"), *AssetPackError);
+        return Result;
+    }
+
     if (!WriteManifest(Result.OutputDirectory, World, SelectedActors, Result))
     {
         Result.Error = TEXT("The scene exported, but export-manifest.json could not be written.");
@@ -801,6 +917,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("Give the entire folder to the release operator; `activity-handoff.json` records whether Blueprint adapters remain and lists the release steps.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
+        TEXT("Reusable scene and Blueprint data are integrity-checked and cached under this Activity origin. A changed asset-pack hash creates a new cache, and cache unavailability falls back to the network.\n")
         TEXT("Create project-owned native replacements from Tools > HTML5 Export > Open Custom Web Adapters Folder, then declare them in custom-adapters.json and implement them with `window.UE5HTML5.registerFunction(name, implementation)`.\n")
         TEXT("Project-adapter coverage still requires local Discord preview and real gameplay validation.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));

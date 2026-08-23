@@ -29,6 +29,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A commit-bound Win64 certification workflow with per-file SHA-256 inventories, a detached report checksum, and GitHub-signed SLSA provenance for downloadable Windows artifacts
 - A double-click Win64 certification launcher that selects a real Unreal project and produces the same native build/export evidence without requiring PowerShell knowledge
 - A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
+- A versioned, origin-scoped browser asset pack: exported scene and Blueprint data are SHA-256 verified, cached after the first launch, reused on later launches, and safely fetched from the network when browser storage is unavailable
 
 ## Build the plugin
 
@@ -93,6 +94,12 @@ For a faster logic-only iteration, choose **Tools → HTML5 Export → Check Blu
 Every new export records the exact bytes for `index.html`, `runtime/**`, `assets/**`, and `logic/**` in both `export-manifest.json` and `activity-handoff.json`. The Unreal completion dialog and commandlet show the total, the configured budget, and the largest browser artifact. Package preflight recalculates the files instead of trusting the manifest, so a modified GLB or runtime bundle cannot retain stale size claims.
 
 The default project advisory budget is 64 MiB. Change it under **Project Settings → Plugins → UE5 HTML5 Discord Activity → Browser Export** when the game has a deliberately different release target. Exceeding it produces a review warning rather than blocking export.
+
+### Reusable client asset cache
+
+Current exports include an `assetPack` contract in both `export-manifest.json` and `activity-handoff.json`. Unreal hashes every file under `assets/**` plus `logic/blueprints.json` and `logic/custom-adapters.json`, then derives one version hash from the sorted resource index. On first launch the viewer verifies each downloaded resource before writing it to the browser Cache API. Later launches verify and reuse the matching cached version. A new Unreal export changes the version automatically, and cleanup is limited to older `ue5html5-asset-pack-v1-*` caches owned by this exporter.
+
+This is browser-managed storage for one Activity origin, not a native Discord installation and not a promise that data will remain forever. The browser can evict it, private browsing may disable it, and separately hosted origins cannot share it. Gameplay therefore keeps a network path; if Cache API or Web Crypto support is unavailable, the game loads normally without persistent caching. Content-hashed runtime JavaScript and CSS continue to use ordinary immutable HTTP caching rather than being duplicated in the asset pack.
 
 This budget is an exporter/team policy, not a Discord upload limit and not a performance certification. A small download can still perform poorly because of triangles, textures after GPU upload, shader/material cost, draw calls, Blueprint tick work, device memory, or thermal throttling. Test time-to-first-interaction, frame rate, memory, controls, and thermal behavior in real Discord desktop and mobile clients before release. Discord explicitly notes that an Activity shares CPU, RAM, and GPU with the Discord client and recommends prioritizing time-to-first-interaction and testing phones, tablets, and desktop machines.
 
