@@ -130,7 +130,16 @@ This first portable contract deliberately excludes Sound Cues, MetaSounds, proce
 
 ## User C++ replacements
 
-Native C++ cannot be translated safely from compiled Unreal modules. In Unreal, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. The plugin creates two source-controlled project files:
+Native C++ cannot be translated safely from compiled Unreal modules. For an impure C++ call that performs an action and has no connected data output pins, first use the Blueprint-only fallback convention:
+
+1. Keep the existing C++ call, for example `NativeApplyDamage`, in the graph.
+2. In that same Blueprint, create an impure function named `Web_NativeApplyDamage`.
+3. Give it matching input names and rebuild the portable behavior with ordinary supported Blueprint nodes.
+4. Run **Check Blueprint Web Compatibility…**. The call should be reported as Blueprint-fallback-covered rather than unsupported.
+
+The exporter writes `webFallbackFunction: "Web_NativeApplyDamage"`, and the browser passes the original call arguments into that exported function before continuing the caller's execution wire. No generated web file or JavaScript is edited. This convention is deliberately rejected for pure calls or calls with connected data output pins because the current Blueprint VM cannot safely return a fallback value to the caller. Those cases, exact C++ semantics, native libraries, and operating-system APIs still need a JavaScript project adapter.
+
+For those remaining cases, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. The plugin creates two source-controlled project files:
 
 - `Config/UE5HTML5/custom-adapters.json` declares the exact Unreal function names covered by project code.
 - `Config/UE5HTML5/custom-adapters.js` registers their browser implementations.

@@ -265,12 +265,19 @@ try {
 
     $editorAutomationPath = Join-Path $testRoot 'editor-automation.json'
     $editorAutomation = [ordered]@{
-        succeeded = 3
+        succeeded = 4
         succeededWithWarnings = 0
         failed = 0
         notRun = 0
         inProcess = 0
         tests = @(
+            [ordered]@{
+                fullTestPath = 'UE5HTML5Exporter.Editor.BlueprintFallbackPolicy'
+                state = 'Success'
+                duration = 0.02
+                errors = 0
+                warnings = 0
+            },
             [ordered]@{
                 fullTestPath = 'UE5HTML5Exporter.Editor.BrowserFPSSetup'
                 state = 'Success'
@@ -298,9 +305,9 @@ try {
     $editorEvidence = Get-UE5HTML5EditorAutomationEvidence -ReportFile $editorAutomationPath
     Assert-True ($editorEvidence.status -eq 'passed') 'editor automation bridge must accept the exact clean passing certification suite'
     Assert-True ($editorEvidence.schema -eq 'ue5-html5-editor-automation-evidence/v2') 'editor automation evidence must use the multi-test schema'
-    Assert-True ($editorEvidence.tests.Count -eq 3) 'editor automation evidence must retain all native test results'
-    Assert-True (($editorEvidence.tests.testPath -join ',') -eq 'UE5HTML5Exporter.Editor.BrowserFPSSetup,UE5HTML5Exporter.Editor.DiscordInstallUrl,UE5HTML5Exporter.Editor.ReleaseReceiptWorkspace') 'editor automation evidence must retain the exact native test paths'
-    Assert-True ($editorEvidence.durationSeconds -eq 0.25) 'editor automation evidence must sum native test duration'
+    Assert-True ($editorEvidence.tests.Count -eq 4) 'editor automation evidence must retain all native test results'
+    Assert-True (($editorEvidence.tests.testPath -join ',') -eq 'UE5HTML5Exporter.Editor.BlueprintFallbackPolicy,UE5HTML5Exporter.Editor.BrowserFPSSetup,UE5HTML5Exporter.Editor.DiscordInstallUrl,UE5HTML5Exporter.Editor.ReleaseReceiptWorkspace') 'editor automation evidence must retain the exact native test paths'
+    Assert-True ($editorEvidence.durationSeconds -eq 0.27) 'editor automation evidence must sum native test duration'
 
     $editorAutomation.tests[0].state = 'Fail'
     $editorAutomation.failed = 1
@@ -312,7 +319,7 @@ try {
 
     $editorAutomation.tests[0].state = 'Success'
     $editorAutomation.failed = 0
-    $editorAutomation.succeeded = 3
+    $editorAutomation.succeeded = 4
     $editorAutomation.tests[1].fullTestPath = 'UE5HTML5Exporter.Editor.SomeOtherTest'
     $editorAutomation | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $editorAutomationPath -Encoding utf8
     Assert-Throws {

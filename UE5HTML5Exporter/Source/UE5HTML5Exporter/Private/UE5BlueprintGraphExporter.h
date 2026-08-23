@@ -13,6 +13,7 @@ struct FUE5BlueprintExportSummary
     int32 ActorInstanceCount = 0;
     int32 NodeCount = 0;
     int32 BuiltInSupportedNodeCount = 0;
+    int32 BlueprintFallbackNodeCount = 0;
     int32 CustomAdapterNodeCount = 0;
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
@@ -29,6 +30,12 @@ struct FUE5BlueprintExportSummary
 class FUE5BlueprintGraphExporter
 {
 public:
+    static FString FindBlueprintFallbackFunction(
+        const FString& FunctionName,
+        const TSet<FString>& BlueprintFunctions,
+        bool bIsPure,
+        bool bHasConnectedDataOutputs);
+
     static FUE5BlueprintExportSummary Export(
         UWorld* World,
         const TArray<AActor*>& Actors,

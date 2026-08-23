@@ -34,6 +34,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A proxy-safe, origin-scoped content-addressed asset pack: exported scene and Blueprint data are SHA-256 verified and Cache API-backed, unchanged resources survive later exports, and project adapter code uses the full pack-hash query with immutable HTTP caching; storage failure falls back to the network
 - An explicit **Keep this game downloaded** control in the generated Logic panel that can request persistent origin storage without collecting quota/device data; denial leaves the verified cache and network fallback working normally
 - Direct mono/stereo `SoundWave` export to WAV plus browser playback for Blueprint **Play Sound 2D** and camera-relative HRTF playback for **Play Sound at Location**; audio uses the same verified reusable asset pack and remains non-fatal when browser audio is unavailable
+- A Blueprint-only `Web_<Function>` fallback convention for impure user C++ action calls without connected data outputs, so Unreal teams can rebuild portable behavior in familiar Blueprint graphs before reaching for JavaScript
 
 ## Build the plugin
 
@@ -193,18 +194,18 @@ Add `-FailOnUnsupported` when CI should exit with code `6` if any node still nee
 | UMG | Widget trees exported to DOM; common containers, text, buttons, viewport, visibility, and text calls supported |
 | Niagara/Cascade | Spawn/activate/deactivate calls use a portable Three.js particle fallback |
 | Audio | Direct mono/stereo `SoundWave` literals and Blueprint variables export as WAV; `Play Sound 2D` uses ordinary Web Audio and `Play Sound at Location` uses camera-relative HRTF panning with a 2D fallback |
-| User C++ gameplay | Project-owned `Config/UE5HTML5/custom-adapters.json` + `custom-adapters.js`, copied into every export and registered through `UE5HTML5.registerFunction` before Blueprint startup |
+| User C++ gameplay | Impure action calls without connected data outputs can redirect to an exported `Web_<Function>` Blueprint function; pure, return-valued, or native-only behavior uses project-owned JavaScript adapters |
 | Discord Activity | Blueprint nodes/events backed by Embedded App SDK connection/auth lifecycle, privacy-safe diagnostics, inbound/outbound private Broadcast, opaque Presence, participant and verified-entitlement updates, layout/orientation/thermal updates, Rich Presence/share links, opaque HttpOnly Activity sessions, and atomic cross-device saves |
 | Other Blueprint nodes/functions | Preserved in IR and reported as unsupported |
 | UE post-processing/custom shaders | Not transferred or approximated by PBR conversion |
 
 The exported page has a **Logic** button showing converted programs, actor instances, node totals, and unsupported nodes. Browser code can trigger events and exported Blueprint functions with `window.UE5HTML5.call(eventName, actorName, args)`.
 
-For project C++ or a Blueprint function outside the built-in subset, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. Declare the Unreal function name in `custom-adapters.json`, implement the same name in `custom-adapters.js`, and keep both files in source control. The fast compatibility audit then reports built-in, project-adapter-covered, and uncovered nodes separately. The exported browser refuses to start Blueprint logic if any declared implementation failed to register. Registration is a wiring check, not a behavior certification, so project-adapter coverage still requires local Discord preview and gameplay testing.
+For an impure project C++ action with no connected data output pins, first create `Web_<Function>` in the same Blueprint and rebuild the portable behavior from supported Blueprint nodes. The exporter passes the original inputs into that function and reports the call as Blueprint-fallback-covered. Pure or return-valued functions—and behavior that genuinely needs browser APIs—still use **Tools → HTML5 Export → Open Custom Web Adapters Folder**. Declare the Unreal function name in `custom-adapters.json`, implement the same name in `custom-adapters.js`, and keep both files in source control. The fast compatibility audit reports built-in, Blueprint-fallback, project-adapter, and uncovered nodes separately. The exported browser refuses to start Blueprint logic if any declared JavaScript implementation failed to register. Registration is a wiring check, not a behavior certification, so project-adapter coverage still requires local Discord preview and gameplay testing.
 
 The footer also shows the measured primary browser payload from `export-manifest.json`. `delivery review` means the package exceeds its Unreal project advisory budget; it does not mean Discord rejected the package.
 
-These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication/ownership/validation, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, Sound Cues/procedural audio graphs, and compiled C++ still need project-specific web implementations. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
+These adapters intentionally reproduce portable gameplay behavior, not Unreal's engine internals. Chaos rigid-body determinism, authoritative Unreal replication/ownership/validation, full GAS prediction, Behavior Tree decorators/services, exact Slate layout, Niagara scripts, Sound Cues/procedural audio graphs, and exact compiled-C++ behavior still need project-specific portable replacements. Eligible C++ action calls can keep that replacement in Blueprint through `Web_<Function>`; pure, return-valued, or native-only behavior still needs a web adapter. See [Runtime adapters](docs/RUNTIME_ADAPTERS.md) for the API and exact boundary.
 
 ## Development
 

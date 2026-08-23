@@ -389,7 +389,8 @@ export class BlueprintRuntime {
       return adapterResult;
     }
 
-    const entry = instance.functionEntries.get(name);
+    const fallbackName = normalized(node.webFallbackFunction || node.function);
+    const entry = instance.functionEntries.get(fallbackName);
     if (entry) {
       instance.eventArgs.set(entry.id, args);
       this.runOutputWithContext(instance, entry, ['then'], context);

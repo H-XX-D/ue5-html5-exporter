@@ -481,12 +481,13 @@ void FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive()
     FString Message = FString::Printf(
         TEXT("BLUEPRINT WEB COMPATIBILITY\n\n")
         TEXT("%d of %d nodes are covered across %d Blueprints and %d actor instances.\n")
-        TEXT("%d use the built-in runtime; %d use project adapters and still require runtime validation.\n"),
+        TEXT("%d use the built-in runtime; %d use Blueprint fallbacks; %d use project adapters and still require runtime validation.\n"),
         Report.SupportedNodeCount,
         Report.NodeCount,
         Report.BlueprintCount,
         Report.ActorInstanceCount,
         Report.BuiltInSupportedNodeCount,
+        Report.BlueprintFallbackNodeCount,
         Report.CustomAdapterNodeCount);
     if (Report.UnsupportedNodeCount == 0)
     {

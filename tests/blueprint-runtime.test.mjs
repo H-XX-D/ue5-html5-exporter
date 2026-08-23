@@ -256,6 +256,33 @@ test('invokes exported Blueprint function entries by name', () => {
   assert.equal(runtime.instances[0].state.Damaged, true);
 });
 
+test('redirects an unsupported action call to its exported Blueprint web fallback', () => {
+  const nodes = [
+    { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('native', 'execute')] })] },
+    { id: 'native', kind: 'callFunction', function: 'NativeApplyDamage', webFallbackFunction: 'Web_NativeApplyDamage', pins: [
+      pin('execute', 'input', 'exec'), pin('Amount', 'input', 'int', { default: '25' }),
+      pin('then', 'output', 'exec', { links: [link('after', 'execute')] }),
+    ] },
+    { id: 'entry', kind: 'functionEntry', function: 'Web_NativeApplyDamage', pins: [
+      pin('Amount', 'output', 'int'), pin('then', 'output', 'exec', { links: [link('damage', 'execute')] }),
+    ] },
+    { id: 'damage', kind: 'variableSet', variable: 'Damage', pins: [
+      pin('execute', 'input', 'exec'), pin('Damage', 'input', 'int', { links: [link('entry', 'Amount')] }), pin('then', 'output', 'exec'),
+    ] },
+    { id: 'after', kind: 'variableSet', variable: 'Continued', pins: [
+      pin('execute', 'input', 'exec'), pin('Continued', 'input', 'bool', { default: 'true' }), pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, {
+    Damage: { value: '0', category: 'int' },
+    Continued: { value: 'false', category: 'bool' },
+  }));
+  runtime.start();
+  assert.equal(runtime.instances[0].state.Damage, 25);
+  assert.equal(runtime.instances[0].state.Continued, true);
+  assert.deepEqual(runtime.diagnostics, []);
+});
+
 test('passes Blueprint function arguments through reroute nodes', () => {
   const nodes = [
     { id: 'entry', kind: 'functionEntry', function: 'Aim', pins: [

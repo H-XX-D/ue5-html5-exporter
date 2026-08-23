@@ -14,6 +14,7 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
@@ -359,7 +360,8 @@ namespace
         const TSet<FString>& CustomAdapterFunctions,
         FUE5BlueprintExportSummary& Summary,
         TArray<TSharedPtr<FJsonValue>>& Unsupported,
-        TArray<TSharedPtr<FJsonValue>>& CustomAdapters)
+        TArray<TSharedPtr<FJsonValue>>& CustomAdapters,
+        TArray<TSharedPtr<FJsonValue>>& BlueprintFallbacks)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         const FString Kind = NodeKind(Node);
@@ -374,7 +376,9 @@ namespace
             if (Function.IsEmpty()) Function = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
         }
         bool bBuiltInSupported = Kind != TEXT("unsupported");
+        bool bBlueprintFallback = false;
         bool bCustomAdapter = false;
+        FString BlueprintFallbackFunction;
         if (Kind == TEXT("callFunction"))
         {
             bBuiltInSupported = IsSupportedFunction(Function) || BlueprintFunctions.Contains(Normalize(Function));
@@ -395,11 +399,33 @@ namespace
                 }
             }
             bCustomAdapter = !bBuiltInSupported && CustomAdapterFunctions.Contains(Normalize(Function));
+            if (!bBuiltInSupported && !bCustomAdapter)
+            {
+                const UK2Node_CallFunction* Call = CastChecked<UK2Node_CallFunction>(Node);
+                bool bHasConnectedDataOutputs = false;
+                for (const UEdGraphPin* Pin : Node->Pins)
+                {
+                    if (Pin
+                        && Pin->Direction == EGPD_Output
+                        && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                        && Pin->LinkedTo.Num() > 0)
+                    {
+                        bHasConnectedDataOutputs = true;
+                        break;
+                    }
+                }
+                BlueprintFallbackFunction = FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
+                    Function,
+                    BlueprintFunctions,
+                    Call->IsNodePure(),
+                    bHasConnectedDataOutputs);
+                bBlueprintFallback = !BlueprintFallbackFunction.IsEmpty();
+            }
         }
         if (Kind == TEXT("event")) bBuiltInSupported = IsSupportedEvent(Node, Event);
         if (Kind == TEXT("delegate") || Kind == TEXT("interfaceCall") || Kind == TEXT("inputAction")
             || Kind == TEXT("comment") || Kind == TEXT("functionResult") || Kind == TEXT("createWidget") || Kind == TEXT("getSubsystem")) bBuiltInSupported = true;
-        const bool bSupported = bBuiltInSupported || bCustomAdapter;
+        const bool bSupported = bBuiltInSupported || bBlueprintFallback || bCustomAdapter;
 
         Json->SetStringField(TEXT("id"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
         Json->SetStringField(TEXT("class"), Node->GetClass()->GetName());
@@ -408,7 +434,12 @@ namespace
         Json->SetBoolField(TEXT("supported"), bSupported);
         Json->SetStringField(
             TEXT("supportSource"),
-            bCustomAdapter ? TEXT("project-adapter") : (bBuiltInSupported ? TEXT("built-in") : TEXT("unsupported")));
+            bCustomAdapter
+                ? TEXT("project-adapter")
+                : (bBlueprintFallback
+                    ? TEXT("blueprint-fallback")
+                    : (bBuiltInSupported ? TEXT("built-in") : TEXT("unsupported"))));
+        if (bBlueprintFallback) Json->SetStringField(TEXT("webFallbackFunction"), BlueprintFallbackFunction);
         if (bCustomAdapter) Json->SetBoolField(TEXT("runtimeValidationRequired"), true);
         Json->SetNumberField(TEXT("x"), Node->NodePosX);
         Json->SetNumberField(TEXT("y"), Node->NodePosY);
@@ -471,6 +502,18 @@ namespace
         {
             ++Summary.BuiltInSupportedNodeCount;
             ++Summary.SupportedNodeCount;
+        }
+        else if (bBlueprintFallback)
+        {
+            ++Summary.BlueprintFallbackNodeCount;
+            ++Summary.SupportedNodeCount;
+            TSharedRef<FJsonObject> Coverage = MakeShared<FJsonObject>();
+            Coverage->SetStringField(TEXT("graph"), GraphName);
+            Coverage->SetStringField(TEXT("node"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+            Coverage->SetStringField(TEXT("class"), Node->GetClass()->GetName());
+            Coverage->SetStringField(TEXT("function"), Function);
+            Coverage->SetStringField(TEXT("webFallbackFunction"), BlueprintFallbackFunction);
+            BlueprintFallbacks.Add(MakeShared<FJsonValueObject>(Coverage));
         }
         else if (bCustomAdapter)
         {
@@ -831,6 +874,20 @@ namespace
     }
 }
 
+FString FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
+    const FString& FunctionName,
+    const TSet<FString>& BlueprintFunctions,
+    bool bIsPure,
+    bool bHasConnectedDataOutputs)
+{
+    if (FunctionName.IsEmpty() || bIsPure || bHasConnectedDataOutputs)
+    {
+        return FString();
+    }
+    const FString Candidate = FString::Printf(TEXT("Web_%s"), *FunctionName);
+    return BlueprintFunctions.Contains(Normalize(Candidate)) ? Candidate : FString();
+}
+
 FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
     UWorld* World,
     const TArray<AActor*>& Actors,
@@ -980,6 +1037,7 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
         TArray<TSharedPtr<FJsonValue>> GraphValues;
         TArray<TSharedPtr<FJsonValue>> Unsupported;
         TArray<TSharedPtr<FJsonValue>> CustomAdapters;
+        TArray<TSharedPtr<FJsonValue>> BlueprintFallbacks;
         TSet<FString> BlueprintFunctions;
         for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
         {
@@ -1002,7 +1060,8 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
                     CustomAdapterFunctions,
                     Summary,
                     Unsupported,
-                    CustomAdapters)));
+                    CustomAdapters,
+                    BlueprintFallbacks)));
             }
             GraphJson->SetArrayField(TEXT("nodes"), Nodes);
             GraphValues.Add(MakeShared<FJsonValueObject>(GraphJson));
@@ -1014,6 +1073,8 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
         Compatibility->SetNumberField(TEXT("unsupportedCount"), Unsupported.Num());
         Compatibility->SetArrayField(TEXT("projectAdapters"), CustomAdapters);
         Compatibility->SetNumberField(TEXT("projectAdapterCount"), CustomAdapters.Num());
+        Compatibility->SetArrayField(TEXT("blueprintFallbacks"), BlueprintFallbacks);
+        Compatibility->SetNumberField(TEXT("blueprintFallbackCount"), BlueprintFallbacks.Num());
         Compatibility->SetBoolField(TEXT("runtimeValidationRequired"), CustomAdapters.Num() > 0);
         Program->SetObjectField(TEXT("compatibility"), Compatibility);
         Programs.Add(MakeShared<FJsonValueObject>(Program));

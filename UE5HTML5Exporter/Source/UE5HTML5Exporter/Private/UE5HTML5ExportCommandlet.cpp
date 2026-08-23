@@ -121,12 +121,13 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
         UE_LOG(
             LogTemp,
             Display,
-            TEXT("Blueprint compatibility: %d/%d nodes covered across %d Blueprints and %d actor instances; %d built-in, %d project-adapter-covered, %d uncovered."),
+            TEXT("Blueprint compatibility: %d/%d nodes covered across %d Blueprints and %d actor instances; %d built-in, %d Blueprint-fallback-covered, %d project-adapter-covered, %d uncovered."),
             Report.SupportedNodeCount,
             Report.NodeCount,
             Report.BlueprintCount,
             Report.ActorInstanceCount,
             Report.BuiltInSupportedNodeCount,
+            Report.BlueprintFallbackNodeCount,
             Report.CustomAdapterNodeCount,
             Report.UnsupportedNodeCount);
         if (Report.CustomAdapterNodeCount > 0)
@@ -164,10 +165,11 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
     UE_LOG(
         LogTemp,
         Display,
-        TEXT("Blueprint compatibility: %d/%d nodes covered; %d built-in, %d project-adapter-covered, %d uncovered."),
+        TEXT("Blueprint compatibility: %d/%d nodes covered; %d built-in, %d Blueprint-fallback-covered, %d project-adapter-covered, %d uncovered."),
         Result.SupportedBlueprintNodeCount,
         Result.BlueprintNodeCount,
         Result.BuiltInSupportedBlueprintNodeCount,
+        Result.BlueprintFallbackNodeCount,
         Result.CustomAdapterBlueprintNodeCount,
         Result.UnsupportedBlueprintNodeCount);
     UE_LOG(

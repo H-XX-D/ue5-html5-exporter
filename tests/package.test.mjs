@@ -242,6 +242,7 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /custom-adapters\.json/);
   assert.match(source, /custom-adapters\.js/);
   assert.match(source, /customAdapterNodeCount/);
+  assert.match(source, /blueprintFallbackNodeCount/);
   assert.match(source, /assetDelivery/);
   assert.match(source, /ue5-html5-asset-pack\/v3/);
   assert.match(source, /origin-scoped-content-addressed-cache/);
@@ -436,13 +437,22 @@ test('Unreal commandlet exposes the same readiness policy for workstation automa
 test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   const source = read('Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.cpp');
   const summary = read('Source/UE5HTML5Exporter/Private/UE5BlueprintGraphExporter.h');
+  const fallbackTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BlueprintFallbackTests.cpp');
   assert.match(source, /ue-blueprint-ir\/v1/);
   assert.match(source, /Pin->LinkedTo/);
   assert.match(source, /blueprints\.json/);
   assert.match(source, /unsupportedCount/);
   assert.match(source, /UnsupportedNodes/);
   assert.match(source, /project-adapter/);
+  assert.match(source, /blueprint-fallback/);
+  assert.match(source, /webFallbackFunction/);
+  assert.match(source, /Web_%s/);
+  assert.match(source, /bHasConnectedDataOutputs/);
   assert.match(source, /CustomAdapterNodeCount/);
+  assert.match(summary, /BlueprintFallbackNodeCount/);
+  assert.match(fallbackTest, /UE5HTML5Exporter\.Editor\.BlueprintFallbackPolicy/);
+  assert.match(fallbackTest, /Pure calls cannot use/);
+  assert.match(fallbackTest, /connected data outputs cannot discard/);
   assert.match(source, /runtimeValidationRequired/);
   assert.match(source, /BlueprintName/);
   assert.match(source, /UInputMappingContext::StaticClass/);
@@ -829,6 +839,7 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(tools, /proxy-versioned cold\/warm coverage/);
   assert.match(tools, /deviceMetadataCollected = \$false/);
   assert.match(verify, /UE5HTML5Exporter\.Editor\.BrowserFPSSetup/);
+  assert.match(verify, /UE5HTML5Exporter\.Editor\.BlueprintFallbackPolicy/);
   assert.match(verify, /UE5HTML5Exporter\.Editor\.DiscordInstallUrl/);
   assert.match(verify, /Automation RunTests \$editorAutomationFilter/);
   assert.match(verify, /Automation RunTests/);

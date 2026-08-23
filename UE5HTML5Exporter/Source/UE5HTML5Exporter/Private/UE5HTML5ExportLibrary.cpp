@@ -604,6 +604,7 @@ namespace
         Compatibility->SetNumberField(TEXT("blueprintCount"), Result.BlueprintCount);
         Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("builtInSupportedNodeCount"), Result.BuiltInSupportedBlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("blueprintFallbackNodeCount"), Result.BlueprintFallbackNodeCount);
         Compatibility->SetNumberField(TEXT("customAdapterNodeCount"), Result.CustomAdapterBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
@@ -700,6 +701,7 @@ namespace
         Compatibility->SetNumberField(TEXT("blueprintCount"), Result.BlueprintCount);
         Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("builtInSupportedNodeCount"), Result.BuiltInSupportedBlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("blueprintFallbackNodeCount"), Result.BlueprintFallbackNodeCount);
         Compatibility->SetNumberField(TEXT("customAdapterNodeCount"), Result.CustomAdapterBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
@@ -715,7 +717,7 @@ namespace
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Chaos rigid-body solver, constraints, and deterministic physics")));
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Authoritative Unreal networking, relevancy, prediction, and rollback")));
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Exact Slate layout/animation and custom widgets")));
-        Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Compiled user C++; register JavaScript replacements with UE5HTML5.registerFunction")));
+        Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Compiled user C++ cannot transfer directly; eligible action calls may use Web_<Function> Blueprint fallbacks, while pure or return-valued calls need JavaScript replacements")));
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Custom Unreal material shader code")));
         Root->SetArrayField(TEXT("notTransferredExactly"), Unsupported);
 
@@ -1023,6 +1025,7 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
     Report.ActorInstanceCount = Summary.ActorInstanceCount;
     Report.NodeCount = Summary.NodeCount;
     Report.BuiltInSupportedNodeCount = Summary.BuiltInSupportedNodeCount;
+    Report.BlueprintFallbackNodeCount = Summary.BlueprintFallbackNodeCount;
     Report.CustomAdapterNodeCount = Summary.CustomAdapterNodeCount;
     Report.SupportedNodeCount = Summary.SupportedNodeCount;
     Report.UnsupportedNodeCount = Summary.UnsupportedNodeCount;
@@ -1046,6 +1049,7 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         TEXT("Actor instances: %d\n")
         TEXT("Covered nodes: %d / %d\n")
         TEXT("Built-in runtime nodes: %d\n")
+        TEXT("Blueprint-fallback-covered nodes: %d\n")
         TEXT("Project-adapter-covered nodes: %d\n")
         TEXT("Nodes requiring web adapters: %d\n\n"),
         *World->GetPathName(),
@@ -1054,6 +1058,7 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         Report.SupportedNodeCount,
         Report.NodeCount,
         Report.BuiltInSupportedNodeCount,
+        Report.BlueprintFallbackNodeCount,
         Report.CustomAdapterNodeCount,
         Report.UnsupportedNodeCount);
 
@@ -1169,6 +1174,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     Result.BlueprintCount = BlueprintSummary.BlueprintCount;
     Result.BlueprintNodeCount = BlueprintSummary.NodeCount;
     Result.BuiltInSupportedBlueprintNodeCount = BlueprintSummary.BuiltInSupportedNodeCount;
+    Result.BlueprintFallbackNodeCount = BlueprintSummary.BlueprintFallbackNodeCount;
     Result.CustomAdapterBlueprintNodeCount = BlueprintSummary.CustomAdapterNodeCount;
     Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
     Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;

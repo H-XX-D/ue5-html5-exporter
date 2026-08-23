@@ -611,8 +611,14 @@ function compatibilityCounts(value, label, errors, requireAdapterCounts = false)
       }
       result[name] = count;
     }
-    if (result.builtInSupportedNodeCount + result.customAdapterNodeCount !== result.supportedNodeCount) {
-      errors.push(`${label} built-in and project-adapter counts do not add up to supportedNodeCount.`);
+    const fallbackCount = value.blueprintFallbackNodeCount ?? 0;
+    if (!Number.isInteger(fallbackCount) || fallbackCount < 0) {
+      errors.push(`${label}.blueprintFallbackNodeCount must be a non-negative integer when present.`);
+      return null;
+    }
+    result.blueprintFallbackNodeCount = fallbackCount;
+    if (result.builtInSupportedNodeCount + fallbackCount + result.customAdapterNodeCount !== result.supportedNodeCount) {
+      errors.push(`${label} built-in, Blueprint-fallback, and project-adapter counts do not add up to supportedNodeCount.`);
     }
   }
   return result;
@@ -803,6 +809,13 @@ function validateUnrealHandoff(root, errors, warnings) {
     }
     if (manifestCounts.customAdapterNodeCount > 0 && adapterContract?.declaredCount === 0) {
       errors.push('Project-adapter-covered nodes require declared functions in logic/custom-adapters.json.');
+    }
+    const logicFallbacks = logic.programs.reduce(
+      (total, program) => total + Number(program?.compatibility?.blueprintFallbackCount || 0),
+      0,
+    );
+    if (logicFallbacks !== manifestCounts.blueprintFallbackNodeCount) {
+      errors.push('Blueprint fallback count does not match logic/blueprints.json.');
     }
   }
 

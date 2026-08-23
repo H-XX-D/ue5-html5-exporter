@@ -577,6 +577,69 @@ test('Activity package preflight preserves project-adapter coverage as runtime v
   }
 });
 
+test('Activity package preflight accepts Blueprint-only web fallback coverage without runtime-adapter status', () => {
+  const root = exportFixture();
+  try {
+    const compatibility = {
+      status: 'compatible',
+      blueprintCount: 1,
+      nodeCount: 2,
+      builtInSupportedNodeCount: 1,
+      blueprintFallbackNodeCount: 1,
+      customAdapterNodeCount: 0,
+      supportedNodeCount: 2,
+      unsupportedNodeCount: 0,
+    };
+    writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
+      schema: 'ue5-html5-export/v4', blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
+      schema: 'ue5-discord-activity-handoff/v5',
+      handoffStatus: 'unreal-export-complete',
+      projectTargets: {
+        source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+        discordApplicationId: '', discordPublicKey: '', vercelProjectName: '', supabaseProjectRef: '', productionUrl: '',
+        missingRequiredTargets: [
+          'Discord Application ID', 'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+        ],
+      },
+      blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'logic/custom-adapters.json'), JSON.stringify({
+      schema: 'ue5-html5-custom-adapters/v1', functions: [],
+    }));
+    writeFileSync(join(root, 'logic/custom-adapters.js'), 'export {};');
+    writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
+      schema: 'ue-blueprint-ir/v1',
+      projectAdapters: {
+        schema: 'ue5-html5-custom-adapters/v1',
+        manifest: 'logic/custom-adapters.json',
+        module: 'logic/custom-adapters.js',
+        declaredFunctionCount: 0,
+      },
+      programs: [{
+        graphs: [{ nodes: [
+          { supportSource: 'built-in' },
+          { supportSource: 'blueprint-fallback', function: 'NativeApplyDamage', webFallbackFunction: 'Web_NativeApplyDamage' },
+        ] }],
+        compatibility: {
+          unsupported: [], unsupportedCount: 0,
+          projectAdapters: [], projectAdapterCount: 0,
+          blueprintFallbacks: [{ function: 'NativeApplyDamage', webFallbackFunction: 'Web_NativeApplyDamage' }],
+          blueprintFallbackCount: 1,
+          runtimeValidationRequired: false,
+        },
+      }],
+    }));
+    writeAssetDelivery(root);
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.warnings.some((warning) => warning.includes('project adapter')), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Activity package preflight rejects a falsely complete Blueprint handoff', () => {
   const root = exportFixture();
   try {
