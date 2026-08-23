@@ -5,7 +5,9 @@ param(
 
     [switch]$ForcePortableNode,
 
-    [string]$CacheRoot
+    [string]$CacheRoot,
+
+    [string]$ReportFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +19,14 @@ $NodeChecksums = @{
     'arm64' = 'fec025a6da31757e3b6af84c5a1628e9d38442ca99a2161091d78f2fcfa35ef3'
     'x64' = '1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97'
 }
+$NodeExecutableChecksums = @{
+    'arm64' = '97cce5301a815d2dce07ac5bfd1e6039eae88185ec1d10ae4f8cb712f1732878'
+    'x64' = '0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4'
+}
+$script:ResolvedNodeSource = $null
+$script:ResolvedNodeVersion = $null
+$script:ResolvedNodeArchiveSha256 = $null
+$script:ResolvedNodeExecutableSha256 = $null
 
 function Get-CompatibleNodeVersion {
     param([Parameter(Mandatory = $true)][string]$Executable)
@@ -46,6 +56,40 @@ function Get-WindowsNodeArchitecture {
     }
 }
 
+function Get-VerifiedPortableNode {
+    param(
+        [Parameter(Mandatory = $true)][string]$Executable,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$Architecture
+    )
+
+    $manifestPath = Join-Path $InstallRoot 'ue5html5-node-runtime.json'
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        return $null
+    }
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ([string]$manifest.schema -ne 'ue5-html5-node-runtime/v1' -or
+            [string]$manifest.nodeVersion -ne $PinnedNodeVersion -or
+            [string]$manifest.architecture -ne $Architecture -or
+            [string]$manifest.archiveSha256 -ne $NodeChecksums[$Architecture] -or
+            [string]$manifest.executableSha256 -ne $NodeExecutableChecksums[$Architecture]) {
+            return $null
+        }
+        $actualExecutableHash = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualExecutableHash -ne $NodeExecutableChecksums[$Architecture]) { return $null }
+        $version = Get-CompatibleNodeVersion -Executable $Executable
+        if (-not $version -or $version.ToString() -ne $PinnedNodeVersion) { return $null }
+        return [pscustomobject]@{
+            version = $version
+            archiveSha256 = [string]$manifest.archiveSha256
+            executableSha256 = $actualExecutableHash
+        }
+    }
+    catch { return $null }
+}
+
 function Resolve-UE5HTML5Node {
     if (-not $ForcePortableNode) {
         $systemNode = Get-Command node.exe -ErrorAction SilentlyContinue
@@ -53,6 +97,8 @@ function Resolve-UE5HTML5Node {
             $systemVersion = Get-CompatibleNodeVersion -Executable $systemNode.Source
             if ($systemVersion) {
                 Write-Host "Using system Node.js $systemVersion."
+                $script:ResolvedNodeSource = 'system'
+                $script:ResolvedNodeVersion = $systemVersion
                 return $systemNode.Source
             }
         }
@@ -71,9 +117,13 @@ function Resolve-UE5HTML5Node {
     $archiveName = "node-v$PinnedNodeVersion-win-$architecture.zip"
     $installRoot = Join-Path $nodeCacheRoot "v$PinnedNodeVersion\$architecture"
     $localNode = Join-Path $installRoot 'node.exe'
-    if ((Test-Path -LiteralPath $localNode -PathType Leaf) -and
-        (Get-CompatibleNodeVersion -Executable $localNode)) {
+    $cachedNode = Get-VerifiedPortableNode -Executable $localNode -InstallRoot $installRoot -Architecture $architecture
+    if ($cachedNode) {
         Write-Host "Using verified local Node.js $PinnedNodeVersion."
+        $script:ResolvedNodeSource = 'verified-portable-cache'
+        $script:ResolvedNodeVersion = $cachedNode.version
+        $script:ResolvedNodeArchiveSha256 = $cachedNode.archiveSha256
+        $script:ResolvedNodeExecutableSha256 = $cachedNode.executableSha256
         return $localNode
     }
 
@@ -114,6 +164,18 @@ function Resolve-UE5HTML5Node {
         if (-not (Test-Path -LiteralPath $payloadNode -PathType Leaf)) {
             throw "Verified Node.js archive did not contain the expected executable: $payloadNode"
         }
+        $executableHash = (Get-FileHash -LiteralPath $payloadNode -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($executableHash -ne $NodeExecutableChecksums[$architecture]) {
+            throw "Node.js executable checksum mismatch; expected $($NodeExecutableChecksums[$architecture]) but received $executableHash."
+        }
+        [ordered]@{
+            schema = 'ue5-html5-node-runtime/v1'
+            nodeVersion = $PinnedNodeVersion
+            architecture = $architecture
+            archiveSha256 = $expectedHash
+            executableSha256 = $executableHash
+            sourceUrl = $downloadUri
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'ue5html5-node-runtime.json') -Encoding utf8
 
         $installParent = Split-Path -Parent $installRoot
         New-Item -ItemType Directory -Path $installParent -Force | Out-Null
@@ -130,11 +192,15 @@ function Resolve-UE5HTML5Node {
         }
     }
 
-    $installedVersion = Get-CompatibleNodeVersion -Executable $localNode
-    if (-not $installedVersion) {
-        throw "Portable Node.js installation did not produce a compatible runtime at $localNode"
+    $installedNode = Get-VerifiedPortableNode -Executable $localNode -InstallRoot $installRoot -Architecture $architecture
+    if (-not $installedNode) {
+        throw "Portable Node.js installation did not produce a verified compatible runtime at $localNode"
     }
-    Write-Host "Portable Node.js $installedVersion is ready in the UE5HTML5Exporter user cache."
+    $script:ResolvedNodeSource = 'verified-portable-download'
+    $script:ResolvedNodeVersion = $installedNode.version
+    $script:ResolvedNodeArchiveSha256 = $installedNode.archiveSha256
+    $script:ResolvedNodeExecutableSha256 = $installedNode.executableSha256
+    Write-Host "Portable Node.js $($installedNode.version) is ready in the UE5HTML5Exporter user cache."
     return $localNode
 }
 
@@ -143,3 +209,19 @@ $resolvedPathFile = [System.IO.Path]::GetFullPath($PathFile)
 $pathFileParent = Split-Path -Parent $resolvedPathFile
 if ($pathFileParent) { New-Item -ItemType Directory -Path $pathFileParent -Force | Out-Null }
 Set-Content -LiteralPath $resolvedPathFile -Value $node -Encoding ascii -NoNewline
+if ($ReportFile) {
+    $resolvedReportFile = [System.IO.Path]::GetFullPath($ReportFile)
+    $reportParent = Split-Path -Parent $resolvedReportFile
+    if ($reportParent) { New-Item -ItemType Directory -Path $reportParent -Force | Out-Null }
+    [ordered]@{
+        schema = 'ue5-html5-node-resolution/v1'
+        version = $script:ResolvedNodeVersion.ToString()
+        source = $script:ResolvedNodeSource
+        managedByExporter = $script:ResolvedNodeSource -ne 'system'
+        checksumVerified = $script:ResolvedNodeSource -ne 'system'
+        archiveSha256 = if ($script:ResolvedNodeArchiveSha256) { $script:ResolvedNodeArchiveSha256 } else { $null }
+        executableSha256 = if ($script:ResolvedNodeExecutableSha256) { $script:ResolvedNodeExecutableSha256 } else { $null }
+        administratorRequired = $false
+        systemPathChanged = $false
+    } | ConvertTo-Json | Set-Content -LiteralPath $resolvedReportFile -Encoding utf8
+}

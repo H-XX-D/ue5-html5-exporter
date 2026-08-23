@@ -58,7 +58,34 @@ if ([System.IO.Path]::GetExtension($projectPath) -ne '.uproject') {
 }
 $projectDescriptor = Get-Content -LiteralPath $projectPath -Raw | ConvertFrom-Json
 $engineAssociation = [string]$projectDescriptor.EngineAssociation
-$workstationParameters = @{ RequireVisualStudio = $true; RequireNode = $true }
+$pluginPath = (Resolve-Path -LiteralPath $Plugin).Path
+$pluginRoot = Split-Path -Parent $pluginPath
+$nodeBootstrap = Join-Path $pluginRoot 'Resources\WebTemplate\scripts\Start-DiscordActivityRelease.ps1'
+if (-not (Test-Path -LiteralPath $nodeBootstrap -PathType Leaf)) {
+    throw "Verified portable Node.js bootstrap was not found: $nodeBootstrap"
+}
+$nodeResolutionId = [Guid]::NewGuid().ToString('N')
+$nodePathFile = Join-Path ([System.IO.Path]::GetTempPath()) "ue5html5-node-$nodeResolutionId.txt"
+$nodeReportFile = Join-Path ([System.IO.Path]::GetTempPath()) "ue5html5-node-$nodeResolutionId.json"
+try {
+    & $nodeBootstrap -PathFile $nodePathFile -ReportFile $nodeReportFile
+    $nodeRuntime = Get-UE5HTML5NodeResolutionEvidence -PathFile $nodePathFile -ReportFile $nodeReportFile
+    $nodeExecutable = $nodeRuntime.executable
+    $nodeRuntimeVersion = [version]([string]$nodeRuntime.version)
+}
+finally {
+    foreach ($temporaryNodeFile in @($nodePathFile, $nodeReportFile)) {
+        if (Test-Path -LiteralPath $temporaryNodeFile -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryNodeFile -Force
+        }
+    }
+}
+
+$workstationParameters = @{
+    RequireVisualStudio = $true
+    RequireNode = $true
+    NodeVersion = $nodeRuntimeVersion
+}
 if ($EngineRoot) { $workstationParameters.EngineRoot = $EngineRoot }
 if ($LauncherManifest) { $workstationParameters.LauncherManifest = $LauncherManifest }
 if ($VsWhere) { $workstationParameters.VsWhere = $VsWhere }
@@ -68,7 +95,6 @@ if (-not $workstation.ready) {
     throw "Windows workstation is not ready:`n- $($workstation.blockers -join "`n- ")"
 }
 $enginePath = $workstation.engineRoot
-$pluginPath = (Resolve-Path -LiteralPath $Plugin).Path
 if ($Map -notmatch '^/Game/') {
     throw "Map must be an Unreal content path beginning with /Game/: $Map"
 }
@@ -77,7 +103,6 @@ $editorCommand = Join-Path $enginePath 'Engine\Binaries\Win64\UnrealEditor-Cmd.e
 if (-not (Test-Path -LiteralPath $editorCommand -PathType Leaf)) {
     throw "UnrealEditor-Cmd.exe was not found: $editorCommand"
 }
-$node = Get-Command node -ErrorAction Stop
 
 $stamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH-mm-ss-fffZ')
 if (-not $PackageOutput) {
@@ -185,7 +210,7 @@ $packagePreflight = Join-Path $exportPath 'scripts\activity-preflight.mjs'
 if (-not (Test-Path -LiteralPath $packagePreflight -PathType Leaf)) {
     throw "Exported package preflight was not found: $packagePreflight"
 }
-& $node.Source $packagePreflight --package-only
+& $nodeExecutable $packagePreflight --package-only
 if ($LASTEXITCODE -ne 0) { throw "Discord Activity package preflight failed with status $LASTEXITCODE." }
 
 $descriptor = Get-Content -LiteralPath (Join-Path $packagePath 'UE5HTML5Exporter.uplugin') -Raw | ConvertFrom-Json
@@ -222,7 +247,7 @@ $exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
 )
 $environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v7'
+    schema = 'ue5-html5-workstation-certification/v8'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     source = $source
     execution = [ordered]@{
@@ -236,6 +261,13 @@ $report = [ordered]@{
     visualStudioVersion = $workstation.visualStudio.version
     windowsSdkVersion = $workstation.windowsSdkVersion
     nodeVersion = $workstation.nodeVersion
+    nodeRuntime = [ordered]@{
+        source = [string]$nodeRuntime.source
+        managedByExporter = [bool]$nodeRuntime.managedByExporter
+        checksumVerified = [bool]$nodeRuntime.checksumVerified
+        administratorRequired = $false
+        systemPathChanged = $false
+    }
     projectFile = [System.IO.Path]::GetFileName($projectPath)
     map = $Map
     pluginPackageArtifact = $PluginPackageArtifact

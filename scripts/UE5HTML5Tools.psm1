@@ -293,6 +293,90 @@ function Get-UE5HTML5WorkstationReport {
     }
 }
 
+function Get-UE5HTML5NodeResolutionEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$PathFile,
+        [Parameter(Mandatory = $true)][string]$ReportFile
+    )
+
+    if (-not (Test-Path -LiteralPath $PathFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $ReportFile -PathType Leaf)) {
+        throw 'Node.js resolution did not produce its path and evidence files.'
+    }
+    $executable = (Get-Content -LiteralPath $PathFile -Raw).Trim()
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+        throw "Resolved Node.js executable was not found: $executable"
+    }
+    try {
+        $report = Get-Content -LiteralPath $ReportFile -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Node.js resolution evidence is invalid JSON: $ReportFile ($($_.Exception.Message))"
+    }
+    $source = [string]$report.source
+    if ([string]$report.schema -ne 'ue5-html5-node-resolution/v1' -or
+        $source -notin @('system', 'verified-portable-cache', 'verified-portable-download') -or
+        $report.administratorRequired -ne $false -or
+        $report.systemPathChanged -ne $false) {
+        throw 'Node.js resolution evidence has an invalid contract.'
+    }
+
+    $rawVersion = (& $executable --version 2>$null).Trim().TrimStart('v')
+    if ($LASTEXITCODE -ne 0) { throw "Resolved Node.js executable failed with status $LASTEXITCODE." }
+    $actualVersion = $null
+    if (-not [version]::TryParse($rawVersion, [ref]$actualVersion) -or
+        $actualVersion -lt [version]'22.12.0' -or
+        $actualVersion.ToString() -ne [string]$report.version) {
+        throw 'Resolved Node.js version does not match its evidence or is older than 22.12.0.'
+    }
+
+    $portable = $source -ne 'system'
+    if ($portable) {
+        if ($report.managedByExporter -ne $true -or
+            $report.checksumVerified -ne $true -or
+            [string]$report.archiveSha256 -notmatch '^[0-9a-f]{64}$' -or
+            [string]$report.executableSha256 -notmatch '^[0-9a-f]{64}$') {
+            throw 'Portable Node.js resolution does not claim complete integrity evidence.'
+        }
+        $runtimeManifestPath = Join-Path (Split-Path -Parent $executable) 'ue5html5-node-runtime.json'
+        if (-not (Test-Path -LiteralPath $runtimeManifestPath -PathType Leaf)) {
+            throw "Portable Node.js runtime manifest was not found: $runtimeManifestPath"
+        }
+        try {
+            $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
+        }
+        catch {
+            throw "Portable Node.js runtime manifest is invalid JSON: $runtimeManifestPath ($($_.Exception.Message))"
+        }
+        $actualExecutableHash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ([string]$runtimeManifest.schema -ne 'ue5-html5-node-runtime/v1' -or
+            [string]$runtimeManifest.nodeVersion -ne $actualVersion.ToString() -or
+            [string]$runtimeManifest.archiveSha256 -ne [string]$report.archiveSha256 -or
+            [string]$runtimeManifest.executableSha256 -ne [string]$report.executableSha256 -or
+            [string]$report.executableSha256 -ne $actualExecutableHash) {
+            throw 'Portable Node.js executable does not match its verified runtime manifest.'
+        }
+    }
+    elseif ($report.managedByExporter -ne $false -or
+        $report.checksumVerified -ne $false -or
+        $null -ne $report.archiveSha256 -or
+        $null -ne $report.executableSha256) {
+        throw 'System Node.js resolution incorrectly claims exporter-managed integrity evidence.'
+    }
+
+    return [pscustomobject][ordered]@{
+        schema = 'ue5-html5-node-resolution-evidence/v1'
+        executable = $executable
+        version = $actualVersion.ToString()
+        source = $source
+        managedByExporter = $portable
+        checksumVerified = [bool]$report.checksumVerified
+        administratorRequired = $false
+        systemPathChanged = $false
+    }
+}
+
 function Get-UE5HTML5DirectoryInventory {
     [CmdletBinding()]
     param(
@@ -711,6 +795,7 @@ Export-ModuleMember -Function @(
     'Test-UE5VisualStudioCompatibility',
     'Get-UE5WindowsSdkVersion',
     'Get-UE5HTML5WorkstationReport',
+    'Get-UE5HTML5NodeResolutionEvidence',
     'Get-UE5HTML5DirectoryInventory',
     'Get-UE5HTML5BrowserCertificationEvidence',
     'Get-UE5HTML5EditorAutomationEvidence',

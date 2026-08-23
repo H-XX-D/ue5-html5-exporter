@@ -77,6 +77,62 @@ try {
     Assert-True (-not $oldNode.ready) 'Node 21 must fail certification readiness'
     Assert-True (($oldNode.blockers -join ' ') -match 'Node.js 21') 'old Node blocker must be actionable'
 
+    $systemNode = Get-Command node.exe -ErrorAction Stop
+    $systemNodeVersion = (& $systemNode.Source --version).Trim().TrimStart('v')
+    $nodePathFile = Join-Path $testRoot 'node-path.txt'
+    $nodeReportFile = Join-Path $testRoot 'node-report.json'
+    Set-Content -LiteralPath $nodePathFile -Value $systemNode.Source -Encoding ascii -NoNewline
+    [ordered]@{
+        schema = 'ue5-html5-node-resolution/v1'
+        version = $systemNodeVersion
+        source = 'system'
+        managedByExporter = $false
+        checksumVerified = $false
+        archiveSha256 = $null
+        executableSha256 = $null
+        administratorRequired = $false
+        systemPathChanged = $false
+    } | ConvertTo-Json | Set-Content -LiteralPath $nodeReportFile -Encoding utf8
+    $systemNodeEvidence = Get-UE5HTML5NodeResolutionEvidence -PathFile $nodePathFile -ReportFile $nodeReportFile
+    Assert-True ($systemNodeEvidence.source -eq 'system') 'node evidence must preserve a compatible system runtime'
+    Assert-True (-not $systemNodeEvidence.managedByExporter) 'system node must not claim exporter-managed provenance'
+
+    $portableNodeRoot = Join-Path $testRoot 'portable-node'
+    New-Item -ItemType Directory -Path $portableNodeRoot -Force | Out-Null
+    $portableNode = Join-Path $portableNodeRoot 'node.exe'
+    Copy-Item -LiteralPath $systemNode.Source -Destination $portableNode
+    $portableExecutableHash = (Get-FileHash -LiteralPath $portableNode -Algorithm SHA256).Hash.ToLowerInvariant()
+    $portableArchiveHash = 'a' * 64
+    [ordered]@{
+        schema = 'ue5-html5-node-runtime/v1'
+        nodeVersion = $systemNodeVersion
+        architecture = 'x64'
+        archiveSha256 = $portableArchiveHash
+        executableSha256 = $portableExecutableHash
+        sourceUrl = 'https://nodejs.org/example.zip'
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $portableNodeRoot 'ue5html5-node-runtime.json') -Encoding utf8
+    Set-Content -LiteralPath $nodePathFile -Value $portableNode -Encoding ascii -NoNewline
+    [ordered]@{
+        schema = 'ue5-html5-node-resolution/v1'
+        version = $systemNodeVersion
+        source = 'verified-portable-cache'
+        managedByExporter = $true
+        checksumVerified = $true
+        archiveSha256 = $portableArchiveHash
+        executableSha256 = $portableExecutableHash
+        administratorRequired = $false
+        systemPathChanged = $false
+    } | ConvertTo-Json | Set-Content -LiteralPath $nodeReportFile -Encoding utf8
+    $portableNodeEvidence = Get-UE5HTML5NodeResolutionEvidence -PathFile $nodePathFile -ReportFile $nodeReportFile
+    Assert-True ($portableNodeEvidence.source -eq 'verified-portable-cache') 'node evidence must accept a re-hashed portable runtime'
+    Assert-True $portableNodeEvidence.checksumVerified 'portable node must retain checksum evidence'
+    $portableManifest = Get-Content -LiteralPath (Join-Path $portableNodeRoot 'ue5html5-node-runtime.json') -Raw | ConvertFrom-Json
+    $portableManifest.executableSha256 = '0' * 64
+    $portableManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $portableNodeRoot 'ue5html5-node-runtime.json') -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5NodeResolutionEvidence -PathFile $nodePathFile -ReportFile $nodeReportFile
+    } 'does not match its verified runtime manifest' 'node evidence must reject a modified portable executable or manifest'
+
     $inventoryRoot = Join-Path $testRoot 'inventory'
     New-Item -ItemType Directory -Path (Join-Path $inventoryRoot 'nested') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $inventoryRoot 'alpha.txt') -Value 'alpha' -Encoding ascii -NoNewline

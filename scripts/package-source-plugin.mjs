@@ -46,7 +46,8 @@ Options:
 The bundle contains the plugin, Windows workstation doctor/installer, and handoff documentation.
 On Windows, double-click Install-UE5HTML5Exporter.cmd and choose a .uproject file.
 Unreal compiles the plugin for the teammate's installed engine version.
-Double-click Certify-UE5HTML5Exporter.cmd to build, install, run the native FPS setup and Discord install-handoff tests, export, certify browser FPS plus advisory runtime-ready/frame pacing, and record combined Win64 evidence.`;
+Double-click Certify-UE5HTML5Exporter.cmd to build, install, run the native FPS setup and Discord install-handoff tests, export, certify browser FPS plus advisory runtime-ready/frame pacing, and record combined Win64 evidence.
+The certifier reuses a compatible system Node.js or offers a checksum-verified portable runtime in the Windows user cache; it needs no administrator access or PATH change.`;
 }
 
 function requireFile(path, label) {

@@ -101,10 +101,18 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(windowsReleaseBootstrap, /Get-FileHash -LiteralPath \$archive -Algorithm SHA256/);
   assert.match(windowsReleaseBootstrap, /1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97/);
   assert.match(windowsReleaseBootstrap, /fec025a6da31757e3b6af84c5a1628e9d38442ca99a2161091d78f2fcfa35ef3/);
+  assert.match(windowsReleaseBootstrap, /0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4/);
+  assert.match(windowsReleaseBootstrap, /97cce5301a815d2dce07ac5bfd1e6039eae88185ec1d10ae4f8cb712f1732878/);
   assert.match(windowsReleaseBootstrap, /LocalApplicationData/);
   assert.match(windowsReleaseBootstrap, /No administrator access or system PATH change is required/);
   assert.match(windowsReleaseBootstrap, /\[switch\]\$ForcePortableNode/);
   assert.match(windowsReleaseBootstrap, /\[string\]\$CacheRoot/);
+  assert.match(windowsReleaseBootstrap, /\[string\]\$ReportFile/);
+  assert.match(windowsReleaseBootstrap, /Get-VerifiedPortableNode/);
+  assert.match(windowsReleaseBootstrap, /ue5-html5-node-runtime\/v1/);
+  assert.match(windowsReleaseBootstrap, /executableSha256/);
+  assert.match(windowsReleaseBootstrap, /ue5-html5-node-resolution\/v1/);
+  assert.match(windowsReleaseBootstrap, /verified-portable-cache/);
   assert.match(windowsReleaseBootstrap, /Set-Content -LiteralPath \$resolvedPathFile -Value \$node/);
   assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /activity-release-assistant\.mjs --guided %\*/);
 
@@ -718,6 +726,7 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const verify = readFileSync(new URL('../scripts/Verify-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const sourcePackager = readFileSync(new URL('../scripts/package-source-plugin.mjs', import.meta.url), 'utf8');
+  const ciWorkflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const windowsWorkflow = readFileSync(new URL('../.github/workflows/package-unreal-windows.yml', import.meta.url), 'utf8');
   for (const script of [start, startCertification, setup, install, pack, verify]) {
     assert.doesNotMatch(script, /\[string\]\$Plugin\s*=\s*\(Join-Path \$PSScriptRoot/);
@@ -728,6 +737,9 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(tools, /17\.14/);
   assert.match(tools, /18\.0/);
   assert.match(tools, /Get-UE5HTML5DirectoryInventory/);
+  assert.match(tools, /Get-UE5HTML5NodeResolutionEvidence/);
+  assert.match(tools, /ue5-html5-node-resolution-evidence\/v1/);
+  assert.match(tools, /does not match its verified runtime manifest/);
   assert.match(tools, /ue5-html5-directory-inventory\/v1/);
   assert.match(tools, /Get-UE5HTML5EditorAutomationEvidence/);
   assert.match(tools, /ue5-html5-editor-automation-evidence\/v2/);
@@ -751,6 +763,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(startCertification, /workstation-certification\.json/);
   assert.match(startCertification, /CertifyBrowser = \$true/);
   assert.match(startCertification, /Keep the browser open until it reports PASS/);
+  assert.match(startCertification, /checksum-verified portable copy/);
+  assert.match(startCertification, /does not change system PATH/);
   assert.match(setup, /Get-UE5HTML5WorkstationReport/);
   assert.match(setup, /CheckOnly/);
   assert.match(setup, /Install-UE5HTML5Exporter\.ps1/);
@@ -763,7 +777,11 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /workstation-certification\.sha256/);
-  assert.match(verify, /ue5-html5-workstation-certification\/v7/);
+  assert.match(verify, /Start-DiscordActivityRelease\.ps1/);
+  assert.match(verify, /Get-UE5HTML5NodeResolutionEvidence/);
+  assert.match(tools, /verified-portable-cache/);
+  assert.match(verify, /nodeRuntime = \[ordered\]@/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v8/);
   assert.match(tools, /runtimeReadyFromNavigationStartMs/);
   assert.match(tools, /averageFramesPerSecond/);
   assert.match(tools, /proxy-versioned cold\/warm coverage/);
@@ -799,10 +817,16 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.doesNotMatch(verify, /project = \$projectPath|pluginPackage = \$packagePath|export = \$exportPath/);
   assert.match(sourcePackager, /ue5-html5-source-revision\/v1/);
   assert.match(sourcePackager, /source-revision\.json/);
+  assert.match(sourcePackager, /checksum-verified portable runtime/);
   assert.match(windowsWorkflow, /Require commit-clean certification source/);
   assert.match(windowsWorkflow, /SourceCommit = \$env:GITHUB_SHA/);
   assert.match(windowsWorkflow, /certify_browser:/);
   assert.match(windowsWorkflow, /arguments\.CertifyBrowser = \$true/);
   assert.match(windowsWorkflow, /actions\/attest@v4/);
+  assert.match(ciWorkflow, /verified-portable-download/);
+  assert.match(ciWorkflow, /verified-portable-cache/);
+  assert.match(ciWorkflow, /Portable Node cache repair evidence is invalid/);
+  assert.match(ciWorkflow, /x64\.backup-\*/);
+  assert.match(ciWorkflow, /executableSha256/);
   assert.match(windowsWorkflow, /UE5HTML5Exporter-Win64-Certification-\$\{\{ github\.sha \}\}/);
 });

@@ -99,12 +99,48 @@ jobs:
         run: |
           $bootstrap = "$PWD\UE5HTML5Exporter\Resources\WebTemplate\scripts\Start-DiscordActivityRelease.ps1"
           $pathFile = "$env:RUNNER_TEMP\ue5html5-portable-node.txt"
+          $reportFile = "$env:RUNNER_TEMP\ue5html5-portable-node.json"
           $cacheRoot = "$env:RUNNER_TEMP\ue5html5-portable-node-cache"
-          & $bootstrap -PathFile $pathFile -ForcePortableNode -CacheRoot $cacheRoot
+          & $bootstrap -PathFile $pathFile -ReportFile $reportFile -ForcePortableNode -CacheRoot $cacheRoot
           $node = Get-Content -LiteralPath $pathFile -Raw
           if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { throw "Portable Node executable was not created: $node" }
           $version = (& $node --version).Trim()
           if ($version -ne 'v22.23.2') { throw "Portable Node version mismatch: $version" }
+          $download = Get-Content -LiteralPath $reportFile -Raw | ConvertFrom-Json
+          if ($download.schema -ne 'ue5-html5-node-resolution/v1' -or
+              $download.source -ne 'verified-portable-download' -or
+              $download.checksumVerified -ne $true -or
+              $download.executableSha256 -ne '0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4' -or
+              $download.administratorRequired -ne $false -or
+              $download.systemPathChanged -ne $false) {
+            throw "Portable Node download evidence is invalid: $($download | ConvertTo-Json -Compress)"
+          }
+          $runtimeManifestPath = Join-Path (Split-Path -Parent $node) 'ue5html5-node-runtime.json'
+          $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
+          $actualExecutableHash = (Get-FileHash -LiteralPath $node -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($runtimeManifest.executableSha256 -ne $actualExecutableHash) {
+            throw 'Portable Node executable does not match its verified runtime manifest.'
+          }
+          $cachedPathFile = "$env:RUNNER_TEMP\ue5html5-portable-node-cached.txt"
+          $cachedReportFile = "$env:RUNNER_TEMP\ue5html5-portable-node-cached.json"
+          & $bootstrap -PathFile $cachedPathFile -ReportFile $cachedReportFile -ForcePortableNode -CacheRoot $cacheRoot
+          $cached = Get-Content -LiteralPath $cachedReportFile -Raw | ConvertFrom-Json
+          if ($cached.source -ne 'verified-portable-cache' -or $cached.checksumVerified -ne $true) {
+            throw "Portable Node cache evidence is invalid: $($cached | ConvertTo-Json -Compress)"
+          }
+          $runtimeManifest.executableSha256 = '0' * 64
+          $runtimeManifest | ConvertTo-Json | Set-Content -LiteralPath $runtimeManifestPath -Encoding utf8
+          $repairPathFile = "$env:RUNNER_TEMP\ue5html5-portable-node-repaired.txt"
+          $repairReportFile = "$env:RUNNER_TEMP\ue5html5-portable-node-repaired.json"
+          & $bootstrap -PathFile $repairPathFile -ReportFile $repairReportFile -ForcePortableNode -CacheRoot $cacheRoot
+          $repaired = Get-Content -LiteralPath $repairReportFile -Raw | ConvertFrom-Json
+          if ($repaired.source -ne 'verified-portable-download' -or
+              $repaired.executableSha256 -ne '0d0f5e39f9f3d9587bc19f73eab3c2c9c4903fd02d6dbf9c853dd81b3d95fad4') {
+            throw "Portable Node cache repair evidence is invalid: $($repaired | ConvertTo-Json -Compress)"
+          }
+          $backupRoot = Join-Path $cacheRoot 'v22.23.2'
+          $backups = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Filter 'x64.backup-*')
+          if ($backups.Count -ne 1) { throw "Portable Node cache repair did not retain exactly one backup; found $($backups.Count)." }
           Write-Host "Verified portable Windows release runtime: $version at $node"
       - name: Run Windows workstation contract tests
         if: runner.os == 'Windows'

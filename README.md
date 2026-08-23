@@ -64,7 +64,7 @@ The web build is written into `UE5HTML5Exporter/Resources/WebTemplate`, where th
 
 The first compile must match your installed UE5 minor version. The plugin contains source, so Unreal Build Tool will build it for your engine.
 
-For a redistributable native package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. To make a portable source bundle that Unreal can compile for a teammate's installed engine, run `npm run package:source`. Source bundles include clean-commit provenance for later workstation certification. The self-hosted Windows workflow can bind a native build and real FPS export to that commit and sign the resulting ZIP provenance through GitHub. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
+For a redistributable native package, use `npm run package:plugin -- --engine "/path/to/UE_5.8" --platform Win64`. To make a portable source bundle that Unreal can compile for a teammate's installed engine, run `npm run package:source`. Source bundles include clean-commit provenance for later workstation certification. Double-click certification does not require a global Node.js installation: it reuses a compatible system runtime or offers the same pinned portable runtime as the release assistant under the Windows user cache, with no administrator access or PATH change. Each reuse re-hashes the executable against the architecture-specific value pinned from the verified official archive, rather than trusting cache-owned metadata alone. The self-hosted Windows workflow can bind a native build and real FPS export to that commit and sign the resulting ZIP provenance through GitHub. See [Team installation and Windows packaging](docs/TEAM_INSTALL.md).
 
 ## Preview an export
 
