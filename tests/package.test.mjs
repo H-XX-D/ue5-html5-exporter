@@ -259,6 +259,7 @@ test('exporter writes the scene, manifest, and local server helper', () => {
 
 test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const module = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExporterModule.cpp');
+  const moduleHeader = read('Source/UE5HTML5Exporter/Public/UE5HTML5ExporterModule.h');
   const fpsSetup = read('Source/UE5HTML5Exporter/Private/UE5HTML5BrowserFPSSetup.cpp');
   const fpsSetupTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BrowserFPSSetupTests.cpp');
   const installUrlTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5DiscordActivitySettingsTests.cpp');
@@ -288,6 +289,14 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /Export & Preview Discord Blueprint Logic/);
   assert.match(module, /ExportDiscordActivityPreviewInteractive/);
   assert.match(module, /LaunchDiscordActivityPreview/);
+  assert.match(module, /Quick Start Discord FPS Preview/);
+  assert.match(module, /QuickStartDiscordFPSPreviewInteractive/);
+  assert.match(moduleHeader, /void QuickStartDiscordFPSPreviewInteractive\(\);/);
+  assert.match(module, /FUE5HTML5BrowserFPSSetup::Apply\(World, false, true\)/);
+  assert.match(module, /ConfirmQuickStartFPS/);
+  assert.match(module, /target creation can be undone/);
+  assert.match(module, /FUE5HTML5BrowserFPSSetup::Apply\(World, true, true\)/);
+  assert.match(module, /ExportDiscordActivityPreviewInteractive\(\)/);
   assert.match(module, /Export & Certify Browser FPS/);
   assert.match(module, /ExportBrowserCertificationInteractive/);
   assert.match(module, /LaunchBrowserCertification/);

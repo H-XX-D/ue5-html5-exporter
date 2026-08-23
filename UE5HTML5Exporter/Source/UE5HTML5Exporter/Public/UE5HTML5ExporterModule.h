@@ -20,6 +20,7 @@ private:
     void CheckDiscordActivityReadinessInteractive();
     void CheckBlueprintCompatibilityInteractive();
     void SetupBrowserFPSTestLevelInteractive();
+    void QuickStartDiscordFPSPreviewInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);
     void ExportDiscordActivityPreviewInteractive();
     void ExportBrowserCertificationInteractive();

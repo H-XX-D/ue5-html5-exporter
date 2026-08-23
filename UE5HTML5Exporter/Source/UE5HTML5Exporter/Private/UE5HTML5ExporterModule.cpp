@@ -149,6 +149,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive)));
 
     Section.AddMenuEntry(
+        "UE5HTML5QuickStartDiscordFPSPreview",
+        LOCTEXT("QuickStartDiscordFPSPreview", "Quick Start Discord FPS Preview"),
+        LOCTEXT("QuickStartDiscordFPSPreviewTooltip", "Select an existing browser target—or offer to add an undoable practice target—then export and launch the local Discord SDK mock preview. No credentials or deployment required."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::QuickStartDiscordFPSPreviewInteractive)));
+
+    Section.AddMenuEntry(
         "UE5HTML5SetupBrowserFPSTestLevel",
         LOCTEXT("SetupBrowserFPSTestLevel", "Set Up Browser FPS Test Level"),
         LOCTEXT("SetupBrowserFPSTestLevelTooltip", "Select an existing target or add a configured UE5 HTML5 Practice Target in front of the selected or first Player Start. The level change supports Undo."),
@@ -698,6 +705,63 @@ void FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive()
                 Result.DiscordFeatures,
                 Result.RequiredDiscordOAuthScopes),
             *Result.OutputDirectory)));
+}
+
+void FUE5HTML5ExporterModule::QuickStartDiscordFPSPreviewInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    const FUE5HTML5BrowserFPSSetupResult Preview =
+        FUE5HTML5BrowserFPSSetup::Apply(World, false, true);
+    if (Preview.Status == EUE5HTML5BrowserFPSSetupStatus::ExistingTargetSelected)
+    {
+        ExportDiscordActivityPreviewInteractive();
+        return;
+    }
+    if (Preview.Status == EUE5HTML5BrowserFPSSetupStatus::MissingWorld)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT("NoQuickStartFPSWorld", "Open a First Person-style level before starting the Discord FPS preview."));
+        return;
+    }
+    if (Preview.Status == EUE5HTML5BrowserFPSSetupStatus::MissingPlayerStart)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT(
+                "NoQuickStartFPSPlayerStart",
+                "No Player Start was found. Add or select a Player Start, then run Quick Start Discord FPS Preview again."));
+        return;
+    }
+    if (Preview.Status != EUE5HTML5BrowserFPSSetupStatus::ReadyToCreate)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT("QuickStartFPSProbeFailed", "Unreal could not inspect this level for a browser FPS practice target."));
+        return;
+    }
+
+    const EAppReturnType::Type Confirmation = FMessageDialog::Open(
+        EAppMsgType::YesNo,
+        LOCTEXT(
+            "ConfirmQuickStartFPS",
+            "This level has no UE5 HTML5 target. Add one configured Practice Target 6 meters in front of the selected or first Player Start, then export and launch the local Discord FPS preview?\n\nThe level will be marked modified, and the target creation can be undone."));
+    if (Confirmation != EAppReturnType::Yes)
+    {
+        return;
+    }
+
+    const FUE5HTML5BrowserFPSSetupResult Result =
+        FUE5HTML5BrowserFPSSetup::Apply(World, true, true);
+    if (Result.Status != EUE5HTML5BrowserFPSSetupStatus::Created)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT("QuickStartFPSSpawnFailed", "Unreal could not add the practice target, so the Discord FPS preview was not launched."));
+        return;
+    }
+
+    ExportDiscordActivityPreviewInteractive();
 }
 
 void FUE5HTML5ExporterModule::ExportBrowserCertificationInteractive()
