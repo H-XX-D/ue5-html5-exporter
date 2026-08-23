@@ -184,9 +184,10 @@ vercel promote DEPLOYMENT_URL
 
    Enter hostnames without a path. The bundled adapter calls Discord's `patchUrlMappings` for `/supabase`, covering Supabase Auth HTTP requests and the Realtime WebSocket.
 4. Add an OAuth redirect URI. `https://127.0.0.1` is sufficient when authorization is handled only by the Embedded App SDK; the confidential exchange occurs only in `api/activity.mjs`.
-5. Confirm the global **Launch** command is a Primary Entry Point with Discord's automatic `DISCORD_LAUNCH_ACTIVITY` handler. The online preflight verifies this through the Discord API.
-6. Enable Discord proxy authentication when the option is available for the app, then configure the matching `DISCORD_PUBLIC_KEY` and `DISCORD_REQUIRE_PROXY_AUTH=true` values in Vercel.
-7. Launch the Activity in a private test server and verify:
+5. Leave **Public Client** disabled. This exporter has a Vercel backend that can protect `DISCORD_CLIENT_SECRET`, so it uses Discord's recommended confidential-client design. Enable Public Client only for a different, backend-free native desktop/mobile Social SDK integration that uses PKCE; the toggle does not publish or list an Activity.
+6. Confirm the global **Launch** command is a Primary Entry Point with Discord's automatic `DISCORD_LAUNCH_ACTIVITY` handler. The online preflight verifies this through the Discord API.
+7. Enable Discord proxy authentication when the option is available for the app, then configure the matching `DISCORD_PUBLIC_KEY` and `DISCORD_REQUIRE_PROXY_AUTH=true` values in Vercel.
+8. Launch the Activity in a private test server and verify:
 
    - The HUD changes from **Discord · connecting** to **Discord · your display name**.
    - A second Discord client joining the same Activity receives Broadcast and Presence events on `window.UE5HTML5.activity`.
@@ -310,6 +311,7 @@ Before public release, also verify:
 - [Discord: Local Activity development and Developer Activity Shelf](https://docs.discord.com/developers/activities/development-guides/local-development)
 - [Discord: Embedded App SDK reference](https://docs.discord.com/developers/developer-tools/embedded-app-sdk)
 - [Discord: Application commands and Primary Entry Points](https://docs.discord.com/developers/interactions/application-commands)
+- [Discord: OAuth2 client types for games](https://docs.discord.com/developers/discord-social-sdk/core-concepts/oauth2-scopes)
 - [Discord: Application installation contexts](https://docs.discord.com/developers/resources/application)
 - [Discord: Activity networking, cookies, and proxy security](https://docs.discord.com/developers/activities/development-guides/networking)
 - [Discord: Multiplayer Experience and Activity Instance API](https://docs.discord.com/developers/activities/development-guides/multiplayer-experience)

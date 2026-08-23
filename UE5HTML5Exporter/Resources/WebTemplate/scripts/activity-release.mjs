@@ -411,6 +411,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
     discordPortalChecklist: [
       'Installation: enable both Guild Install and User Install.',
       'OAuth2: add a redirect URI; https://127.0.0.1 is sufficient when only the Embedded App SDK handles authorization.',
+      'OAuth2: leave Public Client disabled; this export exchanges authorization codes in the Vercel server function and keeps the client secret off the browser.',
       'Activities: enable Activities and keep a global Primary Entry Point using DISCORD_LAUNCH_ACTIVITY.',
       'URL Mappings: map / to the deployment host printed after apply.',
       `URL Mappings: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'}.`,

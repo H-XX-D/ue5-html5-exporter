@@ -508,6 +508,7 @@ test('guided dry-run needs no environment file when Unreal targets are configure
   assert.equal(result.plan.discordApplicationId, handoff.projectTargets.discordApplicationId);
   assert.equal(result.plan.vercelProject, handoff.projectTargets.vercelProjectName);
   assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('Guild Install and User Install')));
+  assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('Public Client disabled')));
   assert.ok(result.plan.discordPortalChecklist.some((item) => item.includes('/supabase')));
   const sources = Object.fromEntries(result.plan.vercelEnvironment.map((entry) => [entry.name, entry.source]));
   assert.equal(sources.SUPABASE_PUBLISHABLE_KEY, 'supabase-cli-at-apply');
