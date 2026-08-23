@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -555,11 +555,18 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
   const warnings = [];
   const checks = [];
   let manifestIdentity = null;
+  let assetPackIdentity = null;
   let origin;
   try {
     origin = new URL(deploymentUrlValue);
   } catch {
-    return { errors: ['Vercel did not return a valid deployment URL.'], warnings, checks, manifestIdentity };
+    return {
+      errors: ['Vercel did not return a valid deployment URL.'],
+      warnings,
+      checks,
+      manifestIdentity,
+      assetPackIdentity,
+    };
   }
 
   const request = async (path, accept) => {
@@ -585,6 +592,7 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
       warnings,
       checks,
       manifestIdentity,
+      assetPackIdentity,
     };
   }
   if (root.status >= 300 && root.status < 400) {
@@ -611,12 +619,15 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
     if (!manifestResponse.ok) {
       errors.push(`Hosted export manifest returned HTTP ${manifestResponse.status}.`);
     } else {
-      const manifest = await manifestResponse.json();
+      const manifest = JSON.parse(await manifestResponse.text());
       if (!isSupportedManifestSchema(manifest.schema)) {
         errors.push('Hosted export manifest has an unexpected schema.');
       } else {
+        manifestIdentity = `sha256:${createHash('sha256')
+          .update(JSON.stringify(manifest))
+          .digest('hex')}`;
         if (/^sha256:[a-f0-9]{64}$/i.test(String(manifest.assetPack?.version || ''))) {
-          manifestIdentity = manifest.assetPack.version.toLowerCase();
+          assetPackIdentity = manifest.assetPack.version.toLowerCase();
         }
         checks.push(`Hosted Unreal export manifest is valid (${Number(manifest.actorCount || 0)} actors).`);
       }
@@ -641,7 +652,7 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
     errors.push(`Hosted Activity API check failed: ${error.message || error}.`);
   }
 
-  return { errors, warnings, checks, manifestIdentity };
+  return { errors, warnings, checks, manifestIdentity, assetPackIdentity };
 }
 
 export async function executeActivityRelease(options, environment, {
@@ -733,11 +744,11 @@ export async function executeActivityRelease(options, environment, {
       plan,
     };
   }
-  if (options.promote && url && !hosted.manifestIdentity) {
+  if (options.promote && url && (!hosted.manifestIdentity || !hosted.assetPackIdentity)) {
     return {
       ok: false,
       applied: true,
-      errors: ['The staged deployment did not expose a content-addressed asset-pack identity, so the workflow cannot prove which build would be promoted. Re-export with the current plugin and try again.'],
+      errors: ['The staged deployment did not expose both a content-addressed export-manifest identity and asset-pack identity, so the workflow cannot prove which build would be promoted. Re-export with the current plugin and try again.'],
       warnings: resultWarnings,
       checks: resultChecks,
       uploadedVariables,
@@ -758,9 +769,14 @@ export async function executeActivityRelease(options, environment, {
       resultChecks.push(...production.checks);
       const productionErrors = [...production.errors];
       if (!production.manifestIdentity) {
-        productionErrors.push('The stable production URL did not expose a content-addressed asset-pack identity after promotion.');
+        productionErrors.push('The stable production URL did not expose a content-addressed export-manifest identity after promotion.');
       } else if (production.manifestIdentity !== hosted.manifestIdentity) {
         productionErrors.push(`The stable production URL serves ${production.manifestIdentity}, not the verified staged build ${hosted.manifestIdentity}.`);
+      }
+      if (!production.assetPackIdentity) {
+        productionErrors.push('The stable production URL did not expose a content-addressed asset-pack identity after promotion.');
+      } else if (production.assetPackIdentity !== hosted.assetPackIdentity) {
+        productionErrors.push(`The stable production URL serves asset pack ${production.assetPackIdentity}, not ${hosted.assetPackIdentity}.`);
       }
       if (productionErrors.length) {
         return {

@@ -658,7 +658,11 @@ test('production publish promotes only after staged verification and verifies th
     verifyDeployment: async (url) => {
       verified.push(url);
       return {
-        errors: [], warnings: [], checks: [`verified ${url}`], manifestIdentity: `sha256:${'a'.repeat(64)}`,
+        errors: [],
+        warnings: [],
+        checks: [`verified ${url}`],
+        manifestIdentity: `sha256:${'a'.repeat(64)}`,
+        assetPackIdentity: `sha256:${'b'.repeat(64)}`,
       };
     },
   });
@@ -844,8 +848,34 @@ test('public deployment probe validates hosted export and enabled Activity API',
   assert.deepEqual(result.errors, []);
   assert.ok(result.checks.some((check) => check.includes('69 actors')));
   assert.ok(result.checks.some((check) => check.includes('enabled:true')));
+  assert.match(result.manifestIdentity, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(result.assetPackIdentity, null);
   assert.deepEqual(requests.map(({ pathname }) => pathname), ['/', '/export-manifest.json', '/api/activity']);
   assert.ok(requests.every(({ redirect }) => redirect === 'manual'));
+});
+
+test('hosted manifest identity distinguishes releases with an unchanged asset pack', async () => {
+  const assetPackVersion = `sha256:${'c'.repeat(64)}`;
+  const probe = (exporterVersion) => verifyPublicDeployment('https://public-game.example', {
+    fetchImpl: async (input) => {
+      const { pathname } = new URL(input);
+      if (pathname === '/') return new Response('<html></html>', { status: 200 });
+      if (pathname === '/export-manifest.json') {
+        return Response.json({
+          schema: CURRENT_MANIFEST_SCHEMA,
+          exporterVersion,
+          actorCount: 70,
+          assetPack: { version: assetPackVersion },
+        });
+      }
+      return Response.json({ enabled: true });
+    },
+  });
+  const prior = await probe('0.3.52');
+  const current = await probe('0.3.53');
+  assert.equal(prior.assetPackIdentity, assetPackVersion);
+  assert.equal(current.assetPackIdentity, assetPackVersion);
+  assert.notEqual(prior.manifestIdentity, current.manifestIdentity);
 });
 
 test('public deployment probe fails closed when hosted Activity API is disabled', async () => {
