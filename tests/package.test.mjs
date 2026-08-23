@@ -674,7 +674,7 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(tools, /Get-UE5HTML5DirectoryInventory/);
   assert.match(tools, /ue5-html5-directory-inventory\/v1/);
   assert.match(tools, /Get-UE5HTML5EditorAutomationEvidence/);
-  assert.match(tools, /ue5-html5-editor-automation-evidence\/v1/);
+  assert.match(tools, /ue5-html5-editor-automation-evidence\/v2/);
   assert.match(launcher, /Start-UE5HTML5Setup\.ps1/);
   assert.match(launcher, /--check/);
   assert.match(launcher, /ExecutionPolicy Bypass/);
@@ -707,12 +707,14 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /workstation-certification\.sha256/);
-  assert.match(verify, /ue5-html5-workstation-certification\/v6/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v7/);
   assert.match(tools, /runtimeReadyFromNavigationStartMs/);
   assert.match(tools, /averageFramesPerSecond/);
   assert.match(tools, /proxy-versioned cold\/warm coverage/);
   assert.match(tools, /deviceMetadataCollected = \$false/);
   assert.match(verify, /UE5HTML5Exporter\.Editor\.BrowserFPSSetup/);
+  assert.match(verify, /UE5HTML5Exporter\.Editor\.DiscordInstallUrl/);
+  assert.match(verify, /Automation RunTests \$editorAutomationFilter/);
   assert.match(verify, /Automation RunTests/);
   assert.match(verify, /Automation Test Queue Empty/);
   assert.match(verify, /Get-UE5HTML5EditorAutomationEvidence/);

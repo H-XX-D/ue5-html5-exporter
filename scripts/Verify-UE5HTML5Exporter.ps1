@@ -113,12 +113,16 @@ if ($LASTEXITCODE -ne 0) { throw "Win64 plugin packaging failed with status $LAS
 & $installScript -Project $projectPath -Plugin $packagePath -Replace
 if ($LASTEXITCODE -ne 0) { throw "Packaged plugin installation failed with status $LASTEXITCODE." }
 
-$editorAutomationTestPath = 'UE5HTML5Exporter.Editor.BrowserFPSSetup'
-Write-Host "Running native Unreal editor setup automation: $editorAutomationTestPath"
+$editorAutomationFilter = 'UE5HTML5Exporter.Editor'
+$editorAutomationTestPaths = @(
+    'UE5HTML5Exporter.Editor.BrowserFPSSetup',
+    'UE5HTML5Exporter.Editor.DiscordInstallUrl'
+)
+Write-Host "Running native Unreal editor certification suite: $($editorAutomationTestPaths -join ', ')"
 try {
     & $editorCommand `
         $projectPath `
-        "-ExecCmds=Automation RunTests $editorAutomationTestPath" `
+        "-ExecCmds=Automation RunTests $editorAutomationFilter" `
         '-TestExit=Automation Test Queue Empty' `
         "-ReportExportPath=$editorAutomationReportPath" `
         -unattended `
@@ -131,7 +135,7 @@ try {
     }
     $editorSetupAutomation = Get-UE5HTML5EditorAutomationEvidence `
         -ReportFile (Join-Path $editorAutomationReportPath 'index.json') `
-        -ExpectedTestPath $editorAutomationTestPath
+        -ExpectedTestPaths $editorAutomationTestPaths
 }
 finally {
     if (Test-Path -LiteralPath $editorAutomationReportPath) {
@@ -217,7 +221,7 @@ $exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
 )
 $environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v6'
+    schema = 'ue5-html5-workstation-certification/v7'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     source = $source
     execution = [ordered]@{

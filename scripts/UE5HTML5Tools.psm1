@@ -544,7 +544,11 @@ function Get-UE5HTML5EditorAutomationEvidence {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$ReportFile,
-        [string]$ExpectedTestPath = 'UE5HTML5Exporter.Editor.BrowserFPSSetup'
+        [Alias('ExpectedTestPath')]
+        [string[]]$ExpectedTestPaths = @(
+            'UE5HTML5Exporter.Editor.BrowserFPSSetup',
+            'UE5HTML5Exporter.Editor.DiscordInstallUrl'
+        )
     )
 
     if (-not (Test-Path -LiteralPath $ReportFile -PathType Leaf)) {
@@ -557,35 +561,55 @@ function Get-UE5HTML5EditorAutomationEvidence {
         throw "Unreal editor automation report is invalid JSON: $ReportFile ($($_.Exception.Message))"
     }
 
-    $tests = @($report.tests)
-    $matchingTests = @($tests | Where-Object { [string]$_.fullTestPath -eq $ExpectedTestPath })
-    if ($tests.Count -ne 1 -or $matchingTests.Count -ne 1) {
-        throw "Unreal editor automation report does not contain exactly the requested test: $ExpectedTestPath"
+    $expectedPaths = @($ExpectedTestPaths | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    $uniqueExpectedPaths = @($expectedPaths | Sort-Object -Unique)
+    if ($expectedPaths.Count -eq 0 -or $uniqueExpectedPaths.Count -ne $expectedPaths.Count) {
+        throw 'Expected Unreal editor automation test paths must be non-empty and unique.'
     }
-    $test = $matchingTests[0]
-    if ([int]$report.succeeded -ne 1 -or
+
+    $tests = @($report.tests)
+    $actualPaths = @($tests | ForEach-Object { [string]$_.fullTestPath })
+    $uniqueActualPaths = @($actualPaths | Sort-Object -Unique)
+    $missingPaths = @($uniqueExpectedPaths | Where-Object { $_ -notin $uniqueActualPaths })
+    $unexpectedPaths = @($uniqueActualPaths | Where-Object { $_ -notin $uniqueExpectedPaths })
+    if ($tests.Count -ne $expectedPaths.Count -or
+        $uniqueActualPaths.Count -ne $tests.Count -or
+        $missingPaths.Count -ne 0 -or
+        $unexpectedPaths.Count -ne 0) {
+        throw "Unreal editor automation report does not contain exactly the requested test suite: $($expectedPaths -join ', ')"
+    }
+
+    if ([int]$report.succeeded -ne $expectedPaths.Count -or
         [int]$report.succeededWithWarnings -ne 0 -or
         [int]$report.failed -ne 0 -or
         [int]$report.notRun -ne 0 -or
-        [int]$report.inProcess -ne 0 -or
-        [string]$test.state -ne 'Success' -or
-        [int]$test.errors -ne 0 -or
-        [int]$test.warnings -ne 0) {
-        throw "Unreal editor automation report does not prove one clean passing run of $ExpectedTestPath."
+        [int]$report.inProcess -ne 0) {
+        throw 'Unreal editor automation report does not prove a clean passing run of the requested test suite.'
     }
-    $durationSeconds = [double]$test.duration
-    if ($durationSeconds -lt 0) {
-        throw 'Unreal editor automation report contains an invalid duration.'
+
+    $normalizedTests = foreach ($expectedPath in $expectedPaths) {
+        $test = @($tests | Where-Object { [string]$_.fullTestPath -eq $expectedPath })[0]
+        $durationSeconds = [double]$test.duration
+        if ([string]$test.state -ne 'Success' -or
+            [int]$test.errors -ne 0 -or
+            [int]$test.warnings -ne 0 -or
+            $durationSeconds -lt 0) {
+            throw "Unreal editor automation report does not prove a clean passing run of $expectedPath."
+        }
+        [pscustomobject][ordered]@{
+            testPath = $expectedPath
+            durationSeconds = $durationSeconds
+        }
     }
 
     return [pscustomobject][ordered]@{
         status = 'passed'
-        schema = 'ue5-html5-editor-automation-evidence/v1'
-        testPath = $ExpectedTestPath
-        succeeded = 1
+        schema = 'ue5-html5-editor-automation-evidence/v2'
+        tests = @($normalizedTests)
+        succeeded = $expectedPaths.Count
         failed = 0
         warnings = 0
-        durationSeconds = $durationSeconds
+        durationSeconds = [double](($normalizedTests | Measure-Object -Property durationSeconds -Sum).Sum)
         details = 'Normalized result only; the raw Unreal report is deleted after validation because it contains workstation metadata.'
     }
 }

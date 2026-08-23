@@ -210,10 +210,10 @@ npm run package:plugin -- --help
 After installing a packaged plugin into a test project, its native editor setup contract can be run headlessly with Unreal's Automation framework:
 
 ```text
-UnrealEditor-Cmd YourGame.uproject -ExecCmds="Automation RunTests UE5HTML5Exporter.Editor.BrowserFPSSetup" -TestExit="Automation Test Queue Empty" -ReportExportPath="path/to/report" -unattended -nop4 -NullRHI -NoSound
+UnrealEditor-Cmd YourGame.uproject -ExecCmds="Automation RunTests UE5HTML5Exporter.Editor" -TestExit="Automation Test Queue Empty" -ReportExportPath="path/to/report" -unattended -nop4 -NullRHI -NoSound
 ```
 
-That test creates an isolated editor map and proves missing-Player-Start refusal, selected/first Player Start resolution, six-meter placement, target defaults, idempotency, Undo, and Redo. The Windows double-click certifier runs it automatically.
+That suite creates an isolated editor map and proves missing-Player-Start refusal, selected/first Player Start resolution, six-meter placement, target defaults, idempotency, Undo, and Redo. It also proves that missing, malformed, and valid Discord Application IDs produce the safe install-handoff result. The Windows double-click certifier requires both tests automatically.
 
 ## Architecture
 
