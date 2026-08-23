@@ -21,6 +21,8 @@ Supabase is the persistence/Realtime layer, not the static game host: Supabase S
 
 ## 1. Supabase
 
+Supabase Free and Pro use the same integration contract. A Pro account is a good production choice, but plan level does not change the privacy model or turn Supabase Storage into the game host. Store only game-created world/player state in the private tables below; Discord remains the system for player identity, authorization, and billing.
+
 1. Create a Supabase project.
 2. In **Realtime Settings**, disable **Allow public access** so every channel must pass Realtime Authorization.
 3. Generate an ES256 signing key, import it under **Authentication → Signing Keys**, then activate it. Keep the private JWK only in your password manager and Vercel; Supabase cannot reveal an imported private key later.
@@ -50,6 +52,30 @@ The same export also includes `preview-discord-activity.cmd`, `.command`, and `.
 ### Guided cross-platform release
 
 Before exporting, configure this game's Discord Application ID/public key, Vercel project name, Supabase project ref, and optional production URL. A release operator can choose **Export Public Discord Activity Targets…** and teammates can import the resulting `ue5-discord-activity-project-targets/v1` JSON through **Import Public Discord Activity Targets…**. The importer has a closed field allowlist, requires `containsSecrets: false`, validates the complete set before changing anything, and rejects unknown fields. Manual entry under **Discord Activity Project Settings…** remains available. These are public identifiers stored in `DefaultGame.ini`; never enter a Discord secret/token, Supabase secret/signing key, or Activity state secret. The guided exporter requires all four non-optional values, names any missing fields, and offers to open the settings page instead of failing later in a terminal. The exporter copies only the allowlisted public fields and their completion status into `activity-handoff.json`.
+
+The shareable file has exactly this shape:
+
+```json
+{
+  "schema": "ue5-discord-activity-project-targets/v1",
+  "containsSecrets": false,
+  "discordApplicationId": "123456789012345678",
+  "discordPublicKey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "vercelProjectName": "my-discord-game",
+  "supabaseProjectRef": "abcdefghijklmnopqrst",
+  "productionUrl": "https://game.example.com"
+}
+```
+
+Replace every example value with the actual public project value. `productionUrl` may be an empty string until a production domain exists. Do not add fields. In particular, never add `discordClientSecret`, `discordBotToken`, `supabaseSecretKey`, `supabaseJwtPrivateKey`, `activityStateSecret`, access tokens, emails, player identifiers, or billing records. `containsSecrets: false` is an explicit handoff declaration, not a substitute for reviewing the file before sharing it.
+
+Commandlet automation can apply and verify the same contract before export:
+
+```text
+UnrealEditor-Cmd MyGame.uproject -run=UE5HTML5Export -ProjectTargets=/absolute/path/discord-activity-project-targets.json -Map=/Game/Maps/Main -CheckOnly -unattended -nop4
+```
+
+Use `-ExportProjectTargets=/absolute/path/discord-activity-project-targets.json` without `-Map` to write the current configured target set. Invalid imports return status `7`; export failures return status `8`.
 
 After **Export Discord Activity…**, Unreal offers to start the correct one-command assistant immediately. You can also launch it later by double-clicking `release-discord-activity.cmd` on Windows or `release-discord-activity.command` on macOS; on Linux run `./release-discord-activity.sh`. The assistant reads public identity from `activity-handoff.json`, installs pinned Vercel and Supabase CLIs locally, and invokes the release workflow without creating an environment file. On Windows, a missing or outdated Node.js produces an explicit consent prompt for a pinned official portable ZIP; the launcher verifies its architecture-specific SHA-256 before placing it under Local AppData, without administrator access or a system PATH change. No global CLI installation or web-project command knowledge is required.
 

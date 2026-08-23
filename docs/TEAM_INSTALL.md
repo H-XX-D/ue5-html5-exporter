@@ -19,6 +19,26 @@ Share the generated `dist/UE5HTML5Exporter-Source` folder or download the `UE5HT
 
 The intended team workflow keeps Unreal developers inside Unreal. A release operator owns Discord, hosting, and Supabase configuration; level designers and Blueprint developers install the plugin and use familiar UE5 tools and nodes.
 
+### Five-minute Unreal teammate checklist
+
+1. Install the plugin into the game's `Plugins/UE5HTML5Exporter` folder and open the project.
+2. For everyday Blueprint work, choose **Tools → HTML5 Export → Export & Preview Discord Blueprint Logic**. This needs no account, service ID, or credential.
+3. When preparing a shared release, choose **Import Public Discord Activity Targets…** and select the JSON supplied by the release operator. If Unreal rejects it, send the exact error back; do not edit in a secret or guess a missing value.
+4. Choose **Check Discord Activity Readiness…**, then **Export Discord Activity…**. Review the reported unsupported Blueprint nodes and browser payload warning.
+5. Let the exporter open the release assistant. Its first pass is a dry run. Only the release operator should answer Yes to the apply prompt or enter Discord/Supabase credentials.
+
+The Unreal teammate never needs the Discord client secret or bot token, a Supabase secret key or signing private key, the Activity state secret, a Vercel account, player email, or billing information. The shared target file is project configuration, not an authorization file.
+
+### Release operator checklist
+
+1. Create or select one Discord application, one Vercel project, and one Supabase project for the game.
+2. Enter their public identifiers under **Discord Activity Project Settings…**, then choose **Export Public Discord Activity Targets…** and review the JSON before sharing it.
+3. Receive the Unreal export and confirm its `activity-handoff.json` reports the expected project identities and Blueprint coverage.
+4. Run the included release assistant. Review the dry-run plan, then approve apply only when the named projects are correct.
+5. Complete Discord URL mappings and run the final Activity in at least two Discord clients. Confirm join, Broadcast/Presence, world save, player save, revision conflict, reconnect, and entitlement behavior as applicable.
+
+Supabase Pro is fully suitable for this workflow and gives the production project paid capacity and operational features. It does not replace the HTTPS static host: Supabase remains the private persistence/Realtime layer, while Vercel or another iframe-compatible HTTPS host serves the exported game and Activity API.
+
 The mock preview binds only to `127.0.0.1`, activates only with its explicit query flag, and stores only game-created preview state in that browser. It verifies Blueprint branching and adapter contracts, not Discord OAuth/proxy behavior, Supabase Realtime, real purchases, mobile behavior, or multi-client synchronization.
 
 The release operator does not need to assemble hosting commands by hand. **Export Discord Activity…** can launch the operating system's release assistant directly from Unreal, and every export includes `scripts/activity-release.mjs`; `npm run release:activity -- --vercel-only-secrets --supabase-cli-keys` reads the public targets from Unreal and prints a zero-file dry-run plan plus the exact Discord portal checklist. The included launcher supplies both safe options automatically. Explicit `--supabase-project-ref` and `--vercel-project` overrides are still accepted only when they match Unreal's targets. An explicit `--apply` discovers modern Supabase API keys through the authenticated CLI, performs the selected Supabase/Vercel setup, and creates a Preview deployment. Package preflight rejects contradictory, stale, or secret-bearing handoff data, preserves an honest list of any missing public targets, and warns when Blueprint adapters remain; the release selection gate refuses to proceed until the required target set is complete. Online preflight verifies the embedded-app flag, both installation contexts, OAuth redirect setup, and a Discord-managed Primary Entry Point before checking the public host and Activity API. The same Node.js 22 command runs on Windows, macOS, and Linux; private values remain in process memory and reach Vercel through stdin rather than files or command arguments.
