@@ -230,6 +230,7 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const fpsSetupTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BrowserFPSSetupTests.cpp');
   const installUrlTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5DiscordActivitySettingsTests.cpp');
   const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
+  const commandlet = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportCommandlet.cpp');
   assert.match(module, /Check Discord Activity Readiness/);
   assert.match(module, /Export Discord Activity/);
   assert.match(module, /NEEDS BLUEPRINT ADAPTERS/);
@@ -286,6 +287,15 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /release-discord-activity\.sh/);
   assert.match(module, /non-mutating dry run/);
   assert.match(module, /Private credentials remain outside Unreal/);
+  assert.match(module, /Discord features detected from Blueprints/);
+  assert.match(module, /Required Discord authorization/);
+  assert.match(module, /identify only/);
+  assert.match(library, /rpc\.activities\.write/);
+  assert.match(library, /PopulateDiscordRequirements/);
+  assert.match(library, /RequiredDiscordOAuthScopes/);
+  assert.match(module, /no client secret, bot token, email, billing information, or Discord player profile is written into the export/);
+  assert.match(commandlet, /Discord features detected from Blueprints/);
+  assert.match(commandlet, /Required Discord authorization/);
   assert.match(module, /open Project Settings and fill the missing public targets/);
   assert.match(library, /CheckDiscordActivityReadiness/);
   assert.match(library, /GLTFExporter/);

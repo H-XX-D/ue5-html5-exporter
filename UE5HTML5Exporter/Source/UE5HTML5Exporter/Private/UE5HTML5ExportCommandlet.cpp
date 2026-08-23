@@ -172,5 +172,15 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
         *Result.LargestBrowserArtifactPath,
         static_cast<double>(Result.LargestBrowserArtifactBytes) / 1024.0 / 1024.0,
         Result.bBrowserPayloadExceedsAdvisoryBudget ? TEXT("yes") : TEXT("no"));
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT("Discord features detected from Blueprints: %s."),
+        Result.DiscordFeatures.IsEmpty() ? TEXT("none") : *FString::Join(Result.DiscordFeatures, TEXT(", ")));
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT("Required Discord authorization: %s. Private credentials and player profile data are not written into the export."),
+        *FString::Join(Result.RequiredDiscordOAuthScopes, TEXT(" + ")));
     return 0;
 }

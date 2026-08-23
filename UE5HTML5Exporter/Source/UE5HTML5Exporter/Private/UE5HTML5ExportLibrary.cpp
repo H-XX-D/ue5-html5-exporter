@@ -398,30 +398,41 @@ namespace
         return FString();
     }
 
-    bool RequiresDiscordRichPresence(const FUE5HTML5ExportResult& Result)
+    void PopulateDiscordRequirements(FUE5HTML5ExportResult& Result)
     {
+        TSet<FString> Features;
         for (const FString& Function : Result.UsedBlueprintFunctions)
         {
-            if (DiscordFeatureForFunction(Function) == TEXT("rich-presence")) return true;
+            const FString Feature = DiscordFeatureForFunction(Function);
+            if (!Feature.IsEmpty()) Features.Add(Feature);
         }
-        return false;
+
+        Result.DiscordFeatures = Features.Array();
+        Result.DiscordFeatures.Sort();
+        Result.RequiredDiscordOAuthScopes = { TEXT("identify") };
+        Result.RequiredDiscordEnvironment.Reset();
+        if (Result.DiscordFeatures.Contains(TEXT("rich-presence")))
+        {
+            Result.RequiredDiscordOAuthScopes.Add(TEXT("rpc.activities.write"));
+            Result.RequiredDiscordEnvironment.Add(TEXT("DISCORD_ENABLE_RICH_PRESENCE"));
+        }
+    }
+
+    bool RequiresDiscordRichPresence(const FUE5HTML5ExportResult& Result)
+    {
+        return Result.DiscordFeatures.Contains(TEXT("rich-presence"));
     }
 
     TSharedRef<FJsonObject> BuildDiscordRequirements(const FUE5HTML5ExportResult& Result)
     {
         TArray<FString> UsedFunctions;
-        TSet<FString> Features;
-        const bool bRequiresRichPresence = RequiresDiscordRichPresence(Result);
         for (const FString& Function : Result.UsedBlueprintFunctions)
         {
             const FString Feature = DiscordFeatureForFunction(Function);
             if (Feature.IsEmpty()) continue;
             UsedFunctions.Add(Function);
-            Features.Add(Feature);
         }
         UsedFunctions.Sort();
-        TArray<FString> FeatureNames = Features.Array();
-        FeatureNames.Sort();
 
         auto JsonStrings = [](const TArray<FString>& Values)
         {
@@ -433,12 +444,13 @@ namespace
         TSharedRef<FJsonObject> Requirements = MakeShared<FJsonObject>();
         Requirements->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-requirements/v1"));
         Requirements->SetArrayField(TEXT("usedBlueprintFunctions"), JsonStrings(UsedFunctions));
-        Requirements->SetArrayField(TEXT("features"), JsonStrings(FeatureNames));
-        TArray<FString> Scopes = { TEXT("identify") };
-        if (bRequiresRichPresence) Scopes.Add(TEXT("rpc.activities.write"));
-        Requirements->SetArrayField(TEXT("requiredOAuthScopes"), JsonStrings(Scopes));
+        Requirements->SetArrayField(TEXT("features"), JsonStrings(Result.DiscordFeatures));
+        Requirements->SetArrayField(TEXT("requiredOAuthScopes"), JsonStrings(Result.RequiredDiscordOAuthScopes));
         TSharedRef<FJsonObject> RequiredEnvironment = MakeShared<FJsonObject>();
-        if (bRequiresRichPresence) RequiredEnvironment->SetStringField(TEXT("DISCORD_ENABLE_RICH_PRESENCE"), TEXT("true"));
+        for (const FString& Name : Result.RequiredDiscordEnvironment)
+        {
+            RequiredEnvironment->SetStringField(Name, TEXT("true"));
+        }
         Requirements->SetObjectField(TEXT("requiredEnvironment"), RequiredEnvironment);
         return Requirements;
     }
@@ -954,6 +966,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
     Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;
     Result.UsedBlueprintFunctions = BlueprintSummary.UsedFunctions;
+    PopulateDiscordRequirements(Result);
     Result.Warnings.Append(BlueprintSummary.Warnings);
 
     UGLTFExportOptions* Options = NewObject<UGLTFExportOptions>();

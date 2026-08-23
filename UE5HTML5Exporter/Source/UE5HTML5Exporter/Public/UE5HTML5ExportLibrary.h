@@ -28,6 +28,9 @@ struct FUE5HTML5ExportResult
     int32 SupportedBlueprintNodeCount = 0;
     int32 UnsupportedBlueprintNodeCount = 0;
     TSet<FString> UsedBlueprintFunctions;
+    TArray<FString> DiscordFeatures;
+    TArray<FString> RequiredDiscordOAuthScopes;
+    TArray<FString> RequiredDiscordEnvironment;
     int64 BrowserPayloadBytes = 0;
     int64 BrowserPayloadBudgetBytes = 0;
     int64 IndexBytes = 0;
