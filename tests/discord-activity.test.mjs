@@ -443,7 +443,7 @@ test('persistence uses one atomic database RPC and reports revision conflicts', 
   assert.equal(discordRequests.filter((url) => url.includes('/activity-instances/')).length, 1);
 });
 
-test('live certification rechecks one Discord instance and sends only opaque account keys to Supabase', async () => {
+test('live certification requires two accounts in one server-bound polling cohort', async () => {
   const env = await testEnvironment();
   const users = ['user-42', 'user-84'];
   const fetchFor = (userId) => async (url) => {
@@ -462,7 +462,9 @@ test('live certification rechecks one Discord instance and sends only opaque acc
       rpcCalls.push({ name, parameters });
       return {
         async single() {
-          const authenticatedClients = new Set(rpcCalls.map((call) => call.parameters.p_player_key)).size;
+          const currentChallenge = rpcCalls.at(-1).parameters.p_challenge_key;
+          const activeCalls = rpcCalls.filter((call) => call.parameters.p_challenge_key === currentChallenge);
+          const authenticatedClients = new Set(activeCalls.map((call) => call.parameters.p_player_key)).size;
           return {
             data: {
               status: authenticatedClients >= 2 ? 'passed' : 'waiting',
@@ -478,26 +480,32 @@ test('live certification rechecks one Discord instance and sends only opaque acc
       };
     },
   });
-  const certify = (cookie, challenge) => handleActivityRequest(new Request('https://game.test/api/activity', {
+  const certify = (cookie, now) => handleActivityRequest(new Request('https://game.test/api/activity', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
-    body: JSON.stringify({ action: 'certify-live', instanceId: 'i-live-test', challenge }),
-  }), { env, fetchImpl: fetchFor(users[0]), createClientImpl });
+    body: JSON.stringify({ action: 'certify-live', instanceId: 'i-live-test' }),
+  }), { env, fetchImpl: fetchFor(users[0]), createClientImpl, now });
 
-  const first = await certify(firstCookie, 'challenge_first_123456');
-  const second = await certify(secondCookie, 'challenge_second_12345');
+  const first = await certify(firstCookie, Date.parse('2026-08-23T18:00:00Z'));
+  const second = await certify(secondCookie, Date.parse('2026-08-23T18:00:10Z'));
+  const third = await certify(firstCookie, Date.parse('2026-08-23T18:00:10Z'));
   const firstReport = await first.json();
   const secondReport = await second.json();
+  const thirdReport = await third.json();
 
   assert.equal(firstReport.status, 'waiting');
-  assert.equal(secondReport.status, 'passed');
-  assert.equal(secondReport.schema, LIVE_CERTIFICATION_SCHEMA);
-  assert.equal(secondReport.authenticatedClientCount, 2);
-  assert.equal(secondReport.participantCount, 2);
-  assert.equal(secondReport.backendMembershipRechecked, true);
-  assert.equal(secondReport.realtimeRequired, false);
-  assert.equal(rpcCalls.length, 2);
-  assert.equal(rpcCalls.every((call) => call.name === 'check_in_discord_activity_certification'), true);
+  assert.equal(secondReport.status, 'waiting', 'a prior-cohort check-in must not satisfy a new run');
+  assert.equal(thirdReport.status, 'passed');
+  assert.equal(thirdReport.schema, LIVE_CERTIFICATION_SCHEMA);
+  assert.equal(thirdReport.authenticatedClientCount, 2);
+  assert.equal(thirdReport.participantCount, 2);
+  assert.equal(thirdReport.backendMembershipRechecked, true);
+  assert.equal(thirdReport.serverBoundCohort, true);
+  assert.equal(thirdReport.simultaneousPollingRequired, true);
+  assert.equal(thirdReport.certificationWindowSeconds, 10);
+  assert.equal(thirdReport.realtimeRequired, false);
+  assert.equal(rpcCalls.length, 3);
+  assert.equal(rpcCalls.every((call) => call.name === 'check_in_discord_activity_certification_v2'), true);
   for (const { parameters } of rpcCalls) {
     assert.deepEqual(Object.keys(parameters).sort(), [
       'p_challenge_key', 'p_instance_key', 'p_participant_count', 'p_player_key', 'p_proxy_authenticated',
@@ -507,8 +515,10 @@ test('live certification rechecks one Discord instance and sends only opaque acc
     assert.match(parameters.p_challenge_key, /^[0-9a-f]{64}$/);
     assert.equal(parameters.p_participant_count, 2);
   }
-  assert.notEqual(rpcCalls[0].parameters.p_player_key, rpcCalls[1].parameters.p_player_key);
-  assert.doesNotMatch(JSON.stringify({ rpcCalls, firstReport, secondReport }), /user-42|user-84|i-live-test/);
+  assert.notEqual(rpcCalls[0].parameters.p_challenge_key, rpcCalls[1].parameters.p_challenge_key);
+  assert.equal(rpcCalls[1].parameters.p_challenge_key, rpcCalls[2].parameters.p_challenge_key);
+  assert.notEqual(rpcCalls[1].parameters.p_player_key, rpcCalls[2].parameters.p_player_key);
+  assert.doesNotMatch(JSON.stringify({ rpcCalls, firstReport, secondReport, thirdReport }), /user-42|user-84|i-live-test/);
 });
 
 test('bridge polls a privacy-safe live certificate and rejects preview certification', async () => {
@@ -518,7 +528,6 @@ test('bridge polls a privacy-safe live certificate and rejects preview certifica
     { status: 'passed', authenticatedClientCount: 2 },
   ];
   const bridge = new DiscordActivityBridge({
-    randomUUID: () => '01234567-89ab-cdef-0123-456789abcdef',
     fetchImpl: async (_url, init) => {
       calls.push(JSON.parse(init.body));
       return Response.json({
@@ -542,7 +551,7 @@ test('bridge polls a privacy-safe live certificate and rejects preview certifica
   assert.deepEqual(progress, ['waiting', 'passed']);
   assert.equal(calls.length, 2);
   assert.equal(calls.every((call) => call.action === 'certify-live' && call.instanceId === 'i-live-test'), true);
-  assert.equal(calls[0].challenge, '01234567-89ab-cdef-0123-456789abcdef');
+  assert.equal(calls.every((call) => !('challenge' in call)), true);
   assert.equal(calls.every((call) => !('accessToken' in call)), true);
 
   const preview = new DiscordActivityBridge({
@@ -551,7 +560,7 @@ test('bridge polls a privacy-safe live certificate and rejects preview certifica
   });
   await preview.start();
   await assert.rejects(
-    preview.checkInLiveCertification('preview_challenge_1234'),
+    preview.checkInLiveCertification(),
     /real, connected Discord Activity/,
   );
   await preview.dispose();

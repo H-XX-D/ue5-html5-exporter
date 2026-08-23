@@ -114,6 +114,7 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   const realtimeOptimization = read('Resources/WebTemplate/supabase/migrations/20260823011836_optimize_discord_activity_realtime_rls.sql');
   const privilegeRestriction = read('Resources/WebTemplate/supabase/migrations/20260823011940_restrict_discord_activity_service_role_privileges.sql');
   const liveCertification = read('Resources/WebTemplate/supabase/migrations/20260823104152_discord_activity_live_certification.sql');
+  const liveCertificationCohorts = read('Resources/WebTemplate/supabase/migrations/20260823172619_bind_live_certification_cohorts.sql');
   assert.match(coreMigration, /revoke all on public\.discord_activity_world_state from service_role/);
   assert.match(coreMigration, /grant select, insert, update on public\.discord_activity_world_state to service_role/);
   assert.doesNotMatch(coreMigration, /grant select, insert, update, delete/);
@@ -126,10 +127,15 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(liveCertification, /count\(distinct active\.player_key\)/);
   assert.match(liveCertification, /interval '24 hours'/);
   assert.doesNotMatch(liveCertification, /(?:discord_user_id|username|email|billing|device_metadata)\s+(?:text|json|jsonb)/i);
+  assert.match(liveCertificationCohorts, /check_in_discord_activity_certification_v2/);
+  assert.match(liveCertificationCohorts, /checkin\.challenge_key = p_challenge_key/);
+  assert.match(liveCertificationCohorts, /interval '10 seconds'/);
+  assert.doesNotMatch(liveCertificationCohorts, /(?:discord_user_id|username|email|billing|device_metadata)\s+(?:text|json|jsonb)/i);
   const api = read('Resources/WebTemplate/api/activity.mjs');
   assert.match(api, /activity-instances/);
   assert.match(api, /SUPABASE_SECRET_KEY/);
-  assert.match(api, /ue5-discord-live-certification\/v1/);
+  assert.match(api, /ue5-discord-live-certification\/v2/);
+  assert.match(api, /check_in_discord_activity_certification_v2/);
   assert.doesNotMatch(api, /sb_secret_[A-Za-z0-9_-]{8,}/);
   const deploymentPackage = JSON.parse(read('Resources/WebTemplate/package.json'));
   assert.equal(deploymentPackage.scripts.preflight, 'node scripts/activity-preflight.mjs');
@@ -154,7 +160,7 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.ok(viewerFile, 'content-hashed viewer bundle is missing');
   assert.ok(activityFile, 'content-hashed Discord Activity bundle is missing');
   assert.match(read('Resources/WebTemplate/index.html'), /Run two-client check/);
-  assert.match(readFileSync(new URL(`Resources/WebTemplate/runtime/${activityFile}`, plugin), 'utf8'), /ue5-discord-live-certification\/v1/);
+  assert.match(readFileSync(new URL(`Resources/WebTemplate/runtime/${activityFile}`, plugin), 'utf8'), /ue5-discord-live-certification\/v2/);
   const viewer = read(`Resources/WebTemplate/runtime/${viewerFile}`);
   const activity = read(`Resources/WebTemplate/runtime/${activityFile}`);
   assert.match(viewer, /discordactivitygetverifiedentitlements/);
