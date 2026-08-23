@@ -157,9 +157,9 @@ try {
         status = 'passed'
         verifiedAtUtc = '2026-08-23T12:00:00.000Z'
         exporterVersion = '0.3.37'
-        manifestSchema = 'ue5-html5-export/v6'
+        manifestSchema = 'ue5-html5-export/v8'
         assetPack = [ordered]@{
-            schema = 'ue5-html5-asset-pack/v2'
+            schema = 'ue5-html5-asset-pack/v3'
             version = $assetPackVersion
             cacheBusting = 'pack-version-query'
             resourceCount = 3
@@ -207,8 +207,8 @@ try {
     $browserEvidence = Get-UE5HTML5BrowserCertificationEvidence `
         -CertificationFile $browserCertificationPath `
         -ExpectedExporterVersion '0.3.37' `
-        -ExpectedManifestSchema 'ue5-html5-export/v6' `
-        -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
+        -ExpectedManifestSchema 'ue5-html5-export/v8' `
+        -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v3' `
         -ExpectedAssetPackVersion $assetPackVersion
     Assert-True ($browserEvidence.status -eq 'passed') 'browser certification bridge must accept the complete matching report'
     Assert-True ($browserEvidence.assetPack.resourceCount -eq 3) 'browser certification bridge must preserve resource coverage evidence'
@@ -222,8 +222,8 @@ try {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v6' `
-            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
+            -ExpectedManifestSchema 'ue5-html5-export/v8' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v3' `
             -ExpectedAssetPackVersion $assetPackVersion
     } 'proxy-versioned cold/warm coverage' 'browser certification bridge must reject the wrong warm delivery mode'
 
@@ -234,8 +234,8 @@ try {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v6' `
-            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
+            -ExpectedManifestSchema 'ue5-html5-export/v8' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v3' `
             -ExpectedAssetPackVersion $assetPackVersion
     } 'proxy-versioned cold/warm coverage' 'browser certification bridge must reject the wrong adapter-module version'
 
@@ -246,8 +246,8 @@ try {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v6' `
-            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
+            -ExpectedManifestSchema 'ue5-html5-export/v8' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v3' `
             -ExpectedAssetPackVersion $assetPackVersion
     } 'frame-pacing evidence' 'browser certification bridge must reject invalid frame-pacing evidence'
 
@@ -258,8 +258,8 @@ try {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v6' `
-            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
+            -ExpectedManifestSchema 'ue5-html5-export/v8' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v3' `
             -ExpectedAssetPackVersion $assetPackVersion
     } 'does not contain a passing run' 'browser certification bridge must reject a failed report'
 

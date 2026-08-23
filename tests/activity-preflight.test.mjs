@@ -105,7 +105,7 @@ function writeAssetPack(root) {
   );
   files.sort();
   let bytes = 0;
-  let canonical = '';
+  let canonical = 'ue5-html5-asset-pack/v3\norigin-scoped-content-addressed-cache\nresource-sha256\nunchanged-resources-across-exports\n';
   const resources = files.map((file) => {
     const path = relative(root, file).split('\\').join('/');
     const body = readFileSync(file);
@@ -125,11 +125,13 @@ function writeAssetPack(root) {
     };
   });
   const pack = {
-    schema: 'ue5-html5-asset-pack/v2',
-    strategy: 'origin-scoped-versioned-cache',
+    schema: 'ue5-html5-asset-pack/v3',
+    strategy: 'origin-scoped-content-addressed-cache',
     version: `sha256:${createHash('sha256').update(canonical).digest('hex')}`,
     cacheBusting: 'pack-version-query',
     versionQuery: 'ue5html5_pack',
+    contentAddress: 'resource-sha256',
+    cacheReuse: 'unchanged-resources-across-exports',
     runtimeStrategy: 'content-hashed-http-cache',
     scope: 'activity-origin',
     integrity: 'sha256',
@@ -240,9 +242,9 @@ test('Activity package preflight verifies the current reusable asset-pack contra
       supportedNodeCount: 2,
       unsupportedNodeCount: 0,
     };
-    manifest.schema = 'ue5-html5-export/v7';
+    manifest.schema = 'ue5-html5-export/v8';
     manifest.blueprintCompatibility = modernCounts;
-    handoff.schema = 'ue5-discord-activity-handoff/v8';
+    handoff.schema = 'ue5-discord-activity-handoff/v9';
     handoff.blueprintCompatibility = modernCounts;
     logic.projectAdapters = {
       schema: 'ue5-html5-custom-adapters/v1',
@@ -318,7 +320,25 @@ test('Activity package preflight verifies the current reusable asset-pack contra
     writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
 
     assert.deepEqual(validateActivityExport({ directory: root, packageOnly: true }).errors, []);
-    const validHandoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    const validManifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const previousPack = {
+      ...validManifest.assetPack,
+      schema: 'ue5-html5-asset-pack/v2',
+      strategy: 'origin-scoped-versioned-cache',
+      contentAddress: undefined,
+      cacheReuse: undefined,
+    };
+    writeFileSync(manifestPath, JSON.stringify({
+      ...validManifest,
+      assetPack: previousPack,
+    }));
+    const currentHandoff = JSON.parse(readFileSync(handoffPath, 'utf8'));
+    writeFileSync(handoffPath, JSON.stringify({ ...currentHandoff, assetPack: previousPack }));
+    assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
+      .some((error) => error.includes('cross-export content reuse')));
+    writeFileSync(manifestPath, JSON.stringify(validManifest));
+    writeFileSync(handoffPath, JSON.stringify(currentHandoff));
+    const validHandoff = currentHandoff;
     writeFileSync(handoffPath, JSON.stringify({
       ...validHandoff,
       discordRequirements: {

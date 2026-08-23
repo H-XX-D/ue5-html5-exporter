@@ -155,6 +155,7 @@ test('browser certification coordinates cold and warm reloads and submits a mach
   const cacheStorage = { delete: async (name) => { deleted.push(name); return true; } };
   const resources = [
     { path: 'assets/scene.glb', delivery: 'cache-api-integrity' },
+    { path: 'assets/audio/fire.wav', delivery: 'cache-api-integrity' },
     { path: 'logic/blueprints.json', delivery: 'cache-api-integrity' },
     { path: 'logic/custom-adapters.json', delivery: 'cache-api-integrity' },
     { path: 'logic/custom-adapters.js', delivery: 'versioned-module' },
@@ -173,6 +174,18 @@ test('browser certification coordinates cold and warm reloads and submits a mach
   const assetCache = new EventTarget();
   assetCache.enabled = true;
   assetCache.cacheName = `ue5html5-asset-pack-v2-${'b'.repeat(64)}`;
+  let certificationStage = 'cold';
+  const deferredFetches = [];
+  assetCache.fetch = async (path) => {
+    deferredFetches.push({ stage: certificationStage, path });
+    assetCache.dispatchEvent(new CustomEvent('statuschange', { detail: {
+      mode: certificationStage === 'cold' ? 'network-cached' : 'cache-hit',
+      path,
+      reason: '',
+      cacheBustVersion: version,
+    } }));
+    return new Response('certified');
+  };
   let reloads = 0;
   const common = {
     locationObject,
@@ -201,7 +214,7 @@ test('browser certification coordinates cold and warm reloads and submits a mach
 
   const cold = new BrowserCertification(common);
   assert.equal(await cold.prepare(assetCache, manifest), false);
-  for (const resource of resources) cold.onCacheStatus({ detail: {
+  for (const resource of resources.filter(({ path }) => !path.startsWith('assets/audio/'))) cold.onCacheStatus({ detail: {
     mode: resource.delivery === 'versioned-module' ? 'versioned-module' : 'network-cached',
     path: resource.path,
     reason: '',
@@ -209,7 +222,9 @@ test('browser certification coordinates cold and warm reloads and submits a mach
   } });
   await cold.complete({ manifest, runtime: {}, gameplay: {}, targetPractice: {} });
   assert.equal(reloads, 2);
+  assert.deepEqual(deferredFetches, [{ stage: 'cold', path: 'assets/audio/fire.wav' }]);
 
+  certificationStage = 'warm';
   let submitted = null;
   const fixture = targetFixture();
   const warm = new BrowserCertification({
@@ -223,7 +238,7 @@ test('browser certification coordinates cold and warm reloads and submits a mach
     },
   });
   assert.equal(await warm.prepare(assetCache, manifest), false);
-  for (const resource of resources) warm.onCacheStatus({ detail: {
+  for (const resource of resources.filter(({ path }) => !path.startsWith('assets/audio/'))) warm.onCacheStatus({ detail: {
     mode: resource.delivery === 'versioned-module' ? 'versioned-module' : 'cache-hit',
     path: resource.path,
     reason: '',
@@ -238,10 +253,16 @@ test('browser certification coordinates cold and warm reloads and submits a mach
 
   assert.equal(report.schema, CERTIFICATION_SCHEMA);
   assert.equal(report.status, 'passed');
-  assert.equal(report.assetPack.cold.coverage.length, 3);
-  assert.equal(report.assetPack.warm.coverage.length, 3);
+  assert.equal(report.assetPack.cold.coverage.length, 4);
+  assert.equal(report.assetPack.warm.coverage.length, 4);
   assert.equal(report.assetPack.cold.versionedModuleCoverage.length, 1);
   assert.equal(report.assetPack.warm.versionedModuleCoverage.length, 1);
+  assert.deepEqual(report.assetPack.cold.exercisedDeferredResources, ['assets/audio/fire.wav']);
+  assert.deepEqual(report.assetPack.warm.exercisedDeferredResources, ['assets/audio/fire.wav']);
+  assert.deepEqual(deferredFetches, [
+    { stage: 'cold', path: 'assets/audio/fire.wav' },
+    { stage: 'warm', path: 'assets/audio/fire.wav' },
+  ]);
   assert.equal(report.performance.advisoryOnly, true);
   assert.equal(report.performance.context, 'local-browser-only');
   assert.equal(report.performance.runtimeReadyFromNavigationStartMs, 812.25);

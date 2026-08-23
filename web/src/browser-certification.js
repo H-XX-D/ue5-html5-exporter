@@ -328,16 +328,36 @@ export class BrowserCertification {
     return coverage;
   }
 
+  async exerciseDeferredCacheResources(expectedMode) {
+    const expectedVersion = String(this.assetPack?.version || '');
+    const missing = Array.from(this.assetPack?.resources || [])
+      .filter(({ delivery, path }) => delivery === 'cache-api-integrity'
+        && path
+        && !this.events.some((event) => (
+          event.path === path
+          && event.mode === expectedMode
+          && event.cacheBustVersion === expectedVersion
+        )))
+      .map(({ path }) => path);
+    if (!missing.length) return [];
+    requireCondition(typeof this.assetCache?.fetch === 'function',
+      'Browser certification cannot exercise deferred Cache API resources.');
+    for (const path of missing) await this.assetCache.fetch(path);
+    return missing;
+  }
+
   async complete({ manifest, runtime, gameplay, targetPractice }) {
     if (!this.enabled) return null;
     try {
       const state = this.readState();
       requireCondition(state?.token === this.token(), 'Browser certification lost its reload state.');
       if (state.stage === 'cold') {
+        const exercisedDeferredResources = await this.exerciseDeferredCacheResources('network-cached');
         state.cold = {
           events: clone(this.events),
           coverage: this.assertDeliveryMode('network-cached'),
           versionedModuleCoverage: this.assertVersionedModules(),
+          exercisedDeferredResources,
         };
         state.stage = 'warm';
         this.writeState(state);
@@ -347,10 +367,12 @@ export class BrowserCertification {
       }
 
       requireCondition(state.stage === 'warm', `Unsupported browser certification stage: ${state.stage || '<missing>'}`);
+      const exercisedDeferredResources = await this.exerciseDeferredCacheResources('cache-hit');
       const warm = {
         events: clone(this.events),
         coverage: this.assertDeliveryMode('cache-hit'),
         versionedModuleCoverage: this.assertVersionedModules(),
+        exercisedDeferredResources,
       };
       requireCondition(runtime, 'The exported Blueprint runtime did not start.');
       const runtimeReadyFromNavigationStartMs = Number(this.monotonicNow?.());

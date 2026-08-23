@@ -470,7 +470,7 @@ function Get-UE5HTML5BrowserCertificationEvidence {
         throw 'Browser certification asset-pack version does not match the exported manifest.'
     }
     if ([string]$report.assetPack.schema -ne $ExpectedAssetPackSchema -or
-        $ExpectedAssetPackSchema -ne 'ue5-html5-asset-pack/v2' -or
+        $ExpectedAssetPackSchema -ne 'ue5-html5-asset-pack/v3' -or
         [string]$report.assetPack.cacheBusting -ne 'pack-version-query') {
         throw 'Browser certification asset pack does not prove the current proxy-safe schema.'
     }

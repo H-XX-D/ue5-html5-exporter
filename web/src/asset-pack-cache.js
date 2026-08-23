@@ -1,5 +1,6 @@
-const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
-const CACHE_PREFIX = 'ue5html5-asset-pack-v2-';
+const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v3';
+const CONTENT_CACHE_NAME = 'ue5html5-asset-content-v1';
+const PREVIOUS_CACHE_PREFIX = 'ue5html5-asset-pack-v2-';
 const LEGACY_CACHE_PREFIX = 'ue5html5-asset-pack-v1-';
 const PACK_VERSION_QUERY = 'ue5html5_pack';
 const CACHE_DELIVERY = 'cache-api-integrity';
@@ -59,13 +60,15 @@ export class AssetPackCache extends EventTarget {
     this.persistence = { mode: 'disabled', reason: 'No asset-pack manifest.' };
 
     if (!assetPack) return;
-    if (assetPack.schema !== ASSET_PACK_SCHEMA || assetPack.strategy !== 'origin-scoped-versioned-cache') {
+    if (assetPack.schema !== ASSET_PACK_SCHEMA || assetPack.strategy !== 'origin-scoped-content-addressed-cache') {
       throw new Error(`Unsupported asset-pack contract: ${assetPack.schema || '<missing schema>'}`);
     }
     if (assetPack.integrity !== 'sha256'
         || assetPack.fallback !== 'network'
         || assetPack.cacheBusting !== 'pack-version-query'
-        || assetPack.versionQuery !== PACK_VERSION_QUERY) {
+        || assetPack.versionQuery !== PACK_VERSION_QUERY
+        || assetPack.contentAddress !== 'resource-sha256'
+        || assetPack.cacheReuse !== 'unchanged-resources-across-exports') {
       throw new Error('Asset-pack integrity and fallback policy is invalid.');
     }
     const version = String(assetPack.version || '').replace(/^sha256:/, '');
@@ -83,7 +86,7 @@ export class AssetPackCache extends EventTarget {
       }
       this.resources.set(path, { ...resource, path });
     }
-    this.cacheName = `${CACHE_PREFIX}${version}`;
+    this.cacheName = CONTENT_CACHE_NAME;
     this.enabled = Boolean(fetchImpl && cacheStorage?.open && cryptoImpl?.subtle?.digest);
     this.lastStatus = this.enabled
       ? { mode: 'ready', path: '', reason: '' }
@@ -174,6 +177,11 @@ export class AssetPackCache extends EventTarget {
     return url;
   }
 
+  contentRequest(resource) {
+    const url = new URL(`.ue5html5-cache/sha256/${resource.sha256}`, `${this.baseUrl.origin}/`);
+    return new Request(url);
+  }
+
   async verify(response, resource) {
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${resource.path}`);
     const bytes = await response.arrayBuffer();
@@ -217,7 +225,7 @@ export class AssetPackCache extends EventTarget {
       return this.network(path, resource);
     }
 
-    const request = new Request(this.versionedUrl(path));
+    const request = this.contentRequest(resource);
     let cached = null;
     try {
       cached = await cache.match(request);
@@ -251,8 +259,8 @@ export class AssetPackCache extends EventTarget {
     if (!this.enabled || !this.cacheStorage.keys) return [];
     const names = await this.cacheStorage.keys();
     const stale = names.filter((name) => (
-      name.startsWith(CACHE_PREFIX) || name.startsWith(LEGACY_CACHE_PREFIX)
-    ) && name !== this.cacheName);
+      name.startsWith(PREVIOUS_CACHE_PREFIX) || name.startsWith(LEGACY_CACHE_PREFIX)
+    ));
     await Promise.all(stale.map((name) => this.cacheStorage.delete(name)));
     return stale;
   }
@@ -265,8 +273,9 @@ export function createAssetPackCache(assetPack, options) {
 export {
   ASSET_PACK_SCHEMA,
   CACHE_DELIVERY,
-  CACHE_PREFIX,
+  CONTENT_CACHE_NAME,
   LEGACY_CACHE_PREFIX,
   MODULE_DELIVERY,
   PACK_VERSION_QUERY,
+  PREVIOUS_CACHE_PREFIX,
 };

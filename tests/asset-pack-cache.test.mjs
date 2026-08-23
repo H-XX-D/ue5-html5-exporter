@@ -4,22 +4,25 @@ import { test } from 'node:test';
 
 import {
   AssetPackCache,
-  CACHE_PREFIX,
+  CONTENT_CACHE_NAME,
   LEGACY_CACHE_PREFIX,
   PACK_VERSION_QUERY,
+  PREVIOUS_CACHE_PREFIX,
 } from '../web/src/asset-pack-cache.js';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function manifest(path, body, delivery = 'cache-api-integrity') {
+function manifest(path, body, delivery = 'cache-api-integrity', version = 'a'.repeat(64)) {
   return {
-    schema: 'ue5-html5-asset-pack/v2',
-    strategy: 'origin-scoped-versioned-cache',
-    version: `sha256:${'a'.repeat(64)}`,
+    schema: 'ue5-html5-asset-pack/v3',
+    strategy: 'origin-scoped-content-addressed-cache',
+    version: `sha256:${version}`,
     cacheBusting: 'pack-version-query',
     versionQuery: PACK_VERSION_QUERY,
+    contentAddress: 'resource-sha256',
+    cacheReuse: 'unchanged-resources-across-exports',
     runtimeStrategy: 'content-hashed-http-cache',
     integrity: 'sha256',
     fallback: 'network',
@@ -82,7 +85,56 @@ test('asset pack verifies the network response once and serves a verified cache 
   assert.equal(cache.lastStatus.mode, 'cache-hit');
   assert.equal(requests, 1);
   assert.equal(requestedUrl, `https://activity.example/game/assets/scene.glb?${PACK_VERSION_QUERY}=${'a'.repeat(64)}`);
-  assert.deepEqual([...storage.stores.get(cache.cacheName).entries.keys()], [requestedUrl]);
+  assert.equal(cache.cacheName, CONTENT_CACHE_NAME);
+  assert.deepEqual([...storage.stores.get(cache.cacheName).entries.keys()], [
+    `https://activity.example/.ue5html5-cache/sha256/${sha256(body)}`,
+  ]);
+});
+
+test('unchanged resource bytes are reused after the Unreal export and resource path change', async () => {
+  const body = Buffer.from('shared-texture-or-audio');
+  const storage = new MemoryCacheStorage();
+  let requests = 0;
+  const first = new AssetPackCache(manifest('assets/audio/fire.wav', body, 'cache-api-integrity', 'a'.repeat(64)), {
+    baseUrl: 'https://123.discordsays.com/game/',
+    cacheStorage: storage,
+    cryptoImpl: webcrypto,
+    fetchImpl: async () => { requests += 1; return new Response(body); },
+  });
+  const second = new AssetPackCache(manifest('assets/audio/shared/fire.wav', body, 'cache-api-integrity', 'b'.repeat(64)), {
+    baseUrl: 'https://123.discordsays.com/game/',
+    cacheStorage: storage,
+    cryptoImpl: webcrypto,
+    fetchImpl: async () => { requests += 1; return new Response(body); },
+  });
+
+  assert.equal(await (await first.fetch('assets/audio/fire.wav')).text(), 'shared-texture-or-audio');
+  assert.equal(first.lastStatus.mode, 'network-cached');
+  assert.equal(await (await second.fetch('assets/audio/shared/fire.wav')).text(), 'shared-texture-or-audio');
+  assert.equal(second.lastStatus.mode, 'cache-hit');
+  assert.equal(requests, 1);
+  assert.equal(first.cacheName, second.cacheName);
+});
+
+test('changed resource bytes use a different content address and cannot reuse stale data', async () => {
+  const oldBody = Buffer.from('old-scene');
+  const newBody = Buffer.from('new-scene');
+  const storage = new MemoryCacheStorage();
+  let requests = 0;
+  const first = new AssetPackCache(manifest('assets/scene.glb', oldBody, 'cache-api-integrity', 'a'.repeat(64)), {
+    baseUrl: 'https://123.discordsays.com/game/', cacheStorage: storage, cryptoImpl: webcrypto,
+    fetchImpl: async () => { requests += 1; return new Response(oldBody); },
+  });
+  const second = new AssetPackCache(manifest('assets/scene.glb', newBody, 'cache-api-integrity', 'b'.repeat(64)), {
+    baseUrl: 'https://123.discordsays.com/game/', cacheStorage: storage, cryptoImpl: webcrypto,
+    fetchImpl: async () => { requests += 1; return new Response(newBody); },
+  });
+
+  await first.fetch('assets/scene.glb');
+  assert.equal(await (await second.fetch('assets/scene.glb')).text(), 'new-scene');
+  assert.equal(second.lastStatus.mode, 'network-cached');
+  assert.equal(requests, 2);
+  assert.equal(storage.stores.get(CONTENT_CACHE_NAME).entries.size, 2);
 });
 
 test('asset pack gives project adapter modules a pack-version URL without putting them in Cache API', async () => {
@@ -228,10 +280,10 @@ test('asset pack reports persistent storage as unsupported without collecting qu
   assert.equal(estimates, 0);
 });
 
-test('asset pack cleanup removes only stale exporter-owned cache versions', async () => {
+test('asset pack cleanup removes superseded version caches but preserves the content cache and unrelated caches', async () => {
   const body = Buffer.from('scene');
   const storage = new MemoryCacheStorage();
-  storage.stores.set(`${CACHE_PREFIX}${'b'.repeat(64)}`, new MemoryCache());
+  storage.stores.set(`${PREVIOUS_CACHE_PREFIX}${'b'.repeat(64)}`, new MemoryCache());
   storage.stores.set(`${LEGACY_CACHE_PREFIX}${'c'.repeat(64)}`, new MemoryCache());
   storage.stores.set('another-application-cache', new MemoryCache());
   const cache = new AssetPackCache(manifest('assets/scene.glb', body), {
@@ -244,7 +296,7 @@ test('asset pack cleanup removes only stale exporter-owned cache versions', asyn
 
   const removed = await cache.cleanupOldVersions();
   assert.deepEqual(removed.sort(), [
-    `${CACHE_PREFIX}${'b'.repeat(64)}`,
+    `${PREVIOUS_CACHE_PREFIX}${'b'.repeat(64)}`,
     `${LEGACY_CACHE_PREFIX}${'c'.repeat(64)}`,
   ].sort());
   assert.deepEqual((await storage.keys()).sort(), ['another-application-cache', cache.cacheName].sort());

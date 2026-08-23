@@ -289,7 +289,11 @@ namespace
 
         Result.AssetPackResources.Reset();
         Result.AssetPackBytes = 0;
-        FString Canonical;
+        FString Canonical = TEXT(
+            "ue5-html5-asset-pack/v3\n"
+            "origin-scoped-content-addressed-cache\n"
+            "resource-sha256\n"
+            "unchanged-resources-across-exports\n");
         for (const FString& File : Files)
         {
             const int64 FileSize = IFileManager::Get().FileSize(*File);
@@ -330,11 +334,13 @@ namespace
     TSharedRef<FJsonObject> BuildAssetPackJson(const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Pack = MakeShared<FJsonObject>();
-        Pack->SetStringField(TEXT("schema"), TEXT("ue5-html5-asset-pack/v2"));
-        Pack->SetStringField(TEXT("strategy"), TEXT("origin-scoped-versioned-cache"));
+        Pack->SetStringField(TEXT("schema"), TEXT("ue5-html5-asset-pack/v3"));
+        Pack->SetStringField(TEXT("strategy"), TEXT("origin-scoped-content-addressed-cache"));
         Pack->SetStringField(TEXT("version"), FString::Printf(TEXT("sha256:%s"), *Result.AssetPackVersion));
         Pack->SetStringField(TEXT("cacheBusting"), TEXT("pack-version-query"));
         Pack->SetStringField(TEXT("versionQuery"), TEXT("ue5html5_pack"));
+        Pack->SetStringField(TEXT("contentAddress"), TEXT("resource-sha256"));
+        Pack->SetStringField(TEXT("cacheReuse"), TEXT("unchanged-resources-across-exports"));
         Pack->SetStringField(TEXT("runtimeStrategy"), TEXT("content-hashed-http-cache"));
         Pack->SetStringField(TEXT("scope"), TEXT("activity-origin"));
         Pack->SetStringField(TEXT("integrity"), TEXT("sha256"));
@@ -497,7 +503,7 @@ namespace
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v8"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v9"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
         const bool bNeedsRuntimeValidation = Result.CustomAdapterBlueprintNodeCount > 0;
@@ -622,7 +628,7 @@ namespace
     bool WriteManifest(const FString& OutputDirectory, UWorld* World, const TSet<AActor*>& SelectedActors, FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v7"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v8"));
         const TSharedPtr<IPlugin> ExporterPlugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
         Root->SetStringField(TEXT("exporterVersion"), ExporterPlugin.IsValid() ? ExporterPlugin->GetDescriptor().VersionName : TEXT("unknown"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
@@ -1172,7 +1178,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("Give the entire folder to the release operator; `activity-handoff.json` records whether Blueprint adapters remain and lists the release steps.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
-        TEXT("Reusable scene, Blueprint data, and adapter code use the asset-pack hash in every request URL so Discord's proxy cannot serve an older export. Cache API resources are integrity-checked; adapter modules use the same version query with immutable HTTP caching. Cache unavailability falls back to the network.\n")
+        TEXT("Reusable scene, Blueprint data, and audio use verified per-resource SHA-256 Cache API entries, so unchanged bytes survive later exports. Managed network requests and adapter modules still use the full asset-pack hash so Discord's proxy cannot serve an older export. Cache unavailability falls back to the network.\n")
         TEXT("A passing `browser-certification.json` proves the local exported browser runtime, proxy-versioned cold/warm delivery, adapter-module URL, center-ray target hit, score, and respawn and records advisory timing-only performance without device metadata; real Discord/mobile/multi-client testing remains required.\n")
         TEXT("Create project-owned native replacements from Tools > HTML5 Export > Open Custom Web Adapters Folder, then declare them in custom-adapters.json and implement them with `window.UE5HTML5.registerFunction(name, implementation)`.\n")
         TEXT("Project-adapter coverage still requires local Discord preview and real gameplay validation.\n");

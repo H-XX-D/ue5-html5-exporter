@@ -72,21 +72,23 @@ const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const DISCORD_PRIMARY_ENTRY_POINT = 4;
 const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
-const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v8';
+const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v9';
 const HANDOFF_SCHEMAS = new Set([
   'ue5-discord-activity-handoff/v4',
   'ue5-discord-activity-handoff/v5',
   'ue5-discord-activity-handoff/v6',
   'ue5-discord-activity-handoff/v7',
+  'ue5-discord-activity-handoff/v8',
   CURRENT_HANDOFF_SCHEMA,
 ]);
-export const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v7';
+export const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v8';
 const MANIFEST_SCHEMAS = new Set([
   'ue5-html5-export/v2',
   'ue5-html5-export/v3',
   'ue5-html5-export/v4',
   'ue5-html5-export/v5',
   'ue5-html5-export/v6',
+  'ue5-html5-export/v7',
   CURRENT_MANIFEST_SCHEMA,
 ]);
 
@@ -94,7 +96,8 @@ export function isSupportedManifestSchema(schema) {
   return MANIFEST_SCHEMAS.has(schema);
 }
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
-const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
+const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v3';
+const PREVIOUS_ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
 const LEGACY_ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
 const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v3';
 const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
@@ -362,6 +365,7 @@ function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
     'ue5-html5-export/v4',
     'ue5-html5-export/v5',
     'ue5-html5-export/v6',
+    'ue5-html5-export/v7',
     CURRENT_MANIFEST_SCHEMA,
   ].includes(manifest.schema);
   const manifestDelivery = manifest.assetDelivery;
@@ -436,11 +440,13 @@ function assetPackFiles(root, includeAdapterModule = false) {
 }
 
 function validateAssetPack(root, manifest, handoff, errors, warnings) {
-  const required = ['ue5-html5-export/v6', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema)
-    || ['ue5-discord-activity-handoff/v7', CURRENT_HANDOFF_SCHEMA].includes(handoff.schema);
+  const currentRequired = manifest.schema === CURRENT_MANIFEST_SCHEMA
+    || handoff.schema === CURRENT_HANDOFF_SCHEMA;
+  const proxySafeRequired = ['ue5-html5-export/v6', 'ue5-html5-export/v7', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema)
+    || ['ue5-discord-activity-handoff/v7', 'ue5-discord-activity-handoff/v8', CURRENT_HANDOFF_SCHEMA].includes(handoff.schema);
   const manifestPack = manifest.assetPack;
   const handoffPack = handoff.assetPack;
-  if (!manifestPack && !handoffPack && !required) {
+  if (!manifestPack && !handoffPack && !proxySafeRequired) {
     warnings.push('Legacy export has no reusable origin-scoped asset pack; export again with the current plugin to enable verified client caching.');
     return;
   }
@@ -453,18 +459,28 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
     return;
   }
   const currentPack = manifestPack.schema === ASSET_PACK_SCHEMA;
+  const previousPack = manifestPack.schema === PREVIOUS_ASSET_PACK_SCHEMA;
   const legacyPack = manifestPack.schema === LEGACY_ASSET_PACK_SCHEMA;
-  if (required && !currentPack) {
-    errors.push(`Current exports must use ${ASSET_PACK_SCHEMA} with proxy-safe cache busting.`);
+  if (currentRequired && !currentPack) {
+    errors.push(`Current exports must use ${ASSET_PACK_SCHEMA} with cross-export content reuse and proxy-safe cache busting.`);
   }
-  if (!currentPack && !legacyPack) {
+  if (proxySafeRequired && !currentPack && !previousPack) {
+    errors.push(`Proxy-safe exports must use ${ASSET_PACK_SCHEMA} or ${PREVIOUS_ASSET_PACK_SCHEMA}.`);
+  }
+  if (!currentPack && !previousPack && !legacyPack) {
     errors.push(`assetPack uses an unsupported schema: ${manifestPack.schema || '<missing>'}.`);
   }
   const strategyValid = currentPack
-    ? manifestPack.strategy === 'origin-scoped-versioned-cache'
+    ? manifestPack.strategy === 'origin-scoped-content-addressed-cache'
       && manifestPack.cacheBusting === 'pack-version-query'
       && manifestPack.versionQuery === 'ue5html5_pack'
-    : manifestPack.strategy === 'origin-scoped-cache-api';
+      && manifestPack.contentAddress === 'resource-sha256'
+      && manifestPack.cacheReuse === 'unchanged-resources-across-exports'
+    : previousPack
+      ? manifestPack.strategy === 'origin-scoped-versioned-cache'
+        && manifestPack.cacheBusting === 'pack-version-query'
+        && manifestPack.versionQuery === 'ue5html5_pack'
+      : manifestPack.strategy === 'origin-scoped-cache-api';
   if (!strategyValid
       || manifestPack.runtimeStrategy !== 'content-hashed-http-cache'
       || manifestPack.scope !== 'activity-origin'
@@ -474,13 +490,15 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
   }
   if (legacyPack) {
     warnings.push('Legacy asset pack lacks Discord-proxy-safe version query URLs; export again before updating hosted content.');
+  } else if (previousPack) {
+    warnings.push('This export verifies whole-pack generations but cannot reuse unchanged Cache API resources after another export; re-export with the current plugin.');
   }
   if (!Array.isArray(manifestPack.resources)) {
     errors.push('assetPack.resources must be an array.');
     return;
   }
 
-  const actualFiles = assetPackFiles(root, currentPack);
+  const actualFiles = assetPackFiles(root, currentPack || previousPack);
   const actualPaths = actualFiles.map((file) => relative(root, file).split('\\').join('/'));
   const declaredPaths = manifestPack.resources.map((resource) => String(resource?.path || ''));
   if (JSON.stringify(declaredPaths) !== JSON.stringify([...declaredPaths].sort())) {
@@ -490,11 +508,13 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
     errors.push('assetPack.resources contains duplicate paths.');
   }
   if (JSON.stringify(declaredPaths) !== JSON.stringify(actualPaths)) {
-    errors.push(`assetPack.resources must include every exported assets/** file plus Blueprint and adapter ${currentPack ? 'data/modules' : 'data'}, with no extra paths.`);
+    errors.push(`assetPack.resources must include every exported assets/** file plus Blueprint and adapter ${currentPack || previousPack ? 'data/modules' : 'data'}, with no extra paths.`);
   }
 
   let total = 0;
-  let canonical = '';
+  let canonical = currentPack
+    ? 'ue5-html5-asset-pack/v3\norigin-scoped-content-addressed-cache\nresource-sha256\nunchanged-resources-across-exports\n'
+    : '';
   for (let index = 0; index < manifestPack.resources.length; index += 1) {
     const resource = manifestPack.resources[index];
     const path = declaredPaths[index];
@@ -528,11 +548,11 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
           : path === 'logic/custom-adapters.js' ? 'adapter-module' : 'asset';
     if (resource.kind !== expectedKind) errors.push(`assetPack resource kind does not match ${path}.`);
     const expectedDelivery = path === 'logic/custom-adapters.js' ? 'versioned-module' : 'cache-api-integrity';
-    if (currentPack && resource.delivery !== expectedDelivery) {
+    if ((currentPack || previousPack) && resource.delivery !== expectedDelivery) {
       errors.push(`assetPack resource delivery does not match ${path}.`);
     }
     total += bytes;
-    canonical += currentPack
+    canonical += (currentPack || previousPack)
       ? `${path}\n${expectedDelivery}\n${bytes}\n${digest}\n`
       : `${path}\n${bytes}\n${digest}\n`;
   }
@@ -689,7 +709,8 @@ function validateUnrealHandoff(root, errors, warnings) {
     errors.push('logic/blueprints.json has an unsupported schema.');
   }
   if (Array.isArray(logic.programs)
-      && (manifest.schema === CURRENT_MANIFEST_SCHEMA || handoff.schema === CURRENT_HANDOFF_SCHEMA)) {
+      && (['ue5-html5-export/v7', CURRENT_MANIFEST_SCHEMA].includes(manifest.schema)
+        || ['ue5-discord-activity-handoff/v8', CURRENT_HANDOFF_SCHEMA].includes(handoff.schema))) {
     validateDiscordRequirements(manifest, handoff, logic, errors);
   }
 
@@ -697,11 +718,13 @@ function validateUnrealHandoff(root, errors, warnings) {
     'ue5-html5-export/v4',
     'ue5-html5-export/v5',
     'ue5-html5-export/v6',
+    'ue5-html5-export/v7',
     CURRENT_MANIFEST_SCHEMA,
   ].includes(manifest.schema) || [
     'ue5-discord-activity-handoff/v5',
     'ue5-discord-activity-handoff/v6',
     'ue5-discord-activity-handoff/v7',
+    'ue5-discord-activity-handoff/v8',
     CURRENT_HANDOFF_SCHEMA,
   ].includes(handoff.schema);
   const manifestCounts = compatibilityCounts(
