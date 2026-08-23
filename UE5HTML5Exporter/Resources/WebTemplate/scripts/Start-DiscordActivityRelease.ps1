@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$PathFile
+    [string]$PathFile,
+
+    [switch]$ForcePortableNode,
+
+    [string]$CacheRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,21 +47,29 @@ function Get-WindowsNodeArchitecture {
 }
 
 function Resolve-UE5HTML5Node {
-    $systemNode = Get-Command node.exe -ErrorAction SilentlyContinue
-    if ($systemNode) {
-        $systemVersion = Get-CompatibleNodeVersion -Executable $systemNode.Source
-        if ($systemVersion) {
-            Write-Host "Using system Node.js $systemVersion."
-            return $systemNode.Source
+    if (-not $ForcePortableNode) {
+        $systemNode = Get-Command node.exe -ErrorAction SilentlyContinue
+        if ($systemNode) {
+            $systemVersion = Get-CompatibleNodeVersion -Executable $systemNode.Source
+            if ($systemVersion) {
+                Write-Host "Using system Node.js $systemVersion."
+                return $systemNode.Source
+            }
         }
     }
 
     $architecture = Get-WindowsNodeArchitecture
-    $localAppData = [Environment]::GetFolderPath('LocalApplicationData')
-    if (-not $localAppData) { throw 'Windows Local AppData could not be resolved for the private tool cache.' }
-    $cacheRoot = Join-Path $localAppData 'UE5HTML5Exporter\Node'
+    $nodeCacheRoot = $CacheRoot
+    if (-not $nodeCacheRoot) {
+        $localAppData = [Environment]::GetFolderPath('LocalApplicationData')
+        if (-not $localAppData) { throw 'Windows Local AppData could not be resolved for the private tool cache.' }
+        $nodeCacheRoot = Join-Path $localAppData 'UE5HTML5Exporter\Node'
+    }
+    else {
+        $nodeCacheRoot = [System.IO.Path]::GetFullPath($nodeCacheRoot)
+    }
     $archiveName = "node-v$PinnedNodeVersion-win-$architecture.zip"
-    $installRoot = Join-Path $cacheRoot "v$PinnedNodeVersion\$architecture"
+    $installRoot = Join-Path $nodeCacheRoot "v$PinnedNodeVersion\$architecture"
     $localNode = Join-Path $installRoot 'node.exe'
     if ((Test-Path -LiteralPath $localNode -PathType Leaf) -and
         (Get-CompatibleNodeVersion -Executable $localNode)) {
@@ -65,24 +77,26 @@ function Resolve-UE5HTML5Node {
         return $localNode
     }
 
-    if (${env:CI} -or ${env:UE5_ACTIVITY_NO_NODE_BOOTSTRAP} -eq '1') {
+    if (-not $ForcePortableNode -and (${env:CI} -or ${env:UE5_ACTIVITY_NO_NODE_BOOTSTRAP} -eq '1')) {
         throw "Node.js $MinimumNodeVersion or newer was not found. Install Node.js 22 LTS or allow the interactive UE5HTML5Exporter bootstrap."
     }
 
-    Add-Type -AssemblyName System.Windows.Forms
-    $choice = [System.Windows.Forms.MessageBox]::Show(
-        "Discord Activity release needs Node.js $MinimumNodeVersion or newer.`n`nInstall a verified portable Node.js $PinnedNodeVersion copy in your Windows user profile?`n`nNo administrator access or system PATH change is required.",
-        'Prepare Discord Activity release tools',
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Question
-    )
-    if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) {
-        throw 'Node.js setup was declined; no runtime was downloaded or installed.'
+    if (-not $ForcePortableNode) {
+        Add-Type -AssemblyName System.Windows.Forms
+        $choice = [System.Windows.Forms.MessageBox]::Show(
+            "Discord Activity release needs Node.js $MinimumNodeVersion or newer.`n`nInstall a verified portable Node.js $PinnedNodeVersion copy in your Windows user profile?`n`nNo administrator access or system PATH change is required.",
+            'Prepare Discord Activity release tools',
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Question
+        )
+        if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) {
+            throw 'Node.js setup was declined; no runtime was downloaded or installed.'
+        }
     }
 
     $downloadUri = "https://nodejs.org/dist/v$PinnedNodeVersion/$archiveName"
     $expectedHash = $NodeChecksums[$architecture]
-    $workRoot = Join-Path $cacheRoot "bootstrap-$([Guid]::NewGuid().ToString('N'))"
+    $workRoot = Join-Path $nodeCacheRoot "bootstrap-$([Guid]::NewGuid().ToString('N'))"
     $archive = Join-Path $workRoot $archiveName
     $expanded = Join-Path $workRoot 'expanded'
     New-Item -ItemType Directory -Path $expanded -Force | Out-Null

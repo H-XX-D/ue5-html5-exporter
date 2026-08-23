@@ -81,6 +81,19 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile("$PWD\UE5HTML5Exporter\Resources\WebTemplate\scripts\Start-DiscordActivityRelease.ps1", [ref]$tokens, [ref]$parseErrors) | Out-Null
           $allErrors += $parseErrors
           if ($allErrors.Count) { $allErrors | Format-List | Out-String | Write-Error }
+      - name: Bootstrap verified portable Windows release runtime
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $bootstrap = "$PWD\UE5HTML5Exporter\Resources\WebTemplate\scripts\Start-DiscordActivityRelease.ps1"
+          $pathFile = "$env:RUNNER_TEMP\ue5html5-portable-node.txt"
+          $cacheRoot = "$env:RUNNER_TEMP\ue5html5-portable-node-cache"
+          & $bootstrap -PathFile $pathFile -ForcePortableNode -CacheRoot $cacheRoot
+          $node = Get-Content -LiteralPath $pathFile -Raw
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { throw "Portable Node executable was not created: $node" }
+          $version = (& $node --version).Trim()
+          if ($version -ne 'v22.23.2') { throw "Portable Node version mismatch: $version" }
+          Write-Host "Verified portable Windows release runtime: $version at $node"
       - name: Run Windows workstation contract tests
         if: runner.os == 'Windows'
         shell: pwsh

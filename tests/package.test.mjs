@@ -82,6 +82,8 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(windowsReleaseBootstrap, /fec025a6da31757e3b6af84c5a1628e9d38442ca99a2161091d78f2fcfa35ef3/);
   assert.match(windowsReleaseBootstrap, /LocalApplicationData/);
   assert.match(windowsReleaseBootstrap, /No administrator access or system PATH change is required/);
+  assert.match(windowsReleaseBootstrap, /\[switch\]\$ForcePortableNode/);
+  assert.match(windowsReleaseBootstrap, /\[string\]\$CacheRoot/);
   assert.match(windowsReleaseBootstrap, /Set-Content -LiteralPath \$resolvedPathFile -Value \$node/);
   assert.match(read('Resources/WebTemplate/release-discord-activity.cmd'), /activity-release-assistant\.mjs --guided %\*/);
 
