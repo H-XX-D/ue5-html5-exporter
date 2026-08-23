@@ -9,6 +9,7 @@ struct FUE5HTML5AssetPackResource
 {
     FString Path;
     FString Kind;
+    FString Delivery;
     FString SHA256;
     int64 Bytes = 0;
 };

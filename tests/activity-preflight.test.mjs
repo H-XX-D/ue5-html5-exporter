@@ -97,7 +97,11 @@ function writeAssetPack(root) {
     }
   };
   visit(join(root, 'assets'));
-  files.push(join(root, 'logic/blueprints.json'), join(root, 'logic/custom-adapters.json'));
+  files.push(
+    join(root, 'logic/blueprints.json'),
+    join(root, 'logic/custom-adapters.json'),
+    join(root, 'logic/custom-adapters.js'),
+  );
   files.sort();
   let bytes = 0;
   let canonical = '';
@@ -105,21 +109,26 @@ function writeAssetPack(root) {
     const path = relative(root, file).split('\\').join('/');
     const body = readFileSync(file);
     const sha256 = createHash('sha256').update(body).digest('hex');
+    const delivery = path === 'logic/custom-adapters.js' ? 'versioned-module' : 'cache-api-integrity';
     bytes += body.byteLength;
-    canonical += `${path}\n${body.byteLength}\n${sha256}\n`;
+    canonical += `${path}\n${delivery}\n${body.byteLength}\n${sha256}\n`;
     return {
       path,
       kind: path === 'assets/scene.glb' ? 'scene'
         : path === 'logic/blueprints.json' ? 'blueprint-ir'
-          : path === 'logic/custom-adapters.json' ? 'adapter-manifest' : 'asset',
+          : path === 'logic/custom-adapters.json' ? 'adapter-manifest'
+            : path === 'logic/custom-adapters.js' ? 'adapter-module' : 'asset',
+      delivery,
       bytes: body.byteLength,
       sha256,
     };
   });
   const pack = {
-    schema: 'ue5-html5-asset-pack/v1',
-    strategy: 'origin-scoped-cache-api',
+    schema: 'ue5-html5-asset-pack/v2',
+    strategy: 'origin-scoped-versioned-cache',
     version: `sha256:${createHash('sha256').update(canonical).digest('hex')}`,
+    cacheBusting: 'pack-version-query',
+    versionQuery: 'ue5html5_pack',
     runtimeStrategy: 'content-hashed-http-cache',
     scope: 'activity-origin',
     integrity: 'sha256',
@@ -207,9 +216,9 @@ test('Activity package preflight verifies the current reusable asset-pack contra
       supportedNodeCount: 2,
       unsupportedNodeCount: 0,
     };
-    manifest.schema = 'ue5-html5-export/v5';
+    manifest.schema = 'ue5-html5-export/v6';
     manifest.blueprintCompatibility = modernCounts;
-    handoff.schema = 'ue5-discord-activity-handoff/v6';
+    handoff.schema = 'ue5-discord-activity-handoff/v7';
     handoff.blueprintCompatibility = modernCounts;
     logic.projectAdapters = {
       schema: 'ue5-html5-custom-adapters/v1',
@@ -230,18 +239,29 @@ test('Activity package preflight verifies the current reusable asset-pack contra
     currentManifest.exporterVersion = 'test-version';
     writeFileSync(manifestPath, JSON.stringify(currentManifest));
 
-    const coverage = (mode) => pack.resources.map(({ path }) => ({ path, mode, passed: true }));
+    const cacheResources = pack.resources.filter(({ delivery }) => delivery === 'cache-api-integrity');
+    const moduleResources = pack.resources.filter(({ delivery }) => delivery === 'versioned-module');
+    const coverage = (mode) => cacheResources.map(({ path }) => ({
+      path, mode, cacheBustVersion: pack.version, passed: true,
+    }));
+    const versionedModuleCoverage = () => moduleResources.map(({ path }) => ({
+      path, mode: 'versioned-module', cacheBustVersion: pack.version, passed: true,
+    }));
     const browserCertificationPath = join(root, 'browser-certification.json');
     const browserCertification = {
-      schema: 'ue5-html5-browser-certification/v2',
+      schema: 'ue5-html5-browser-certification/v3',
       status: 'passed',
       exporterVersion: currentManifest.exporterVersion,
       manifestSchema: currentManifest.schema,
       assetPack: {
+        schema: pack.schema,
         version: pack.version,
+        cacheBusting: pack.cacheBusting,
         resourceCount: pack.resources.length,
-        cold: { coverage: coverage('network-cached') },
-        warm: { coverage: coverage('cache-hit') },
+        cacheResourceCount: cacheResources.length,
+        versionedModuleCount: moduleResources.length,
+        cold: { coverage: coverage('network-cached'), versionedModuleCoverage: versionedModuleCoverage() },
+        warm: { coverage: coverage('cache-hit'), versionedModuleCoverage: versionedModuleCoverage() },
       },
       runtime: { blueprintReady: true, firstPersonEnabled: true },
       performance: {
@@ -277,6 +297,12 @@ test('Activity package preflight verifies the current reusable asset-pack contra
     }));
     assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
       .some((error) => error.includes('browser-certification.json asset-pack version')));
+    writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
+    browserCertification.assetPack.cold.versionedModuleCoverage[0].cacheBustVersion = `sha256:${'0'.repeat(64)}`;
+    writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
+    assert.ok(validateActivityExport({ directory: root, packageOnly: true }).errors
+      .some((error) => error.includes('does not prove versioned loading')));
+    browserCertification.assetPack.cold.versionedModuleCoverage[0].cacheBustVersion = pack.version;
     writeFileSync(browserCertificationPath, JSON.stringify(browserCertification));
     writeFileSync(browserCertificationPath, JSON.stringify({
       ...browserCertification,

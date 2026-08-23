@@ -97,22 +97,29 @@ try {
     $browserCertificationPath = Join-Path $testRoot 'browser-certification.json'
     $assetPackVersion = "sha256:$('a' * 64)"
     $browserCertification = [ordered]@{
-        schema = 'ue5-html5-browser-certification/v2'
+        schema = 'ue5-html5-browser-certification/v3'
         status = 'passed'
         verifiedAtUtc = '2026-08-23T12:00:00.000Z'
         exporterVersion = '0.3.37'
-        manifestSchema = 'ue5-html5-export/v5'
+        manifestSchema = 'ue5-html5-export/v6'
         assetPack = [ordered]@{
-            schema = 'ue5-html5-asset-pack/v1'
+            schema = 'ue5-html5-asset-pack/v2'
             version = $assetPackVersion
-            resourceCount = 2
+            cacheBusting = 'pack-version-query'
+            resourceCount = 3
+            cacheResourceCount = 2
+            versionedModuleCount = 1
             cold = @{ coverage = @(
-                @{ path = 'assets/scene.glb'; mode = 'network-cached'; passed = $true },
-                @{ path = 'logic/blueprints.json'; mode = 'network-cached'; passed = $true }
+                @{ path = 'assets/scene.glb'; mode = 'network-cached'; cacheBustVersion = $assetPackVersion; passed = $true },
+                @{ path = 'logic/blueprints.json'; mode = 'network-cached'; cacheBustVersion = $assetPackVersion; passed = $true }
+            ); versionedModuleCoverage = @(
+                @{ path = 'logic/custom-adapters.js'; mode = 'versioned-module'; cacheBustVersion = $assetPackVersion; passed = $true }
             ) }
             warm = @{ coverage = @(
-                @{ path = 'assets/scene.glb'; mode = 'cache-hit'; passed = $true },
-                @{ path = 'logic/blueprints.json'; mode = 'cache-hit'; passed = $true }
+                @{ path = 'assets/scene.glb'; mode = 'cache-hit'; cacheBustVersion = $assetPackVersion; passed = $true },
+                @{ path = 'logic/blueprints.json'; mode = 'cache-hit'; cacheBustVersion = $assetPackVersion; passed = $true }
+            ); versionedModuleCoverage = @(
+                @{ path = 'logic/custom-adapters.js'; mode = 'versioned-module'; cacheBustVersion = $assetPackVersion; passed = $true }
             ) }
         }
         runtime = @{ blueprintReady = $true; firstPersonEnabled = $true }
@@ -144,10 +151,12 @@ try {
     $browserEvidence = Get-UE5HTML5BrowserCertificationEvidence `
         -CertificationFile $browserCertificationPath `
         -ExpectedExporterVersion '0.3.37' `
-        -ExpectedManifestSchema 'ue5-html5-export/v5' `
+        -ExpectedManifestSchema 'ue5-html5-export/v6' `
+        -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
         -ExpectedAssetPackVersion $assetPackVersion
     Assert-True ($browserEvidence.status -eq 'passed') 'browser certification bridge must accept the complete matching report'
-    Assert-True ($browserEvidence.assetPack.resourceCount -eq 2) 'browser certification bridge must preserve resource coverage evidence'
+    Assert-True ($browserEvidence.assetPack.resourceCount -eq 3) 'browser certification bridge must preserve resource coverage evidence'
+    Assert-True ($browserEvidence.assetPack.versionedModuleCount -eq 1) 'browser certification bridge must preserve versioned module evidence'
     Assert-True ($browserEvidence.targetPractice.scoreDelta -eq 100) 'browser certification bridge must preserve gameplay evidence'
     Assert-True ($browserEvidence.performance.framePacing.averageFramesPerSecond -eq 60) 'browser certification bridge must preserve advisory frame-pacing evidence'
 
@@ -157,18 +166,32 @@ try {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v5' `
+            -ExpectedManifestSchema 'ue5-html5-export/v6' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
             -ExpectedAssetPackVersion $assetPackVersion
-    } 'matching cold network-cached and warm cache-hit coverage' 'browser certification bridge must reject the wrong warm delivery mode'
+    } 'proxy-versioned cold/warm coverage' 'browser certification bridge must reject the wrong warm delivery mode'
 
     $browserCertification.assetPack.warm.coverage[1].mode = 'cache-hit'
+    $browserCertification.assetPack.cold.versionedModuleCoverage[0].cacheBustVersion = "sha256:$('0' * 64)"
+    $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5BrowserCertificationEvidence `
+            -CertificationFile $browserCertificationPath `
+            -ExpectedExporterVersion '0.3.37' `
+            -ExpectedManifestSchema 'ue5-html5-export/v6' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
+            -ExpectedAssetPackVersion $assetPackVersion
+    } 'proxy-versioned cold/warm coverage' 'browser certification bridge must reject the wrong adapter-module version'
+
+    $browserCertification.assetPack.cold.versionedModuleCoverage[0].cacheBustVersion = $assetPackVersion
     $browserCertification.performance.framePacing.averageFramesPerSecond = 0
     $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
     Assert-Throws {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v5' `
+            -ExpectedManifestSchema 'ue5-html5-export/v6' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
             -ExpectedAssetPackVersion $assetPackVersion
     } 'frame-pacing evidence' 'browser certification bridge must reject invalid frame-pacing evidence'
 
@@ -179,7 +202,8 @@ try {
         Get-UE5HTML5BrowserCertificationEvidence `
             -CertificationFile $browserCertificationPath `
             -ExpectedExporterVersion '0.3.37' `
-            -ExpectedManifestSchema 'ue5-html5-export/v5' `
+            -ExpectedManifestSchema 'ue5-html5-export/v6' `
+            -ExpectedAssetPackSchema 'ue5-html5-asset-pack/v2' `
             -ExpectedAssetPackVersion $assetPackVersion
     } 'does not contain a passing run' 'browser certification bridge must reject a failed report'
 

@@ -194,6 +194,7 @@ $browserCertification = if ($CertifyBrowser) {
         -CertificationFile $browserCertificationPath `
         -ExpectedExporterVersion ([string]$manifest.exporterVersion) `
         -ExpectedManifestSchema ([string]$manifest.schema) `
+        -ExpectedAssetPackSchema ([string]$manifest.assetPack.schema) `
         -ExpectedAssetPackVersion ([string]$manifest.assetPack.version)
 }
 else {
@@ -216,7 +217,7 @@ $exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
 )
 $environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v5'
+    schema = 'ue5-html5-workstation-certification/v6'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     source = $source
     execution = [ordered]@{

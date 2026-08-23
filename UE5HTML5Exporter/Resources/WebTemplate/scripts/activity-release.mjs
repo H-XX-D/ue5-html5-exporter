@@ -552,6 +552,7 @@ export async function verifyPublicDeployment(deploymentUrlValue, {
         'ue5-html5-export/v3',
         'ue5-html5-export/v4',
         'ue5-html5-export/v5',
+        'ue5-html5-export/v6',
       ].includes(manifest.schema)) {
         errors.push('Hosted export manifest has an unexpected schema.');
       } else {

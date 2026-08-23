@@ -356,6 +356,7 @@ function Get-UE5HTML5BrowserCertificationEvidence {
         [Parameter(Mandatory = $true)][string]$CertificationFile,
         [Parameter(Mandatory = $true)][string]$ExpectedExporterVersion,
         [Parameter(Mandatory = $true)][string]$ExpectedManifestSchema,
+        [Parameter(Mandatory = $true)][string]$ExpectedAssetPackSchema,
         [Parameter(Mandatory = $true)][string]$ExpectedAssetPackVersion
     )
 
@@ -369,7 +370,7 @@ function Get-UE5HTML5BrowserCertificationEvidence {
         throw "Browser certification report is invalid JSON: $CertificationFile ($($_.Exception.Message))"
     }
 
-    if ([string]$report.schema -ne 'ue5-html5-browser-certification/v2') {
+    if ([string]$report.schema -ne 'ue5-html5-browser-certification/v3') {
         throw 'Browser certification report uses an unsupported schema.'
     }
     if ([string]$report.status -ne 'passed') {
@@ -384,8 +385,10 @@ function Get-UE5HTML5BrowserCertificationEvidence {
     if ([string]$report.assetPack.version -ne $ExpectedAssetPackVersion) {
         throw 'Browser certification asset-pack version does not match the exported manifest.'
     }
-    if ([string]$report.assetPack.schema -ne 'ue5-html5-asset-pack/v1') {
-        throw 'Browser certification asset pack uses an unsupported schema.'
+    if ([string]$report.assetPack.schema -ne $ExpectedAssetPackSchema -or
+        $ExpectedAssetPackSchema -ne 'ue5-html5-asset-pack/v2' -or
+        [string]$report.assetPack.cacheBusting -ne 'pack-version-query') {
+        throw 'Browser certification asset pack does not prove the current proxy-safe schema.'
     }
     $verifiedAt = [DateTimeOffset]::MinValue
     if (-not [DateTimeOffset]::TryParse([string]$report.verifiedAtUtc, [ref]$verifiedAt)) {
@@ -393,25 +396,63 @@ function Get-UE5HTML5BrowserCertificationEvidence {
     }
 
     $resourceCount = [int]$report.assetPack.resourceCount
+    $cacheResourceCount = [int]$report.assetPack.cacheResourceCount
+    $versionedModuleCount = [int]$report.assetPack.versionedModuleCount
     $coldCoverage = @($report.assetPack.cold.coverage)
     $warmCoverage = @($report.assetPack.warm.coverage)
+    $coldModuleCoverage = @($report.assetPack.cold.versionedModuleCoverage)
+    $warmModuleCoverage = @($report.assetPack.warm.versionedModuleCoverage)
     $coldPaths = @($coldCoverage | ForEach-Object { [string]$_.path } | Sort-Object -Unique)
     $warmPaths = @($warmCoverage | ForEach-Object { [string]$_.path } | Sort-Object -Unique)
-    $invalidCold = @($coldCoverage | Where-Object { $_.passed -ne $true -or [string]$_.mode -ne 'network-cached' })
-    $invalidWarm = @($warmCoverage | Where-Object { $_.passed -ne $true -or [string]$_.mode -ne 'cache-hit' })
+    $invalidCold = @($coldCoverage | Where-Object {
+        $_.passed -ne $true -or
+        [string]$_.mode -ne 'network-cached' -or
+        [string]$_.cacheBustVersion -ne $ExpectedAssetPackVersion
+    })
+    $invalidWarm = @($warmCoverage | Where-Object {
+        $_.passed -ne $true -or
+        [string]$_.mode -ne 'cache-hit' -or
+        [string]$_.cacheBustVersion -ne $ExpectedAssetPackVersion
+    })
+    $invalidColdModules = @($coldModuleCoverage | Where-Object {
+        $_.passed -ne $true -or
+        [string]$_.mode -ne 'versioned-module' -or
+        [string]$_.cacheBustVersion -ne $ExpectedAssetPackVersion
+    })
+    $invalidWarmModules = @($warmModuleCoverage | Where-Object {
+        $_.passed -ne $true -or
+        [string]$_.mode -ne 'versioned-module' -or
+        [string]$_.cacheBustVersion -ne $ExpectedAssetPackVersion
+    })
     $pathDifference = @('missing coverage')
     if ($coldPaths.Count -gt 0 -and $warmPaths.Count -gt 0) {
         $pathDifference = @(Compare-Object -ReferenceObject $coldPaths -DifferenceObject $warmPaths)
     }
+    $coldModulePaths = @($coldModuleCoverage | ForEach-Object { [string]$_.path } | Sort-Object -Unique)
+    $warmModulePaths = @($warmModuleCoverage | ForEach-Object { [string]$_.path } | Sort-Object -Unique)
+    $modulePathDifference = @('missing module coverage')
+    if ($coldModulePaths.Count -gt 0 -and $warmModulePaths.Count -gt 0) {
+        $modulePathDifference = @(Compare-Object -ReferenceObject $coldModulePaths -DifferenceObject $warmModulePaths)
+    }
     if ($resourceCount -lt 1 -or
-        $coldCoverage.Count -ne $resourceCount -or
-        $warmCoverage.Count -ne $resourceCount -or
-        $coldPaths.Count -ne $resourceCount -or
-        $warmPaths.Count -ne $resourceCount -or
+        $cacheResourceCount -lt 1 -or
+        $versionedModuleCount -lt 1 -or
+        ($cacheResourceCount + $versionedModuleCount) -ne $resourceCount -or
+        $coldCoverage.Count -ne $cacheResourceCount -or
+        $warmCoverage.Count -ne $cacheResourceCount -or
+        $coldPaths.Count -ne $cacheResourceCount -or
+        $warmPaths.Count -ne $cacheResourceCount -or
+        $coldModuleCoverage.Count -ne $versionedModuleCount -or
+        $warmModuleCoverage.Count -ne $versionedModuleCount -or
+        $coldModulePaths.Count -ne $versionedModuleCount -or
+        $warmModulePaths.Count -ne $versionedModuleCount -or
         $invalidCold.Count -gt 0 -or
         $invalidWarm.Count -gt 0 -or
-        $pathDifference.Count -gt 0) {
-        throw 'Browser certification does not prove matching cold network-cached and warm cache-hit coverage for every asset-pack resource.'
+        $invalidColdModules.Count -gt 0 -or
+        $invalidWarmModules.Count -gt 0 -or
+        $pathDifference.Count -gt 0 -or
+        $modulePathDifference.Count -gt 0) {
+        throw 'Browser certification does not prove proxy-versioned cold/warm coverage for every asset-pack resource.'
     }
     if ($report.runtime.blueprintReady -ne $true -or $report.runtime.firstPersonEnabled -ne $true) {
         throw 'Browser certification does not prove Blueprint and first-person runtime readiness.'
@@ -461,9 +502,13 @@ function Get-UE5HTML5BrowserCertificationEvidence {
         assetPack = [pscustomobject][ordered]@{
             schema = [string]$report.assetPack.schema
             version = [string]$report.assetPack.version
+            cacheBusting = [string]$report.assetPack.cacheBusting
             resourceCount = $resourceCount
+            cacheResourceCount = $cacheResourceCount
+            versionedModuleCount = $versionedModuleCount
             coldMode = 'network-cached'
             warmMode = 'cache-hit'
+            moduleMode = 'versioned-module'
         }
         targetPractice = [pscustomobject][ordered]@{
             shots = [int]$report.targetPractice.shots

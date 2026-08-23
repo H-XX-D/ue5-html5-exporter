@@ -115,17 +115,22 @@ window.UE5HTML5 = {
 };
 
 function ensureProjectAdapters() {
-  projectAdaptersPromise ||= loadProjectAdapters({
-    manifestUrl: new URL('./logic/custom-adapters.json', window.location.href),
-    moduleUrl: new URL('./logic/custom-adapters.js', window.location.href),
-    fetchImpl: assetPackCache
-      ? () => assetPackCache.fetch('logic/custom-adapters.json')
-      : globalThis.fetch.bind(globalThis),
-    isRegistered: (name) => pendingCustomFunctions.has(normalizeAdapterName(name)),
-  }).then((value) => {
-    projectAdapters = value;
-    return value;
-  });
+  projectAdaptersPromise ||= (() => {
+    const moduleUrl = assetPackCache?.has('logic/custom-adapters.js')
+      ? assetPackCache.versionedUrl('logic/custom-adapters.js')
+      : new URL('./logic/custom-adapters.js', window.location.href);
+    return loadProjectAdapters({
+      manifestUrl: new URL('./logic/custom-adapters.json', window.location.href),
+      moduleUrl,
+      fetchImpl: assetPackCache
+        ? () => assetPackCache.fetch('logic/custom-adapters.json')
+        : globalThis.fetch.bind(globalThis),
+      isRegistered: (name) => pendingCustomFunctions.has(normalizeAdapterName(name)),
+    }).then((value) => {
+      projectAdapters = value;
+      return value;
+    });
+  })();
   return projectAdaptersPromise;
 }
 

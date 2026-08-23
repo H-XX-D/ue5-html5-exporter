@@ -8,6 +8,7 @@ import {
   measureFramePacing,
   resourceModeCoverage,
   runTargetPracticeCertification,
+  versionedModuleCoverage,
 } from '../web/src/browser-certification.js';
 
 function memoryStorage() {
@@ -87,14 +88,24 @@ test('browser certification is limited to an explicit loopback query', () => {
 });
 
 test('asset delivery coverage requires every manifest resource in the requested mode', () => {
-  const assetPack = { resources: [{ path: 'assets/scene.glb' }, { path: 'logic/blueprints.json' }] };
-  const partial = resourceModeCoverage(assetPack, [{ mode: 'cache-hit', path: 'assets/scene.glb' }], 'cache-hit');
+  const version = `sha256:${'b'.repeat(64)}`;
+  const assetPack = { version, resources: [
+    { path: 'assets/scene.glb', delivery: 'cache-api-integrity' },
+    { path: 'logic/blueprints.json', delivery: 'cache-api-integrity' },
+    { path: 'logic/custom-adapters.js', delivery: 'versioned-module' },
+  ] };
+  const partial = resourceModeCoverage(assetPack, [{
+    mode: 'cache-hit', path: 'assets/scene.glb', cacheBustVersion: version,
+  }], 'cache-hit');
   assert.deepEqual(partial.map(({ passed }) => passed), [true, false]);
   const complete = resourceModeCoverage(assetPack, [
-    { mode: 'cache-hit', path: 'assets/scene.glb' },
-    { mode: 'cache-hit', path: 'logic/blueprints.json' },
+    { mode: 'cache-hit', path: 'assets/scene.glb', cacheBustVersion: version },
+    { mode: 'cache-hit', path: 'logic/blueprints.json', cacheBustVersion: version },
   ], 'cache-hit');
   assert.ok(complete.every(({ passed }) => passed));
+  assert.deepEqual(versionedModuleCoverage(assetPack, [{
+    mode: 'versioned-module', path: 'logic/custom-adapters.js', cacheBustVersion: version,
+  }]).map(({ passed }) => passed), [true]);
 });
 
 test('frame pacing records timing-only percentiles without device metadata', async () => {
@@ -143,18 +154,25 @@ test('browser certification coordinates cold and warm reloads and submits a mach
   const deleted = [];
   const cacheStorage = { delete: async (name) => { deleted.push(name); return true; } };
   const resources = [
-    { path: 'assets/scene.glb' },
-    { path: 'logic/blueprints.json' },
-    { path: 'logic/custom-adapters.json' },
+    { path: 'assets/scene.glb', delivery: 'cache-api-integrity' },
+    { path: 'logic/blueprints.json', delivery: 'cache-api-integrity' },
+    { path: 'logic/custom-adapters.json', delivery: 'cache-api-integrity' },
+    { path: 'logic/custom-adapters.js', delivery: 'versioned-module' },
   ];
+  const version = `sha256:${'b'.repeat(64)}`;
   const manifest = {
-    schema: 'ue5-html5-export/v5',
+    schema: 'ue5-html5-export/v6',
     exporterVersion: 'test',
-    assetPack: { schema: 'ue5-html5-asset-pack/v1', version: `sha256:${'b'.repeat(64)}`, resources },
+    assetPack: {
+      schema: 'ue5-html5-asset-pack/v2',
+      version,
+      cacheBusting: 'pack-version-query',
+      resources,
+    },
   };
   const assetCache = new EventTarget();
   assetCache.enabled = true;
-  assetCache.cacheName = `ue5html5-asset-pack-v1-${'b'.repeat(64)}`;
+  assetCache.cacheName = `ue5html5-asset-pack-v2-${'b'.repeat(64)}`;
   let reloads = 0;
   const common = {
     locationObject,
@@ -183,7 +201,12 @@ test('browser certification coordinates cold and warm reloads and submits a mach
 
   const cold = new BrowserCertification(common);
   assert.equal(await cold.prepare(assetCache, manifest), false);
-  for (const resource of resources) cold.onCacheStatus({ detail: { mode: 'network-cached', path: resource.path, reason: '' } });
+  for (const resource of resources) cold.onCacheStatus({ detail: {
+    mode: resource.delivery === 'versioned-module' ? 'versioned-module' : 'network-cached',
+    path: resource.path,
+    reason: '',
+    cacheBustVersion: version,
+  } });
   await cold.complete({ manifest, runtime: {}, gameplay: {}, targetPractice: {} });
   assert.equal(reloads, 2);
 
@@ -200,7 +223,12 @@ test('browser certification coordinates cold and warm reloads and submits a mach
     },
   });
   assert.equal(await warm.prepare(assetCache, manifest), false);
-  for (const resource of resources) warm.onCacheStatus({ detail: { mode: 'cache-hit', path: resource.path, reason: '' } });
+  for (const resource of resources) warm.onCacheStatus({ detail: {
+    mode: resource.delivery === 'versioned-module' ? 'versioned-module' : 'cache-hit',
+    path: resource.path,
+    reason: '',
+    cacheBustVersion: version,
+  } });
   const report = await warm.complete({
     manifest,
     runtime: {},
@@ -210,8 +238,10 @@ test('browser certification coordinates cold and warm reloads and submits a mach
 
   assert.equal(report.schema, CERTIFICATION_SCHEMA);
   assert.equal(report.status, 'passed');
-  assert.equal(report.assetPack.cold.coverage.length, resources.length);
-  assert.equal(report.assetPack.warm.coverage.length, resources.length);
+  assert.equal(report.assetPack.cold.coverage.length, 3);
+  assert.equal(report.assetPack.warm.coverage.length, 3);
+  assert.equal(report.assetPack.cold.versionedModuleCoverage.length, 1);
+  assert.equal(report.assetPack.warm.versionedModuleCoverage.length, 1);
   assert.equal(report.performance.advisoryOnly, true);
   assert.equal(report.performance.context, 'local-browser-only');
   assert.equal(report.performance.runtimeReadyFromNavigationStartMs, 812.25);
@@ -219,5 +249,5 @@ test('browser certification coordinates cold and warm reloads and submits a mach
   assert.equal(report.performance.deviceMetadataCollected, false);
   assert.equal(report.targetPractice.scoreDelta, 100);
   assert.deepEqual(submitted, report);
-  assert.equal(storage.getItem('ue5html5-browser-certification-v2'), null);
+  assert.equal(storage.getItem('ue5html5-browser-certification-v3'), null);
 });

@@ -63,22 +63,25 @@ const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const DISCORD_PRIMARY_ENTRY_POINT = 4;
 const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
-const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v6';
+const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v7';
 const HANDOFF_SCHEMAS = new Set([
   'ue5-discord-activity-handoff/v4',
   'ue5-discord-activity-handoff/v5',
+  'ue5-discord-activity-handoff/v6',
   CURRENT_HANDOFF_SCHEMA,
 ]);
-const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v5';
+const CURRENT_MANIFEST_SCHEMA = 'ue5-html5-export/v6';
 const MANIFEST_SCHEMAS = new Set([
   'ue5-html5-export/v2',
   'ue5-html5-export/v3',
   'ue5-html5-export/v4',
+  'ue5-html5-export/v5',
   CURRENT_MANIFEST_SCHEMA,
 ]);
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
-const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
-const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v2';
+const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
+const LEGACY_ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
+const BROWSER_CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v3';
 const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
 const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
@@ -151,17 +154,43 @@ function validateBrowserCertification(root, errors) {
   if (report.assetPack?.version !== manifest.assetPack?.version) {
     errors.push('browser-certification.json asset-pack version does not match export-manifest.json.');
   }
-  const resources = Array.from(manifest.assetPack?.resources || [], ({ path }) => String(path || '')).sort();
+  if (report.assetPack?.schema !== manifest.assetPack?.schema
+      || report.assetPack?.cacheBusting !== 'pack-version-query') {
+    errors.push('browser-certification.json does not prove the current proxy-safe asset-pack contract.');
+  }
+  const declaredResources = Array.from(manifest.assetPack?.resources || []);
+  const resources = declaredResources.map(({ path }) => String(path || '')).sort();
+  const cacheResources = declaredResources
+    .filter(({ delivery }) => delivery === 'cache-api-integrity')
+    .map(({ path }) => String(path || '')).sort();
+  const moduleResources = declaredResources
+    .filter(({ delivery }) => delivery === 'versioned-module')
+    .map(({ path }) => String(path || '')).sort();
   if (report.assetPack?.resourceCount !== resources.length) {
     errors.push('browser-certification.json resource count does not match export-manifest.json.');
+  }
+  if (report.assetPack?.cacheResourceCount !== cacheResources.length
+      || report.assetPack?.versionedModuleCount !== moduleResources.length) {
+    errors.push('browser-certification.json delivery counts do not match export-manifest.json.');
   }
   for (const [stage, mode] of [['cold', 'network-cached'], ['warm', 'cache-hit']]) {
     const coverage = report.assetPack?.[stage]?.coverage;
     const paths = Array.isArray(coverage)
-      ? coverage.filter((entry) => entry?.passed === true && entry.mode === mode).map((entry) => entry.path).sort()
+      ? coverage.filter((entry) => entry?.passed === true
+        && entry.mode === mode
+        && entry.cacheBustVersion === manifest.assetPack?.version).map((entry) => entry.path).sort()
       : [];
-    if (JSON.stringify(paths) !== JSON.stringify(resources)) {
+    if (JSON.stringify(paths) !== JSON.stringify(cacheResources)) {
       errors.push(`browser-certification.json ${stage} coverage does not prove ${mode} for every asset-pack resource.`);
+    }
+    const moduleCoverage = report.assetPack?.[stage]?.versionedModuleCoverage;
+    const modulePaths = Array.isArray(moduleCoverage)
+      ? moduleCoverage.filter((entry) => entry?.passed === true
+        && entry.mode === 'versioned-module'
+        && entry.cacheBustVersion === manifest.assetPack?.version).map((entry) => entry.path).sort()
+      : [];
+    if (JSON.stringify(modulePaths) !== JSON.stringify(moduleResources)) {
+      errors.push(`browser-certification.json ${stage} coverage does not prove versioned loading for every adapter module.`);
     }
   }
   if (report.runtime?.blueprintReady !== true || report.runtime?.firstPersonEnabled !== true) {
@@ -316,7 +345,7 @@ function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
   }
 }
 
-function assetPackFiles(root) {
+function assetPackFiles(root, includeAdapterModule = false) {
   const files = [];
   const visit = (directory) => {
     if (!existsSync(directory)) return;
@@ -327,7 +356,9 @@ function assetPackFiles(root) {
     }
   };
   visit(join(root, 'assets'));
-  for (const path of ['logic/blueprints.json', 'logic/custom-adapters.json']) {
+  const logicPaths = ['logic/blueprints.json', 'logic/custom-adapters.json'];
+  if (includeAdapterModule) logicPaths.push('logic/custom-adapters.js');
+  for (const path of logicPaths) {
     const file = join(root, path);
     if (existsSync(file) && statSync(file).isFile()) files.push(file);
   }
@@ -350,20 +381,35 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
     errors.push('activity-handoff.json.assetPack must exactly match export-manifest.json.assetPack.');
     return;
   }
-  if (manifestPack.schema !== ASSET_PACK_SCHEMA
-      || manifestPack.strategy !== 'origin-scoped-cache-api'
+  const currentPack = manifestPack.schema === ASSET_PACK_SCHEMA;
+  const legacyPack = manifestPack.schema === LEGACY_ASSET_PACK_SCHEMA;
+  if (required && !currentPack) {
+    errors.push(`Current exports must use ${ASSET_PACK_SCHEMA} with proxy-safe cache busting.`);
+  }
+  if (!currentPack && !legacyPack) {
+    errors.push(`assetPack uses an unsupported schema: ${manifestPack.schema || '<missing>'}.`);
+  }
+  const strategyValid = currentPack
+    ? manifestPack.strategy === 'origin-scoped-versioned-cache'
+      && manifestPack.cacheBusting === 'pack-version-query'
+      && manifestPack.versionQuery === 'ue5html5_pack'
+    : manifestPack.strategy === 'origin-scoped-cache-api';
+  if (!strategyValid
       || manifestPack.runtimeStrategy !== 'content-hashed-http-cache'
       || manifestPack.scope !== 'activity-origin'
       || manifestPack.integrity !== 'sha256'
       || manifestPack.fallback !== 'network') {
-    errors.push(`assetPack must use the ${ASSET_PACK_SCHEMA} origin-scoped cache contract.`);
+    errors.push(`assetPack must use its declared origin-scoped cache contract.`);
+  }
+  if (legacyPack) {
+    warnings.push('Legacy asset pack lacks Discord-proxy-safe version query URLs; export again before updating hosted content.');
   }
   if (!Array.isArray(manifestPack.resources)) {
     errors.push('assetPack.resources must be an array.');
     return;
   }
 
-  const actualFiles = assetPackFiles(root);
+  const actualFiles = assetPackFiles(root, currentPack);
   const actualPaths = actualFiles.map((file) => relative(root, file).split('\\').join('/'));
   const declaredPaths = manifestPack.resources.map((resource) => String(resource?.path || ''));
   if (JSON.stringify(declaredPaths) !== JSON.stringify([...declaredPaths].sort())) {
@@ -373,7 +419,7 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
     errors.push('assetPack.resources contains duplicate paths.');
   }
   if (JSON.stringify(declaredPaths) !== JSON.stringify(actualPaths)) {
-    errors.push('assetPack.resources must include every exported assets/** file plus the Blueprint IR and adapter manifest, with no extra paths.');
+    errors.push(`assetPack.resources must include every exported assets/** file plus Blueprint and adapter ${currentPack ? 'data/modules' : 'data'}, with no extra paths.`);
   }
 
   let total = 0;
@@ -407,10 +453,17 @@ function validateAssetPack(root, manifest, handoff, errors, warnings) {
     }
     const expectedKind = path === 'assets/scene.glb' ? 'scene'
       : path === 'logic/blueprints.json' ? 'blueprint-ir'
-        : path === 'logic/custom-adapters.json' ? 'adapter-manifest' : 'asset';
+        : path === 'logic/custom-adapters.json' ? 'adapter-manifest'
+          : path === 'logic/custom-adapters.js' ? 'adapter-module' : 'asset';
     if (resource.kind !== expectedKind) errors.push(`assetPack resource kind does not match ${path}.`);
+    const expectedDelivery = path === 'logic/custom-adapters.js' ? 'versioned-module' : 'cache-api-integrity';
+    if (currentPack && resource.delivery !== expectedDelivery) {
+      errors.push(`assetPack resource delivery does not match ${path}.`);
+    }
     total += bytes;
-    canonical += `${path}\n${bytes}\n${digest}\n`;
+    canonical += currentPack
+      ? `${path}\n${expectedDelivery}\n${bytes}\n${digest}\n`
+      : `${path}\n${bytes}\n${digest}\n`;
   }
   const version = `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
   if (manifestPack.version !== version) errors.push('assetPack.version does not match its canonical resource index.');

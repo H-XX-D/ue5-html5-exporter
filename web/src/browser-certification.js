@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
-const CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v2';
+const CERTIFICATION_SCHEMA = 'ue5-html5-browser-certification/v3';
 const CERTIFICATION_QUERY = 'ue5_certify';
 const CERTIFICATION_TOKEN_QUERY = 'ue5_certify_token';
 const CERTIFICATION_ENDPOINT = '/__ue5html5_certification__';
-const CERTIFICATION_STORAGE_KEY = 'ue5html5-browser-certification-v2';
+const CERTIFICATION_STORAGE_KEY = 'ue5html5-browser-certification-v3';
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 function clone(value) {
@@ -78,11 +78,36 @@ export function isLoopbackCertification(locationObject = globalThis.location) {
 }
 
 export function resourceModeCoverage(assetPack, events, expectedMode) {
-  const resources = Array.from(assetPack?.resources || [], ({ path }) => String(path || ''));
+  const expectedVersion = String(assetPack?.version || '');
+  const resources = Array.from(assetPack?.resources || [])
+    .filter(({ delivery }) => delivery === 'cache-api-integrity')
+    .map(({ path }) => String(path || ''));
   return resources.map((path) => ({
     path,
     mode: expectedMode,
-    passed: Boolean(path && events.some((event) => event.path === path && event.mode === expectedMode)),
+    cacheBustVersion: expectedVersion,
+    passed: Boolean(path && events.some((event) => (
+      event.path === path
+      && event.mode === expectedMode
+      && event.cacheBustVersion === expectedVersion
+    ))),
+  }));
+}
+
+export function versionedModuleCoverage(assetPack, events) {
+  const expectedVersion = String(assetPack?.version || '');
+  const resources = Array.from(assetPack?.resources || [])
+    .filter(({ delivery }) => delivery === 'versioned-module')
+    .map(({ path }) => String(path || ''));
+  return resources.map((path) => ({
+    path,
+    mode: 'versioned-module',
+    cacheBustVersion: expectedVersion,
+    passed: Boolean(path && events.some((event) => (
+      event.path === path
+      && event.mode === 'versioned-module'
+      && event.cacheBustVersion === expectedVersion
+    ))),
   }));
 }
 
@@ -296,6 +321,13 @@ export class BrowserCertification {
     return coverage;
   }
 
+  assertVersionedModules() {
+    const coverage = versionedModuleCoverage(this.assetPack, this.events);
+    const missing = coverage.filter(({ passed }) => !passed).map(({ path }) => path);
+    requireCondition(!missing.length, `Versioned module loading was not observed for: ${missing.join(', ')}`);
+    return coverage;
+  }
+
   async complete({ manifest, runtime, gameplay, targetPractice }) {
     if (!this.enabled) return null;
     try {
@@ -305,6 +337,7 @@ export class BrowserCertification {
         state.cold = {
           events: clone(this.events),
           coverage: this.assertDeliveryMode('network-cached'),
+          versionedModuleCoverage: this.assertVersionedModules(),
         };
         state.stage = 'warm';
         this.writeState(state);
@@ -317,6 +350,7 @@ export class BrowserCertification {
       const warm = {
         events: clone(this.events),
         coverage: this.assertDeliveryMode('cache-hit'),
+        versionedModuleCoverage: this.assertVersionedModules(),
       };
       requireCondition(runtime, 'The exported Blueprint runtime did not start.');
       const runtimeReadyFromNavigationStartMs = Number(this.monotonicNow?.());
@@ -336,7 +370,12 @@ export class BrowserCertification {
         assetPack: {
           schema: String(this.assetPack?.schema || ''),
           version: String(this.assetPack?.version || ''),
+          cacheBusting: String(this.assetPack?.cacheBusting || ''),
           resourceCount: this.assetPack?.resources?.length || 0,
+          cacheResourceCount: Array.from(this.assetPack?.resources || [])
+            .filter(({ delivery }) => delivery === 'cache-api-integrity').length,
+          versionedModuleCount: Array.from(this.assetPack?.resources || [])
+            .filter(({ delivery }) => delivery === 'versioned-module').length,
           cold: state.cold,
           warm,
         },

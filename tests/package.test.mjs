@@ -113,6 +113,16 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.equal(deploymentPackage.scripts['release:activity'], 'node scripts/activity-release.mjs');
   assert.equal(deploymentPackage.scripts['release:assist'], 'node scripts/activity-release-assistant.mjs');
   assert.equal(deploymentPackage.overrides.tar, '7.5.22');
+  const vercelConfig = JSON.parse(read('Resources/WebTemplate/vercel.json'));
+  const cacheControl = (source) => vercelConfig.headers
+    .find((entry) => entry.source === source)?.headers
+    .find((entry) => entry.key === 'Cache-Control')?.value;
+  for (const source of ['/runtime/(.*)', '/assets/(.*)', '/logic/(.*)']) {
+    assert.equal(cacheControl(source), 'public, max-age=31536000, immutable');
+  }
+  for (const source of ['/api/(.*)', '/export-manifest.json', '/activity-handoff.json']) {
+    assert.match(cacheControl(source), /no-store/);
+  }
   const runtimeFiles = readdirSync(new URL('Resources/WebTemplate/runtime/', plugin));
   const viewerFile = runtimeFiles.find((name) => /^viewer-[A-Za-z0-9_-]+\.js$/.test(name));
   const activityFile = runtimeFiles.find((name) => /^discord-activity-[A-Za-z0-9_-]+\.js$/.test(name));
@@ -133,7 +143,8 @@ test('production template includes the Discord Activity API, Vercel adapter, and
   assert.match(activity, /DiscordSDKMock/);
   assert.match(activity, /preview-player/);
   assert.match(viewer, /ue5_discord_preview/);
-  assert.match(viewer, /ue5-html5-browser-certification\/v2/);
+  assert.match(viewer, /ue5-html5-browser-certification\/v3/);
+  assert.match(viewer, /ue5html5_pack/);
   assert.match(viewer, /ue5_certify/);
 
   const serve = read('Resources/WebTemplate/serve.py');
@@ -170,17 +181,19 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
   assert.match(source, /activity-handoff\.json/);
-  assert.match(source, /ue5-discord-activity-handoff\/v6/);
+  assert.match(source, /ue5-discord-activity-handoff\/v7/);
   assert.match(source, /projectTargets/);
   assert.match(source, /missingRequiredTargets/);
   assert.match(source, /blueprintCompatibility/);
-  assert.match(source, /ue5-html5-export\/v5/);
+  assert.match(source, /ue5-html5-export\/v6/);
   assert.match(source, /SetStringField\(TEXT\("exporterVersion"\)/);
   assert.match(source, /custom-adapters\.json/);
   assert.match(source, /custom-adapters\.js/);
   assert.match(source, /customAdapterNodeCount/);
   assert.match(source, /assetDelivery/);
-  assert.match(source, /ue5-html5-asset-pack\/v1/);
+  assert.match(source, /ue5-html5-asset-pack\/v2/);
+  assert.match(source, /pack-version-query/);
+  assert.match(source, /versioned-module/);
   assert.match(source, /UE5HTML5::SHA256Hex/);
   assert.doesNotMatch(source, /GetSHA256Signature|FPlatformMisc/);
   const sha256 = read('Source/UE5HTML5Exporter/Private/UE5HTML5SHA256.cpp');
@@ -675,9 +688,10 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /workstation-certification\.sha256/);
-  assert.match(verify, /ue5-html5-workstation-certification\/v5/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v6/);
   assert.match(tools, /runtimeReadyFromNavigationStartMs/);
   assert.match(tools, /averageFramesPerSecond/);
+  assert.match(tools, /proxy-versioned cold\/warm coverage/);
   assert.match(tools, /deviceMetadataCollected = \$false/);
   assert.match(verify, /UE5HTML5Exporter\.Editor\.BrowserFPSSetup/);
   assert.match(verify, /Automation RunTests/);
@@ -687,6 +701,7 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /Remove-Item -LiteralPath \$editorAutomationReportPath -Recurse -Force/);
   assert.match(verify, /\[switch\]\$CertifyBrowser/);
   assert.match(verify, /Get-UE5HTML5BrowserCertificationEvidence/);
+  assert.match(verify, /ExpectedAssetPackSchema/);
   assert.match(verify, /browserCertification = \$browserCertification/);
   assert.match(verify, /ThirdParty\\Python3\\Win64\\python\.exe/);
   assert.match(verify, /Get-Command py/);

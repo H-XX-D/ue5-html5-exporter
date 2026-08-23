@@ -1,5 +1,9 @@
-const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v1';
-const CACHE_PREFIX = 'ue5html5-asset-pack-v1-';
+const ASSET_PACK_SCHEMA = 'ue5-html5-asset-pack/v2';
+const CACHE_PREFIX = 'ue5html5-asset-pack-v2-';
+const LEGACY_CACHE_PREFIX = 'ue5html5-asset-pack-v1-';
+const PACK_VERSION_QUERY = 'ue5html5_pack';
+const CACHE_DELIVERY = 'cache-api-integrity';
+const MODULE_DELIVERY = 'versioned-module';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 function normalizePath(value) {
@@ -46,25 +50,33 @@ export class AssetPackCache extends EventTarget {
     this.cacheStorage = cacheStorage;
     this.cryptoImpl = cryptoImpl;
     this.resources = new Map();
+    this.version = '';
     this.cacheName = '';
     this.enabled = false;
     this.lastStatus = { mode: 'disabled', path: '', reason: 'No asset-pack manifest.' };
 
     if (!assetPack) return;
-    if (assetPack.schema !== ASSET_PACK_SCHEMA || assetPack.strategy !== 'origin-scoped-cache-api') {
+    if (assetPack.schema !== ASSET_PACK_SCHEMA || assetPack.strategy !== 'origin-scoped-versioned-cache') {
       throw new Error(`Unsupported asset-pack contract: ${assetPack.schema || '<missing schema>'}`);
     }
-    if (assetPack.integrity !== 'sha256' || assetPack.fallback !== 'network') {
+    if (assetPack.integrity !== 'sha256'
+        || assetPack.fallback !== 'network'
+        || assetPack.cacheBusting !== 'pack-version-query'
+        || assetPack.versionQuery !== PACK_VERSION_QUERY) {
       throw new Error('Asset-pack integrity and fallback policy is invalid.');
     }
     const version = String(assetPack.version || '').replace(/^sha256:/, '');
     if (!SHA256_PATTERN.test(version)) throw new Error('Asset-pack version must be a SHA-256 digest.');
+    this.version = version;
     if (!Array.isArray(assetPack.resources)) throw new Error('Asset-pack resources must be an array.');
     for (const resource of assetPack.resources) {
       const path = normalizePath(resource?.path);
       if (this.resources.has(path)) throw new Error(`Duplicate asset-pack path: ${path}`);
       if (!Number.isSafeInteger(resource.bytes) || resource.bytes < 0 || !SHA256_PATTERN.test(resource.sha256 || '')) {
         throw new Error(`Invalid asset-pack resource metadata: ${path}`);
+      }
+      if (![CACHE_DELIVERY, MODULE_DELIVERY].includes(resource.delivery)) {
+        throw new Error(`Invalid asset-pack delivery policy: ${path}`);
       }
       this.resources.set(path, { ...resource, path });
     }
@@ -76,8 +88,27 @@ export class AssetPackCache extends EventTarget {
   }
 
   status(mode, path = '', reason = '') {
-    this.lastStatus = { mode, path, reason };
+    this.lastStatus = {
+      mode,
+      path,
+      reason,
+      cacheBustVersion: path && this.resources.has(path) ? `sha256:${this.version}` : '',
+    };
     this.dispatchEvent(new CustomEvent('statuschange', { detail: this.lastStatus }));
+  }
+
+  has(pathValue) {
+    return this.resources.has(normalizePath(pathValue));
+  }
+
+  versionedUrl(pathValue) {
+    const path = normalizePath(pathValue);
+    const resource = this.resources.get(path);
+    if (!resource) throw new Error(`Resource is not part of the exported asset pack: ${path}`);
+    const url = new URL(path, this.baseUrl);
+    url.searchParams.set(PACK_VERSION_QUERY, this.version);
+    if (resource.delivery === MODULE_DELIVERY) this.status('versioned-module', path);
+    return url;
   }
 
   async verify(response, resource) {
@@ -93,7 +124,7 @@ export class AssetPackCache extends EventTarget {
 
   async network(path, resource, { verify = true } = {}) {
     if (!this.fetchImpl) throw new Error('Fetch is unavailable in this browser.');
-    const response = await this.fetchImpl(new URL(path, this.baseUrl), { cache: 'no-store' });
+    const response = await this.fetchImpl(this.versionedUrl(path), { cache: 'no-store' });
     if (!verify) return response;
     const checked = await this.verify(response, resource);
     return cloneResponse(checked.bytes, checked.response);
@@ -106,6 +137,9 @@ export class AssetPackCache extends EventTarget {
       this.status('network-unmanaged', path, 'Resource is not part of the exported asset pack.');
       if (!this.fetchImpl) throw new Error('Fetch is unavailable in this browser.');
       return this.fetchImpl(new URL(path, this.baseUrl), { cache: 'no-store' });
+    }
+    if (resource.delivery !== CACHE_DELIVERY) {
+      throw new Error(`Resource must use its versioned module URL instead of Cache API fetch: ${path}`);
     }
     if (!this.enabled) {
       this.status('network-only', path, this.lastStatus.reason);
@@ -120,7 +154,7 @@ export class AssetPackCache extends EventTarget {
       return this.network(path, resource);
     }
 
-    const request = new Request(new URL(path, this.baseUrl));
+    const request = new Request(this.versionedUrl(path));
     let cached = null;
     try {
       cached = await cache.match(request);
@@ -153,7 +187,9 @@ export class AssetPackCache extends EventTarget {
   async cleanupOldVersions() {
     if (!this.enabled || !this.cacheStorage.keys) return [];
     const names = await this.cacheStorage.keys();
-    const stale = names.filter((name) => name.startsWith(CACHE_PREFIX) && name !== this.cacheName);
+    const stale = names.filter((name) => (
+      name.startsWith(CACHE_PREFIX) || name.startsWith(LEGACY_CACHE_PREFIX)
+    ) && name !== this.cacheName);
     await Promise.all(stale.map((name) => this.cacheStorage.delete(name)));
     return stale;
   }
@@ -163,4 +199,11 @@ export function createAssetPackCache(assetPack, options) {
   return new AssetPackCache(assetPack, options);
 }
 
-export { ASSET_PACK_SCHEMA, CACHE_PREFIX };
+export {
+  ASSET_PACK_SCHEMA,
+  CACHE_DELIVERY,
+  CACHE_PREFIX,
+  LEGACY_CACHE_PREFIX,
+  MODULE_DELIVERY,
+  PACK_VERSION_QUERY,
+};

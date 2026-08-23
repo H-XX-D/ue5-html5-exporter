@@ -240,7 +240,15 @@ namespace
         if (Path == TEXT("assets/scene.glb")) return TEXT("scene");
         if (Path == TEXT("logic/blueprints.json")) return TEXT("blueprint-ir");
         if (Path == TEXT("logic/custom-adapters.json")) return TEXT("adapter-manifest");
+        if (Path == TEXT("logic/custom-adapters.js")) return TEXT("adapter-module");
         return TEXT("asset");
+    }
+
+    FString AssetPackDelivery(const FString& Path)
+    {
+        return Path == TEXT("logic/custom-adapters.js")
+            ? TEXT("versioned-module")
+            : TEXT("cache-api-integrity");
     }
 
     bool BuildAssetPack(const FString& OutputDirectory, FUE5HTML5ExportResult& Result, FString& OutError)
@@ -261,7 +269,8 @@ namespace
             false);
         for (const FString& RelativePath : {
             FString(TEXT("logic/blueprints.json")),
-            FString(TEXT("logic/custom-adapters.json")) })
+            FString(TEXT("logic/custom-adapters.json")),
+            FString(TEXT("logic/custom-adapters.js")) })
         {
             const FString File = FPaths::Combine(OutputDirectory, RelativePath);
             if (FPaths::FileExists(File)) Files.Add(File);
@@ -290,11 +299,17 @@ namespace
             FUE5HTML5AssetPackResource Resource;
             Resource.Path = BrowserRelativePath(OutputDirectory, File);
             Resource.Kind = AssetPackKind(Resource.Path);
+            Resource.Delivery = AssetPackDelivery(Resource.Path);
             Resource.SHA256 = UE5HTML5::SHA256Hex(Bytes.GetData(), static_cast<uint64>(Bytes.Num()));
             Resource.Bytes = FileSize;
             Result.AssetPackResources.Add(Resource);
             Result.AssetPackBytes += FileSize;
-            Canonical += FString::Printf(TEXT("%s\n%lld\n%s\n"), *Resource.Path, Resource.Bytes, *Resource.SHA256);
+            Canonical += FString::Printf(
+                TEXT("%s\n%s\n%lld\n%s\n"),
+                *Resource.Path,
+                *Resource.Delivery,
+                Resource.Bytes,
+                *Resource.SHA256);
         }
 
         FTCHARToUTF8 CanonicalUtf8(*Canonical);
@@ -307,9 +322,11 @@ namespace
     TSharedRef<FJsonObject> BuildAssetPackJson(const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Pack = MakeShared<FJsonObject>();
-        Pack->SetStringField(TEXT("schema"), TEXT("ue5-html5-asset-pack/v1"));
-        Pack->SetStringField(TEXT("strategy"), TEXT("origin-scoped-cache-api"));
+        Pack->SetStringField(TEXT("schema"), TEXT("ue5-html5-asset-pack/v2"));
+        Pack->SetStringField(TEXT("strategy"), TEXT("origin-scoped-versioned-cache"));
         Pack->SetStringField(TEXT("version"), FString::Printf(TEXT("sha256:%s"), *Result.AssetPackVersion));
+        Pack->SetStringField(TEXT("cacheBusting"), TEXT("pack-version-query"));
+        Pack->SetStringField(TEXT("versionQuery"), TEXT("ue5html5_pack"));
         Pack->SetStringField(TEXT("runtimeStrategy"), TEXT("content-hashed-http-cache"));
         Pack->SetStringField(TEXT("scope"), TEXT("activity-origin"));
         Pack->SetStringField(TEXT("integrity"), TEXT("sha256"));
@@ -321,6 +338,7 @@ namespace
             TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
             Value->SetStringField(TEXT("path"), Resource.Path);
             Value->SetStringField(TEXT("kind"), Resource.Kind);
+            Value->SetStringField(TEXT("delivery"), Resource.Delivery);
             Value->SetNumberField(TEXT("bytes"), Resource.Bytes);
             Value->SetStringField(TEXT("sha256"), Resource.SHA256);
             Resources.Add(MakeShared<FJsonValueObject>(Value));
@@ -364,7 +382,7 @@ namespace
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v6"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v7"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
         const bool bNeedsRuntimeValidation = Result.CustomAdapterBlueprintNodeCount > 0;
@@ -480,7 +498,7 @@ namespace
     bool WriteManifest(const FString& OutputDirectory, UWorld* World, const TSet<AActor*>& SelectedActors, FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v5"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v6"));
         const TSharedPtr<IPlugin> ExporterPlugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
         Root->SetStringField(TEXT("exporterVersion"), ExporterPlugin.IsValid() ? ExporterPlugin->GetDescriptor().VersionName : TEXT("unknown"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
@@ -908,8 +926,8 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("Give the entire folder to the release operator; `activity-handoff.json` records whether Blueprint adapters remain and lists the release steps.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
-        TEXT("Reusable scene and Blueprint data are integrity-checked and cached under this Activity origin. A changed asset-pack hash creates a new cache, and cache unavailability falls back to the network.\n")
-        TEXT("A passing `browser-certification.json` proves the local exported browser runtime, cache, center-ray target hit, score, and respawn and records advisory timing-only performance without device metadata; real Discord/mobile/multi-client testing remains required.\n")
+        TEXT("Reusable scene, Blueprint data, and adapter code use the asset-pack hash in every request URL so Discord's proxy cannot serve an older export. Cache API resources are integrity-checked; adapter modules use the same version query with immutable HTTP caching. Cache unavailability falls back to the network.\n")
+        TEXT("A passing `browser-certification.json` proves the local exported browser runtime, proxy-versioned cold/warm delivery, adapter-module URL, center-ray target hit, score, and respawn and records advisory timing-only performance without device metadata; real Discord/mobile/multi-client testing remains required.\n")
         TEXT("Create project-owned native replacements from Tools > HTML5 Export > Open Custom Web Adapters Folder, then declare them in custom-adapters.json and implement them with `window.UE5HTML5.registerFunction(name, implementation)`.\n")
         TEXT("Project-adapter coverage still requires local Discord preview and real gameplay validation.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));
