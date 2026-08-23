@@ -117,7 +117,9 @@ The workflow and local scripts use the same workstation report. The workflow may
 
 ## Certify the complete Windows handoff
 
-On the Windows Unreal workstation, one command can build the Win64 plugin, back up and install it into a real project, run the same readiness policy used by the Unreal menu, export a real map, and run the Discord Activity package preflight:
+On the Windows Unreal workstation, double-click `Certify-UE5HTML5Exporter.cmd`. Choose a `.uproject`, enter the map path when prompted, and confirm the operation. The launcher builds the Win64 plugin, backs up and installs it into the real project, runs the same readiness policy used by the Unreal menu, exports the map, runs the Discord Activity package preflight, and opens the evidence folder. No command line is required.
+
+For automation or an explicit command-line run, use:
 
 ```powershell
 .\scripts\Verify-UE5HTML5Exporter.ps1 `

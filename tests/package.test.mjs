@@ -570,14 +570,16 @@ test('Unreal module declares editor dependencies for exported adapter assets', (
 test('Windows teammates have native PowerShell install and packaging helpers', () => {
   const tools = readFileSync(new URL('../scripts/UE5HTML5Tools.psm1', import.meta.url), 'utf8');
   const launcher = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.cmd', import.meta.url), 'utf8');
+  const certificationLauncher = readFileSync(new URL('../scripts/Certify-UE5HTML5Exporter.cmd', import.meta.url), 'utf8');
   const start = readFileSync(new URL('../scripts/Start-UE5HTML5Setup.ps1', import.meta.url), 'utf8');
+  const startCertification = readFileSync(new URL('../scripts/Start-UE5HTML5Certification.ps1', import.meta.url), 'utf8');
   const setup = readFileSync(new URL('../scripts/Setup-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const install = readFileSync(new URL('../scripts/Install-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const pack = readFileSync(new URL('../scripts/Package-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const verify = readFileSync(new URL('../scripts/Verify-UE5HTML5Exporter.ps1', import.meta.url), 'utf8');
   const sourcePackager = readFileSync(new URL('../scripts/package-source-plugin.mjs', import.meta.url), 'utf8');
   const windowsWorkflow = readFileSync(new URL('../.github/workflows/package-unreal-windows.yml', import.meta.url), 'utf8');
-  for (const script of [start, setup, install, pack, verify]) {
+  for (const script of [start, startCertification, setup, install, pack, verify]) {
     assert.doesNotMatch(script, /\[string\]\$Plugin\s*=\s*\(Join-Path \$PSScriptRoot/);
   }
   assert.match(tools, /LauncherInstalled\.dat/);
@@ -590,6 +592,9 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(launcher, /Start-UE5HTML5Setup\.ps1/);
   assert.match(launcher, /--check/);
   assert.match(launcher, /ExecutionPolicy Bypass/);
+  assert.match(certificationLauncher, /Start-UE5HTML5Certification\.ps1/);
+  assert.match(certificationLauncher, /--check/);
+  assert.match(certificationLauncher, /ExecutionPolicy Bypass/);
   assert.match(start, /System\.Windows\.Forms\.OpenFileDialog/);
   assert.match(start, /\.uproject/);
   assert.match(start, /Setup-UE5HTML5Exporter\.ps1/);
@@ -597,6 +602,11 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(start, /MessageBoxButtons\]::YesNo/);
   assert.match(start, /\$Replace = \$true/);
   assert.match(start, /arguments\.Launch = \$true/);
+  assert.match(startCertification, /System\.Windows\.Forms\.OpenFileDialog/);
+  assert.match(startCertification, /Microsoft\.VisualBasic\.Interaction/);
+  assert.match(startCertification, /Verify-UE5HTML5Exporter\.ps1/);
+  assert.match(startCertification, /Saved\\UE5HTML5Certification/);
+  assert.match(startCertification, /workstation-certification\.json/);
   assert.match(setup, /Get-UE5HTML5WorkstationReport/);
   assert.match(setup, /CheckOnly/);
   assert.match(setup, /Install-UE5HTML5Exporter\.ps1/);

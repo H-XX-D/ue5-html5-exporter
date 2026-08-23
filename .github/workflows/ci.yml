@@ -70,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $allErrors = @()
-          foreach ($script in @('UE5HTML5Tools.psm1', 'Start-UE5HTML5Setup.ps1', 'Setup-UE5HTML5Exporter.ps1', 'Install-UE5HTML5Exporter.ps1', 'Package-UE5HTML5Exporter.ps1', 'Verify-UE5HTML5Exporter.ps1', 'Test-WindowsTooling.ps1')) {
+          foreach ($script in @('UE5HTML5Tools.psm1', 'Start-UE5HTML5Setup.ps1', 'Start-UE5HTML5Certification.ps1', 'Setup-UE5HTML5Exporter.ps1', 'Install-UE5HTML5Exporter.ps1', 'Package-UE5HTML5Exporter.ps1', 'Verify-UE5HTML5Exporter.ps1', 'Test-WindowsTooling.ps1')) {
             $tokens = $null
             $parseErrors = $null
             [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\$script", [ref]$tokens, [ref]$parseErrors) | Out-Null

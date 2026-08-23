@@ -165,6 +165,10 @@ try {
     $launcherCheck = (& $setupLauncher -LauncherCheck | Out-String)
     Assert-True ($launcherCheck -match 'Windows setup launcher check passed') 'click installer coordinator must pass its non-interactive check'
 
+    $certificationLauncher = Join-Path $PSScriptRoot 'Start-UE5HTML5Certification.ps1'
+    $certificationLauncherCheck = (& $certificationLauncher -LauncherCheck | Out-String)
+    Assert-True ($certificationLauncherCheck -match 'Windows certification launcher check passed') 'click certification coordinator must pass its non-interactive check'
+
     Write-Host 'Windows tooling contract tests passed.'
 }
 finally {

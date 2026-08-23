@@ -45,7 +45,8 @@ Options:
 
 The bundle contains the plugin, Windows workstation doctor/installer, and handoff documentation.
 On Windows, double-click Install-UE5HTML5Exporter.cmd and choose a .uproject file.
-Unreal compiles the plugin for the teammate's installed engine version.`;
+Unreal compiles the plugin for the teammate's installed engine version.
+Double-click Certify-UE5HTML5Exporter.cmd to build, install, export, and record native Win64 evidence.`;
 }
 
 function requireFile(path, label) {
@@ -117,6 +118,7 @@ export function packageSourcePlugin(rawOptions, { now = new Date(), sourceRevisi
     for (const script of [
       'UE5HTML5Tools.psm1',
       'Start-UE5HTML5Setup.ps1',
+      'Start-UE5HTML5Certification.ps1',
       'Setup-UE5HTML5Exporter.ps1',
       'Install-UE5HTML5Exporter.ps1',
       'Package-UE5HTML5Exporter.ps1',
@@ -127,6 +129,10 @@ export function packageSourcePlugin(rawOptions, { now = new Date(), sourceRevisi
     cpSync(
       join(REPOSITORY_ROOT, 'scripts', 'Install-UE5HTML5Exporter.cmd'),
       join(output, 'Install-UE5HTML5Exporter.cmd'),
+    );
+    cpSync(
+      join(REPOSITORY_ROOT, 'scripts', 'Certify-UE5HTML5Exporter.cmd'),
+      join(output, 'Certify-UE5HTML5Exporter.cmd'),
     );
     cpSync(join(REPOSITORY_ROOT, 'docs', 'TEAM_INSTALL.md'), join(output, 'TEAM_INSTALL.md'));
     cpSync(join(REPOSITORY_ROOT, 'LICENSE'), join(output, 'LICENSE'));

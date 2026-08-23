@@ -118,11 +118,13 @@ test('source packager creates a clean Windows teammate bundle without native int
   assert.equal(existsSync(join(output, 'UE5HTML5Exporter', 'Intermediate')), false);
   assert.equal(existsSync(join(output, 'scripts', 'Install-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'Start-UE5HTML5Setup.ps1')), true);
+  assert.equal(existsSync(join(output, 'scripts', 'Start-UE5HTML5Certification.ps1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'Setup-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'UE5HTML5Tools.psm1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'Package-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'scripts', 'Verify-UE5HTML5Exporter.ps1')), true);
   assert.equal(existsSync(join(output, 'Install-UE5HTML5Exporter.cmd')), true);
+  assert.equal(existsSync(join(output, 'Certify-UE5HTML5Exporter.cmd')), true);
   assert.equal(existsSync(join(output, 'TEAM_INSTALL.md')), true);
   assert.deepEqual(JSON.parse(readFileSync(join(output, 'source-revision.json'), 'utf8')), sourceRevision);
 });
