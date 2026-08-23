@@ -222,6 +222,15 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /Export & Certify Browser FPS/);
   assert.match(module, /ExportBrowserCertificationInteractive/);
   assert.match(module, /LaunchBrowserCertification/);
+  assert.match(module, /SetupBrowserFPSTestLevelInteractive/);
+  assert.match(module, /Set Up Browser FPS Test Level/);
+  assert.match(module, /FindComponentByClass<UUE5HTML5TargetComponent>/);
+  assert.match(module, /PreferredPlayerStart/);
+  assert.match(module, /HorizontalFacing\.Vector\(\) \* 600\.0f/);
+  assert.match(module, /FScopedTransaction/);
+  assert.match(module, /GEditor->AddActor/);
+  assert.match(module, /RF_Transactional/);
+  assert.match(module, /The first target is selected; no actor was created/);
   assert.match(module, /browser-certification\.json/);
   assert.match(module, /certify-browser\.cmd/);
   assert.match(module, /certify-browser\.command/);

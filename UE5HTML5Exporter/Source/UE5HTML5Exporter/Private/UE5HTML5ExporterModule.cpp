@@ -2,7 +2,9 @@
 
 #include "DesktopPlatformModule.h"
 #include "Editor.h"
+#include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
+#include "GameFramework/PlayerStart.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "Interfaces/IMainFrameModule.h"
@@ -10,10 +12,13 @@
 #include "LevelEditor.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
+#include "ScopedTransaction.h"
 #include "Selection.h"
 #include "ToolMenus.h"
 #include "UE5HTML5DiscordActivitySettings.h"
 #include "UE5HTML5ExportLibrary.h"
+#include "UE5HTML5PracticeTargetActor.h"
+#include "UE5HTML5TargetComponent.h"
 
 #define LOCTEXT_NAMESPACE "FUE5HTML5ExporterModule"
 
@@ -61,6 +66,36 @@ namespace
 #else
         return FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/Python3/Linux/bin/python3"));
 #endif
+    }
+
+    APlayerStart* PreferredPlayerStart(UWorld* World)
+    {
+        if (GEditor)
+        {
+            if (USelection* Selection = GEditor->GetSelectedActors())
+            {
+                for (FSelectionIterator Iterator(*Selection); Iterator; ++Iterator)
+                {
+                    if (APlayerStart* SelectedStart = Cast<APlayerStart>(*Iterator))
+                    {
+                        return SelectedStart;
+                    }
+                }
+            }
+        }
+
+        TActorIterator<APlayerStart> Iterator(World);
+        return Iterator ? *Iterator : nullptr;
+    }
+
+    FTransform BrowserFPSTargetTransform(const APlayerStart& PlayerStart)
+    {
+        const float PlayerYaw = PlayerStart.GetActorRotation().Yaw;
+        const FRotator HorizontalFacing(0.0f, PlayerYaw, 0.0f);
+        const FVector TargetLocation = PlayerStart.GetActorLocation()
+            + HorizontalFacing.Vector() * 600.0f
+            + FVector(0.0f, 0.0f, 65.0f);
+        return FTransform(FRotator(0.0f, PlayerYaw + 180.0f, 0.0f), TargetLocation);
     }
 
     bool LaunchDiscordActivityReleaseAssistant(const FString& OutputDirectory)
@@ -135,6 +170,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("PreviewDiscordActivityTooltip", "Export to the project's Saved folder and launch a local-only browser preview backed by Discord's official SDK mock. No credentials or deployment required."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::ExportDiscordActivityPreviewInteractive)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5SetupBrowserFPSTestLevel",
+        LOCTEXT("SetupBrowserFPSTestLevel", "Set Up Browser FPS Test Level"),
+        LOCTEXT("SetupBrowserFPSTestLevelTooltip", "Select an existing target or add a configured UE5 HTML5 Practice Target in front of the selected or first Player Start. The level change supports Undo."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::SetupBrowserFPSTestLevelInteractive)));
 
     Section.AddMenuEntry(
         "UE5HTML5CertifyBrowserFPS",
@@ -619,6 +661,86 @@ void FUE5HTML5ExporterModule::ExportBrowserCertificationInteractive()
             TEXT("The browser will perform a cold load, reload from the verified exporter cache, shoot the target through the real first-person controller, confirm score and respawn, then write:\n%s\n\n")
             TEXT("This local certificate does not contact Discord, Vercel, or Supabase and does not replace final in-Discord multi-client testing."),
             *FPaths::Combine(Result.OutputDirectory, TEXT("browser-certification.json")))));
+}
+
+void FUE5HTML5ExporterModule::SetupBrowserFPSTestLevelInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoFPSSetupWorld", "Open a level before setting up the browser FPS test."));
+        return;
+    }
+
+    TArray<AActor*> ExistingTargets;
+    for (TActorIterator<AActor> Iterator(World); Iterator; ++Iterator)
+    {
+        if (Iterator->FindComponentByClass<UUE5HTML5TargetComponent>())
+        {
+            ExistingTargets.Add(*Iterator);
+        }
+    }
+    if (!ExistingTargets.IsEmpty())
+    {
+        GEditor->SelectNone(false, true, false);
+        GEditor->SelectActor(ExistingTargets[0], true, true, true);
+        GEditor->MoveViewportCamerasToActor(*ExistingTargets[0], false);
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            FText::Format(
+                LOCTEXT(
+                    "ExistingFPSTargetSelected",
+                    "This level already contains {0} UE5 HTML5 target(s). The first target is selected; no actor was created."),
+                FText::AsNumber(ExistingTargets.Num())));
+        return;
+    }
+
+    APlayerStart* PlayerStart = PreferredPlayerStart(World);
+    if (!PlayerStart)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT(
+                "NoFPSSetupPlayerStart",
+                "No Player Start was found. Add or select a Player Start, then run Set Up Browser FPS Test Level again."));
+        return;
+    }
+
+    const EAppReturnType::Type Confirmation = FMessageDialog::Open(
+        EAppMsgType::YesNo,
+        LOCTEXT(
+            "ConfirmFPSSetup",
+            "Add one configured UE5 HTML5 Practice Target 6 meters in front of the selected or first Player Start?\n\nThe level will be marked modified, and the change can be undone."));
+    if (Confirmation != EAppReturnType::Yes)
+    {
+        return;
+    }
+
+    const FScopedTransaction Transaction(LOCTEXT("AddBrowserFPSTargetTransaction", "Add Browser FPS Practice Target"));
+    AActor* AddedActor = GEditor->AddActor(
+        PlayerStart->GetLevel(),
+        AUE5HTML5PracticeTargetActor::StaticClass(),
+        BrowserFPSTargetTransform(*PlayerStart),
+        false,
+        RF_Transactional,
+        true);
+    AUE5HTML5PracticeTargetActor* Target = Cast<AUE5HTML5PracticeTargetActor>(AddedActor);
+    if (!Target)
+    {
+        FMessageDialog::Open(
+            EAppMsgType::Ok,
+            LOCTEXT("FPSSetupSpawnFailed", "Unreal could not add the browser FPS practice target to the Player Start's level."));
+        return;
+    }
+
+    Target->SetActorLabel(TEXT("UE5HTML5_PracticeTarget"));
+    Target->MarkPackageDirty();
+    GEditor->MoveViewportCamerasToActor(*Target, false);
+    FMessageDialog::Open(
+        EAppMsgType::Ok,
+        LOCTEXT(
+            "FPSSetupComplete",
+            "The practice target was added and selected with ready-to-test defaults: 3 health, 1 damage per shot, 100 score, and respawn enabled.\n\nSave the level, then choose Export & Certify Browser FPS."));
 }
 
 bool FUE5HTML5ExporterModule::LaunchDiscordActivityPreview(const FString& OutputDirectory)

@@ -17,6 +17,7 @@ private:
     void OpenCustomWebAdapters();
     void CheckDiscordActivityReadinessInteractive();
     void CheckBlueprintCompatibilityInteractive();
+    void SetupBrowserFPSTestLevelInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);
     void ExportDiscordActivityPreviewInteractive();
     void ExportBrowserCertificationInteractive();
