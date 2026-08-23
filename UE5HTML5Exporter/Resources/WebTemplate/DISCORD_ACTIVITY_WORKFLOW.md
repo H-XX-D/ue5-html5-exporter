@@ -1,6 +1,6 @@
 # Discord Activity release workflow
 
-This exporter can produce a Discord Activity-ready folder. The exported game remains playable as an ordinary website, while Discord launch, verified identity, Realtime multiplayer, and persistent saves turn on automatically inside Discord after configuration.
+This exporter can produce a Discord Activity-ready folder. The exported game remains playable as an ordinary website, while Discord launch, verified identity, and persistent saves turn on automatically inside Discord after the base configuration. Private Supabase Broadcast/Presence is an optional multiplayer layer.
 
 Discord runs Activities on desktop, web, iOS, and Android. Standard first-person exports detect touch-capable clients and provide safe-area-aware movement, look, Jump, and Fire controls without changing the Unreal project. Desktop clients retain pointer-lock mouse and keyboard controls.
 
@@ -11,9 +11,9 @@ Discord runs Activities on desktop, web, iOS, and Android. Standard first-person
 | UE5 + exporter | Scene, Blueprint IR, browser runtime, Activity adapter | No; all browser code can be modified |
 | Discord | Launch context, OAuth identity, Activity participants, Discovery, native purchases | SDK data is UI-only; HTTP API responses from the backend are authoritative |
 | HTTPS host + Activity API | Static game hosting, confidential OAuth exchange, Activity Instance checks, entitlement verification, save/load API | Yes, while secrets stay server-side |
-| Supabase | Private Broadcast/Presence and game-created world/player state | Yes through Realtime RLS and the server-only secret key |
+| Supabase | Game-created world/player state; optional private Broadcast/Presence | Yes through the server-only secret key and, when enabled, Realtime RLS |
 
-The included deployment adapter uses Vercel, but Discord does not require Vercel. The player sees one Discord authorization flow. The OAuth access token exists in browser memory only long enough to complete Discord SDK authentication, then it is cleared. The Activity API issues a short-lived, signed, HttpOnly `Secure; SameSite=None; Partitioned` session cookie containing only opaque HMAC keys and an expiry. No Supabase Auth user or profile is created. The backend rechecks the Activity Instance through Discord before every privileged operation, and mints a short-lived Supabase JWT limited to one opaque private Realtime topic. Persistent player state is keyed by a one-way HMAC of the verified Discord user ID, so it survives switching Discord clients without storing that raw ID.
+The included deployment adapter uses Vercel, but Discord does not require Vercel. The player sees one Discord authorization flow. The OAuth access token exists in browser memory only long enough to complete Discord SDK authentication, then it is cleared. The Activity API issues a short-lived, signed, HttpOnly `Secure; SameSite=None; Partitioned` session cookie containing only opaque HMAC keys and an expiry. No Supabase Auth user or profile is created. The backend rechecks the Activity Instance through Discord before every privileged operation. Persistent player state is keyed by a one-way HMAC of the verified Discord user ID, so it survives switching Discord clients without storing that raw ID. When optional Realtime is configured, the backend also mints a short-lived Supabase JWT limited to one opaque private topic.
 
 For production defense in depth, the API can also require Discord's signed proxy-authentication headers. This proves that a privileged POST passed through the configured Discord Activity proxy before the existing OAuth, instance-membership, session-cookie, and entitlement checks run. The signed proxy payload is verified in memory and is never written to Supabase.
 
@@ -24,8 +24,8 @@ Supabase is the persistence/Realtime layer, not the static game host: Supabase S
 Supabase Free and Pro use the same integration contract. A Pro account is a good production choice, but plan level does not change the privacy model or turn Supabase Storage into the game host. Store only game-created world/player state in the private tables below; Discord remains the system for player identity, authorization, and billing.
 
 1. Create a Supabase project.
-2. In **Realtime Settings**, disable **Allow public access** so every channel must pass Realtime Authorization.
-3. Generate an ES256 signing key, import it under **Authentication → Signing Keys**, then activate it. Keep the private JWK only in your password manager and Vercel; Supabase cannot reveal an imported private key later.
+2. Optional Realtime only: in **Realtime Settings**, disable **Allow public access** so every channel must pass Realtime Authorization.
+3. Optional Realtime only: generate an ES256 signing key, import it under **Authentication → Signing Keys**, then activate it. Keep the private JWK only in your password manager and Vercel; Supabase cannot reveal an imported private key later. Skip this step for Discord auth plus server-mediated save/load.
 
    ```bash
    supabase gen signing-key --algorithm ES256
@@ -38,10 +38,10 @@ Supabase Free and Pro use the same integration contract. A Pro account is a good
    supabase db push
    ```
 
-5. From the project **Connect** dialog or **Settings → API Keys**, copy a publishable key (`sb_publishable_...`) and create/copy a secret key (`sb_secret_...`). Do not use a secret key in browser code.
+5. From the project **Connect** dialog or **Settings → API Keys**, copy a publishable key (`sb_publishable_...`) and create/copy a secret key (`sb_secret_...`). Do not use a secret key in browser code. The secret key is sufficient for the base persistence path.
 6. Run the Security Advisor and verify RLS is enabled on both `discord_activity_*` tables.
 
-The migration explicitly revokes browser access to both state tables and grants only the server-side secret role access to the atomic save functions. Realtime authorization accepts short-lived `authenticated` JWTs only when their opaque `activity_topic` claim exactly matches the private channel being joined. Raw Discord IDs, names, avatars, email, OAuth tokens, entitlements, and billing data are not stored. Rotating `ACTIVITY_STATE_SECRET` invalidates all Activity session cookies and changes the opaque state keys, so plan a state migration before rotating it in production.
+The migration explicitly revokes browser access to both state tables and grants only the server-side secret role access to the atomic save functions. When optional Realtime is enabled, its authorization accepts short-lived `authenticated` JWTs only when their opaque `activity_topic` claim exactly matches the private channel being joined. Raw Discord IDs, names, avatars, email, OAuth tokens, entitlements, and billing data are not stored. Rotating `ACTIVITY_STATE_SECRET` invalidates all Activity session cookies and changes the opaque state keys, so plan a state migration before rotating it in production.
 
 ### Local Unreal development preview
 
@@ -145,10 +145,10 @@ DISCORD_PUBLIC_KEY
 DISCORD_CLIENT_SECRET
 DISCORD_BOT_TOKEN
 SUPABASE_SECRET_KEY
-SUPABASE_JWT_PRIVATE_KEY
 ACTIVITY_STATE_SECRET
 
-# Server configuration; optional when the JWK contains kid
+# Optional private Realtime configuration
+SUPABASE_JWT_PRIVATE_KEY
 SUPABASE_JWT_KEY_ID
 ```
 
@@ -161,7 +161,7 @@ The export pins Node.js 22 or later and includes:
 - `api/activity.mjs`: signed proxy-request validation, bounded Discord rate-limit retries, OAuth exchange, Activity Instance verification, entitlement checks, opaque topic tokens, and save/load.
 - `vercel.json`: no-cache API responses, content-hashed immutable runtime assets, and iframe-safe headers.
 - `package.json`: the server dependency needed by the Vercel Function.
-- `scripts/activity-preflight.mjs`: package, configuration, signing-key, accidental-secret, and optional online identity/access checks.
+- `scripts/activity-preflight.mjs`: package, configuration, optional Realtime signing-key, accidental-secret, and optional online identity/access checks.
 - `scripts/activity-release.mjs`: dry-run/apply orchestration plus a post-deployment public, iframe, manifest, and API readiness probe.
 
 Use a Preview deployment for Discord testing. For a controlled release, stage production without assigning the domain, test that exact deployment, then promote it:
@@ -175,14 +175,13 @@ vercel promote DEPLOYMENT_URL
 
 1. Select the verified Discord application whose Application ID matches `DISCORD_CLIENT_ID`.
 2. Enable **Activities**, then enable both **Guild Install** and **User Install** so the Activity can launch in servers, DMs, and group DMs.
-3. Add URL mappings:
+3. Add the required root URL mapping:
 
    ```text
-   /          -> YOUR_VERCEL_PRODUCTION_HOST
-   /supabase  -> YOUR_PROJECT_REF.supabase.co
+   /  -> YOUR_VERCEL_PRODUCTION_HOST
    ```
 
-   Enter hostnames without a path. The bundled adapter calls Discord's `patchUrlMappings` for `/supabase`, covering Supabase Auth HTTP requests and the Realtime WebSocket.
+   Enter the hostname without a path. If optional private Realtime is configured, also map `/supabase` to `YOUR_PROJECT_REF.supabase.co`; the bundled adapter patches that prefix for the Realtime WebSocket. Basic Discord auth and save/load do not need the `/supabase` mapping.
 4. Add an OAuth redirect URI. `https://127.0.0.1` is sufficient when authorization is handled only by the Embedded App SDK; the confidential exchange occurs only in `api/activity.mjs`.
 5. Leave **Public Client** disabled. This exporter has a Vercel backend that can protect `DISCORD_CLIENT_SECRET`, so it uses Discord's recommended confidential-client design. Enable Public Client only for a different, backend-free native desktop/mobile Social SDK integration that uses PKCE; the toggle does not publish or list an Activity.
 6. Confirm the global **Launch** command is a Primary Entry Point with Discord's automatic `DISCORD_LAUNCH_ACTIVITY` handler. The online preflight verifies this through the Discord API.
@@ -190,7 +189,7 @@ vercel promote DEPLOYMENT_URL
 8. Launch the Activity in a private test server and verify:
 
    - The HUD changes from **Discord · connecting** to **Discord · your display name**.
-   - A second Discord client joining the same Activity receives Broadcast and Presence events on `window.UE5HTML5.activity`.
+   - If optional Realtime is enabled, a second Discord client joining the same Activity receives Broadcast and Presence events on `window.UE5HTML5.activity`.
    - `await window.UE5HTML5.activity.savePlayerState({ checkpoint: 1 }, 0)` succeeds.
    - `await window.UE5HTML5.activity.loadPlayerState()` returns that state on another Discord client signed into the same Discord user.
    - Opening the Vercel URL directly still loads the standalone viewer but does not establish an Activity session.
@@ -224,7 +223,7 @@ The nodes return safe unavailable/default values during native Unreal play. Afte
 For automatic client display events, open **Class Settings → Implemented Interfaces**, add **UE5 HTML5 Discord Activity Listener**, and implement any of these interface events:
 
 - `Discord Activity Connection State Changed` — `Idle`, `Checking`, `Connecting`, `Ready`, `Unavailable`, `Error`, or `Disposed`
-- `Discord Activity Ready` — authorization, authentication, and private Realtime are ready for gameplay nodes
+- `Discord Activity Ready` — authorization and authentication are ready; save/load is available, and private Realtime is connected when configured
 - `Discord Activity Unavailable` — safe reason code such as `ConfigurationDisabled`, `ConfigurationUnavailable`, or `OutsideDiscord`
 - `Discord Activity Error` — normalized error code plus a fixed privacy-safe operator message
 - `Discord Activity Warning` — recoverable unsupported-command/event code plus a privacy-safe message
@@ -280,7 +279,7 @@ const saved = await activity.savePlayerState(
 );
 ```
 
-Use Broadcast/Presence for input, lobby state, and other short-lived messages. Do not send authoritative rewards, purchases, or anti-cheat decisions through Realtime. Each world or player state document can contain at most 512 KiB. Passing the revision returned by a load/save enables atomic compare-and-swap; a stale write returns HTTP 409 and the current revision.
+When optional Realtime is enabled, use Broadcast/Presence for input, lobby state, and other short-lived messages. Without it, Broadcast reports that Realtime is unavailable while Discord identity, participants, purchases, and save/load continue to work. Do not send authoritative rewards, purchases, or anti-cheat decisions through Realtime. Each world or player state document can contain at most 512 KiB. Passing the revision returned by a load/save enables atomic compare-and-swap; a stale write returns HTTP 409 and the current revision.
 
 Supabase Broadcast is the fast event path; Presence is for slow-changing connection state and should not be updated every frame. The Blueprint bridge accepts JSON Broadcast payloads. Supabase binary Broadcast payloads remain available to custom JavaScript but are intentionally outside the Blueprint JSON contract.
 
@@ -300,7 +299,7 @@ Before public release, also verify:
 - The Activity session cookie is `HttpOnly`, `Secure`, `SameSite=None`, `Partitioned`, host-only, and rejected after tampering or when replayed against another Activity instance.
 - With proxy authentication required, direct privileged POSTs without Discord's signed proxy headers return HTTP 401 while a real Discord launch succeeds.
 - A controlled Discord API `429` test or mock honors `retry_after` and remains bounded rather than looping indefinitely.
-- Supabase Realtime Inspector rejects a token joining any `activity:*` topic other than its one opaque claim.
+- If optional Realtime is enabled, Supabase Realtime Inspector rejects a token joining any `activity:*` topic other than its one opaque claim.
 - Two real Discord accounts cannot read each other's save through the API.
 - Refresh/reconnect works after at least one hour and no expired token remains connected.
 - Mobile Discord, desktop Discord, and web Discord fit the exported UI and memory budget.

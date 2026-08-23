@@ -15,7 +15,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - `export-manifest.json` plus per-Blueprint/node compatibility warnings and exact browser payload measurements
 - Commandlet support for CI or batch export
 - Output that works on any static host
-- Discord Activity Blueprint nodes plus automatic connection/error, multiplayer, participant, entitlement, layout/orientation/thermal events, Rich Presence/share-link discovery, verified Discord identity, Supabase Realtime, cross-device saves, and a ready-to-deploy Activity API (Vercel adapter included)
+- Discord Activity Blueprint nodes plus automatic connection/error, multiplayer, participant, entitlement, layout/orientation/thermal events, Rich Presence/share-link discovery, verified Discord identity, cross-device saves, optional private Supabase Realtime, and a ready-to-deploy Activity API (Vercel adapter included)
 - A dry-run-first cross-platform release command that links the explicitly selected Supabase/Vercel projects, migrates, verifies, and deploys without printing server secrets
 - A one-click **Export & Preview Discord Blueprint Logic** command that runs Discord's official SDK mock locally with offline Broadcast, mock purchases, and revisioned game-state persistence—before any portal, credential, or deployment work
 - A fast **Check Blueprint Web Compatibility…** command that scans the same placed/runtime Blueprint scope without exporting scene assets, lists exact adapter work in Unreal, and writes a readable report plus machine-readable IR

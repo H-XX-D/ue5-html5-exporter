@@ -21,7 +21,6 @@ const REQUIRED_ENVIRONMENT = [
   'SUPABASE_URL',
   'SUPABASE_PUBLISHABLE_KEY',
   'SUPABASE_SECRET_KEY',
-  'SUPABASE_JWT_PRIVATE_KEY',
   'ACTIVITY_STATE_SECRET',
 ];
 
@@ -56,6 +55,17 @@ function proxyAuthenticationRequired(env) {
 
 function richPresenceEnabled(env) {
   return /^(?:1|true|yes|on)$/i.test(String(env.DISCORD_ENABLE_RICH_PRESENCE || ''));
+}
+
+function realtimeEnabled(env) {
+  try {
+    const key = JSON.parse(env.SUPABASE_JWT_PRIVATE_KEY);
+    return key.kty === 'EC'
+      && key.crv === 'P-256'
+      && Boolean(key.x && key.y && key.d && (env.SUPABASE_JWT_KEY_ID || key.kid));
+  } catch {
+    return false;
+  }
 }
 
 function validDiscordPublicKey(value) {
@@ -341,8 +351,11 @@ async function authenticate(body, fetchImpl, env) {
   const topic = realtimeTopic(env, body.instanceId);
   const playerKey = opaqueStateId(env, 'player', verified.discordUser.id);
   const instanceKey = opaqueStateId(env, 'session-instance', body.instanceId);
+  const realtimePromise = realtimeEnabled(env)
+    ? mintRealtimeToken(env, topic)
+    : Promise.resolve({ token: null, expiresAt: null });
   const [realtime, entitlements] = await Promise.all([
-    mintRealtimeToken(env, topic),
+    realtimePromise,
     fetchEntitlements(fetchImpl, env, verified.discordUser.id),
   ]);
   return json({
@@ -357,7 +370,9 @@ async function authenticate(body, fetchImpl, env) {
 async function refresh(request, body, fetchImpl, env) {
   const verified = await verifyActivitySession(request, body, fetchImpl, env);
   if (verified.error) return verified.error;
-  const realtime = await mintRealtimeToken(env, realtimeTopic(env, body.instanceId));
+  const realtime = realtimeEnabled(env)
+    ? await mintRealtimeToken(env, realtimeTopic(env, body.instanceId))
+    : { token: null, expiresAt: null };
   return json(
     { realtimeToken: realtime.token, realtimeExpiresAt: realtime.expiresAt },
     200,
@@ -442,6 +457,7 @@ export async function handleActivityRequest(request, {
     if (!hasRequiredEnvironment(env)) return json({ enabled: false });
     return json({
       enabled: true,
+      realtimeEnabled: realtimeEnabled(env),
       discordClientId: env.DISCORD_CLIENT_ID,
       supabaseUrl: env.SUPABASE_URL,
       supabasePublishableKey: env.SUPABASE_PUBLISHABLE_KEY,

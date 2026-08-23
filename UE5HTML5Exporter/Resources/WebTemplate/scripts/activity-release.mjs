@@ -14,12 +14,16 @@ import {
   verifyActivityServices,
 } from './activity-preflight.mjs';
 
-export const SENSITIVE_ENVIRONMENT = [
+export const REQUIRED_SENSITIVE_ENVIRONMENT = [
   'DISCORD_CLIENT_SECRET',
   'DISCORD_BOT_TOKEN',
   'SUPABASE_SECRET_KEY',
-  'SUPABASE_JWT_PRIVATE_KEY',
   'ACTIVITY_STATE_SECRET',
+];
+
+export const SENSITIVE_ENVIRONMENT = [
+  ...REQUIRED_SENSITIVE_ENVIRONMENT,
+  'SUPABASE_JWT_PRIVATE_KEY',
 ];
 
 export const PUBLIC_ENVIRONMENT = [
@@ -157,7 +161,7 @@ export async function completeVercelOnlySecrets(options, environment, {
   const completed = { ...environment };
   if (!options.vercelOnlySecrets || !options.apply) return completed;
 
-  for (const name of SENSITIVE_ENVIRONMENT) {
+  for (const name of REQUIRED_SENSITIVE_ENVIRONMENT) {
     if (!placeholder(completed[name])) continue;
     if (name === 'ACTIVITY_STATE_SECRET') {
       completed[name] = generatedStateSecret(random);
@@ -168,7 +172,8 @@ export async function completeVercelOnlySecrets(options, environment, {
     }
   }
 
-  if (placeholder(completed.SUPABASE_JWT_KEY_ID)) {
+  if (!placeholder(completed.SUPABASE_JWT_PRIVATE_KEY)
+      && placeholder(completed.SUPABASE_JWT_KEY_ID)) {
     try {
       const keyId = JSON.parse(completed.SUPABASE_JWT_PRIVATE_KEY).kid;
       if (!placeholder(keyId)) completed.SUPABASE_JWT_KEY_ID = String(keyId);
@@ -251,12 +256,6 @@ function dryRunEnvironment(options, environment) {
     if (placeholder(preview.DISCORD_BOT_TOKEN)) preview.DISCORD_BOT_TOKEN = 'prompted-discord-bot-token-value';
     if (placeholder(preview.SUPABASE_SECRET_KEY)) preview.SUPABASE_SECRET_KEY = 'sb_secret_prompted-at-apply';
     if (placeholder(preview.ACTIVITY_STATE_SECRET)) preview.ACTIVITY_STATE_SECRET = 'generated-at-apply-0123456789abcdef';
-    if (placeholder(preview.SUPABASE_JWT_PRIVATE_KEY)) {
-      preview.SUPABASE_JWT_PRIVATE_KEY = JSON.stringify({
-        kty: 'EC', crv: 'P-256', kid: 'prompted-at-apply', x: 'prompted', y: 'prompted', d: 'prompted',
-      });
-    }
-    if (placeholder(preview.SUPABASE_JWT_KEY_ID)) preview.SUPABASE_JWT_KEY_ID = 'prompted-at-apply';
   }
   return preview;
 }
@@ -374,7 +373,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
   const selection = validateReleaseSelection(options, environment, vercelLink);
   const variableNames = [...PUBLIC_ENVIRONMENT, ...SENSITIVE_ENVIRONMENT]
     .filter((name) => Boolean(environment[name])
-      || (options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name))
+      || (options.vercelOnlySecrets && REQUIRED_SENSITIVE_ENVIRONMENT.includes(name))
       || (options.supabaseCliKeys && name === 'SUPABASE_PUBLISHABLE_KEY'));
   return {
     schema: 'ue5-discord-activity-release-plan/v1',
@@ -396,7 +395,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
           && ['SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY'].includes(name)
           && placeholder(environment[name])
         ? 'supabase-cli-at-apply'
-        : (options.vercelOnlySecrets && SENSITIVE_ENVIRONMENT.includes(name) && placeholder(environment[name])
+        : (options.vercelOnlySecrets && REQUIRED_SENSITIVE_ENVIRONMENT.includes(name) && placeholder(environment[name])
           ? (name === 'ACTIVITY_STATE_SECRET' ? 'generated-at-apply' : 'hidden-prompt-at-apply')
           : 'environment'),
     })),
@@ -406,7 +405,9 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       : 'skipped by operator',
     discordUrlMappings: {
       '/': '<deployment-host returned after apply>',
-      '/supabase': selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : null,
+      ...(!placeholder(environment.SUPABASE_JWT_PRIVATE_KEY) ? {
+        '/supabase': selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : null,
+      } : {}),
     },
     discordPortalChecklist: [
       'Installation: enable both Guild Install and User Install.',
@@ -414,7 +415,7 @@ export function buildActivityReleasePlan(options, environment, vercelLink = read
       'OAuth2: leave Public Client disabled; this export exchanges authorization codes in the Vercel server function and keeps the client secret off the browser.',
       'Activities: enable Activities and keep a global Primary Entry Point using DISCORD_LAUNCH_ACTIVITY.',
       'URL Mappings: map / to the deployment host printed after apply.',
-      `URL Mappings: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'}.`,
+      `Optional private Realtime only: map /supabase to ${selection.selectedSupabaseProjectRef ? supabaseHostname(selection.selectedSupabaseProjectRef) : '<selected-project-ref>.supabase.co'} when SUPABASE_JWT_PRIVATE_KEY is configured. Basic persistence does not need this mapping.`,
       'Activity Settings: enable every intended desktop, web, iOS, and Android platform and configure mobile orientation.',
       'General Information: add distribution metadata, art, participant limit, privacy policy, and terms as applicable.',
     ],
@@ -674,7 +675,9 @@ export async function executeActivityRelease(options, environment, {
     deploymentUrl: url,
     discordUrlMappings: {
       '/': url ? new URL(url).host : '<deployment skipped>',
-      '/supabase': supabaseHostname(selection.selectedSupabaseProjectRef),
+      ...(!placeholder(releaseEnvironment.SUPABASE_JWT_PRIVATE_KEY) ? {
+        '/supabase': supabaseHostname(selection.selectedSupabaseProjectRef),
+      } : {}),
     },
     plan,
   };

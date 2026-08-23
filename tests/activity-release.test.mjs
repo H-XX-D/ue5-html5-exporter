@@ -427,17 +427,14 @@ test('Vercel-only mode prompts for missing server secrets and never mutates the 
     DISCORD_CLIENT_SECRET: '',
     DISCORD_BOT_TOKEN: '',
     SUPABASE_SECRET_KEY: 'sb_secret_REPLACE_ME',
-    SUPABASE_JWT_PRIVATE_KEY: '{"kid":"REPLACE_ME"}',
-    SUPABASE_JWT_KEY_ID: 'REPLACE_ME',
+    SUPABASE_JWT_PRIVATE_KEY: '',
+    SUPABASE_JWT_KEY_ID: '',
     ACTIVITY_STATE_SECRET: '',
   };
   const answers = {
     DISCORD_CLIENT_SECRET: 'prompted-discord-client-secret',
     DISCORD_BOT_TOKEN: 'prompted-discord-bot-token-value',
     SUPABASE_SECRET_KEY: 'sb_secret_prompted-value',
-    SUPABASE_JWT_PRIVATE_KEY: JSON.stringify({
-      kty: 'EC', crv: 'P-256', kid: 'prompted-key', x: 'x', y: 'y', d: 'd',
-    }),
   };
   const labels = [];
   const completed = await completeVercelOnlySecrets(options, original, {
@@ -450,11 +447,12 @@ test('Vercel-only mode prompts for missing server secrets and never mutates the 
   });
 
   assert.equal(original.DISCORD_CLIENT_SECRET, '');
-  assert.equal(original.SUPABASE_JWT_KEY_ID, 'REPLACE_ME');
+  assert.equal(original.SUPABASE_JWT_KEY_ID, '');
   assert.equal(completed.DISCORD_CLIENT_SECRET, answers.DISCORD_CLIENT_SECRET);
-  assert.equal(completed.SUPABASE_JWT_KEY_ID, 'prompted-key');
+  assert.equal(completed.SUPABASE_JWT_PRIVATE_KEY, '');
+  assert.equal(completed.SUPABASE_JWT_KEY_ID, '');
   assert.equal(Buffer.from(completed.ACTIVITY_STATE_SECRET, 'base64url').length, 32);
-  assert.equal(labels.length, 4);
+  assert.equal(labels.length, 3);
 });
 
 test('Vercel-only dry-run plans hidden prompts without requiring local secrets', async () => {
@@ -577,9 +575,6 @@ test('guided apply discovers Supabase keys then prompts only for remaining priva
   const promptValues = {
     DISCORD_CLIENT_SECRET: 'prompted-discord-client-secret',
     DISCORD_BOT_TOKEN: 'prompted-discord-bot-token-value',
-    SUPABASE_JWT_PRIVATE_KEY: JSON.stringify({
-      kty: 'EC', crv: 'P-256', kid: 'guided-key', x: 'x', y: 'y', d: 'd',
-    }),
   };
   const runner = (command, args, invocation) => {
     calls.push({ command, args, input: invocation.input });
@@ -614,7 +609,7 @@ test('guided apply discovers Supabase keys then prompts only for remaining priva
     verifyServices: async () => ({ errors: [], warnings: [], checks: ['services verified'] }),
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(promptNames, ['DISCORD_CLIENT_SECRET', 'DISCORD_BOT_TOKEN', 'SUPABASE_JWT_PRIVATE_KEY']);
+  assert.deepEqual(promptNames, ['DISCORD_CLIENT_SECRET', 'DISCORD_BOT_TOKEN']);
   const secretUpload = calls.find((call) => call.args.includes('SUPABASE_SECRET_KEY'));
   assert.equal(secretUpload.input, 'sb_secret_guided-value\n');
   assert.ok(secretUpload.args.includes('--sensitive'));

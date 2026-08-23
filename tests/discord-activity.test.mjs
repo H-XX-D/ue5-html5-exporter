@@ -170,10 +170,87 @@ test('public Activity config never returns server secrets', async () => {
 
   assert.equal(response.status, 200);
   assert.equal(payload.enabled, true);
+  assert.equal(payload.realtimeEnabled, true);
   assert.equal(payload.supabaseProxyTarget, 'project.supabase.co');
   assert.equal(payload.richPresenceEnabled, false);
   assert.deepEqual(payload.oauthScopes, ['identify']);
   assert.doesNotMatch(JSON.stringify(payload), /discord-secret|bot-secret|sb_secret_private/);
+});
+
+test('Activity auth and persistence stay enabled without a Supabase private Realtime key', async () => {
+  const env = await testEnvironment();
+  delete env.SUPABASE_JWT_PRIVATE_KEY;
+  delete env.SUPABASE_JWT_KEY_ID;
+  const fetchImpl = mockDiscordFetch();
+
+  const configResponse = await handleActivityRequest(new Request('https://game.test/api/activity'), { env });
+  const config = await configResponse.json();
+  assert.equal(config.enabled, true);
+  assert.equal(config.realtimeEnabled, false);
+
+  const authResponse = await handleActivityRequest(new Request('https://game.test/api/activity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'authenticate', instanceId: 'i-test', code: 'discord-code' }),
+  }), { env, fetchImpl });
+  const authenticated = await authResponse.json();
+  assert.equal(authResponse.status, 200);
+  assert.equal(authenticated.realtimeToken, null);
+  assert.equal(authenticated.realtimeExpiresAt, null);
+  assert.match(authResponse.headers.get('set-cookie'), /^__Host-ue5_activity_session=/);
+});
+
+test('bridge reaches ready without constructing Supabase when private Realtime is disabled', async () => {
+  let supabaseClients = 0;
+  const calls = [];
+  const config = {
+    enabled: true,
+    realtimeEnabled: false,
+    discordClientId: '123',
+    supabaseUrl: 'https://project.supabase.co',
+    supabasePublishableKey: 'sb_publishable_public',
+    oauthScopes: ['identify'],
+  };
+  const fetchImpl = async (_url, init = {}) => {
+    calls.push(init);
+    if (!init.method) return Response.json(config);
+    const request = JSON.parse(init.body);
+    if (request.action === 'authenticate') {
+      return Response.json({
+        accessToken: 'discord-access-token',
+        realtimeToken: null,
+        realtimeExpiresAt: null,
+        topic: 'activity:opaque',
+        entitlements: [],
+      });
+    }
+    return Response.json({ state: { checkpoint: 1 }, revision: 2 });
+  };
+  class MockDiscordSDK {
+    constructor() { this.instanceId = 'i-test'; }
+    async ready() {}
+    commands = {
+      authorize: async () => ({ code: 'discord-code' }),
+      authenticate: async () => ({ user: { id: '42' } }),
+    };
+    subscribe() {}
+    close() {}
+  }
+  const bridge = new DiscordActivityBridge({
+    fetchImpl,
+    DiscordSDKClass: MockDiscordSDK,
+    createSupabaseClient: () => { supabaseClients += 1; throw new Error('must not construct'); },
+    locationObject: { hostname: '123.discordsays.com', origin: 'https://123.discordsays.com', search: '' },
+  });
+
+  await bridge.start();
+  assert.equal(bridge.mode, 'ready');
+  assert.equal(bridge.discordAccessToken, null);
+  assert.equal(bridge.channel, null);
+  assert.equal(supabaseClients, 0);
+  assert.deepEqual(await bridge.loadPlayerState(), { state: { checkpoint: 1 }, revision: 2 });
+  assert.equal(JSON.parse(calls.at(-1).body).accessToken, undefined);
+  await bridge.dispose();
 });
 
 test('Rich Presence scope is enabled only by explicit server configuration', async () => {

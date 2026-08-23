@@ -319,11 +319,16 @@ namespace
             FString(TEXT("DISCORD_CLIENT_ID")), FString(TEXT("DISCORD_CLIENT_SECRET")),
             FString(TEXT("DISCORD_BOT_TOKEN")), FString(TEXT("SUPABASE_URL")),
             FString(TEXT("SUPABASE_PUBLISHABLE_KEY")), FString(TEXT("SUPABASE_SECRET_KEY")),
-            FString(TEXT("SUPABASE_JWT_PRIVATE_KEY")), FString(TEXT("ACTIVITY_STATE_SECRET")) })
+            FString(TEXT("ACTIVITY_STATE_SECRET")) })
         {
             RequiredEnvironment.Add(MakeShared<FJsonValueString>(Name));
         }
         Root->SetArrayField(TEXT("releaseEnvironment"), RequiredEnvironment);
+
+        TArray<TSharedPtr<FJsonValue>> OptionalEnvironment;
+        OptionalEnvironment.Add(MakeShared<FJsonValueString>(TEXT("SUPABASE_JWT_PRIVATE_KEY")));
+        OptionalEnvironment.Add(MakeShared<FJsonValueString>(TEXT("SUPABASE_JWT_KEY_ID")));
+        Root->SetArrayField(TEXT("optionalReleaseEnvironment"), OptionalEnvironment);
 
         TSharedRef<FJsonObject> Compatibility = MakeShared<FJsonObject>();
         Compatibility->SetStringField(

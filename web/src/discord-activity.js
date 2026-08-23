@@ -182,7 +182,6 @@ export class DiscordActivityBridge extends EventTarget {
 
     try {
       this.setMode('connecting');
-      const supabaseUrl = this.configureSupabaseProxy();
       this.discord = new this.DiscordSDKClass(this.config.discordClientId);
       await this.discord.ready();
       const { code } = await this.discord.commands.authorize({
@@ -211,14 +210,17 @@ export class DiscordActivityBridge extends EventTarget {
       this.user = discordAuth.user;
       this.topic = authenticated.topic;
 
-      this.supabase = this.createSupabaseClient(supabaseUrl, this.config.supabasePublishableKey, {
-        accessToken: async () => this.realtimeToken,
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      });
-      this.supabase.realtime.setAuth(this.realtimeToken);
-      await this.joinRealtime();
+      if (this.realtimeToken && this.realtimeExpiresAt && this.topic) {
+        const supabaseUrl = this.configureSupabaseProxy();
+        this.supabase = this.createSupabaseClient(supabaseUrl, this.config.supabasePublishableKey, {
+          accessToken: async () => this.realtimeToken,
+          auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        });
+        this.supabase.realtime.setAuth(this.realtimeToken);
+        await this.joinRealtime();
+      }
       this.subscribeToDiscordEvents();
-      this.scheduleRealtimeRefresh();
+      if (this.channel) this.scheduleRealtimeRefresh();
       this.setMode('ready', { user: this.user, topic: this.topic, entitlements: this.entitlements });
       return this;
     } catch (error) {
@@ -319,7 +321,13 @@ export class DiscordActivityBridge extends EventTarget {
   }
 
   async refreshRealtimeToken() {
+    if (!this.supabase || !this.channel) return null;
     const refreshed = await this.callApi('refresh', { instanceId: this.discord.instanceId });
+    if (!refreshed.realtimeToken || !refreshed.realtimeExpiresAt) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+      return refreshed;
+    }
     this.realtimeToken = refreshed.realtimeToken;
     this.realtimeExpiresAt = refreshed.realtimeExpiresAt;
     this.supabase.realtime.setAuth(this.realtimeToken);

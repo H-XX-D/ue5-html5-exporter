@@ -139,6 +139,15 @@ test('Activity preflight accepts a complete private configuration', () => {
   assert.deepEqual(validateActivityEnvironment(validEnvironment()).errors, []);
 });
 
+test('Activity preflight keeps private Realtime optional for Discord auth and persistence', () => {
+  const env = validEnvironment();
+  delete env.SUPABASE_JWT_PRIVATE_KEY;
+  delete env.SUPABASE_JWT_KEY_ID;
+  const result = validateActivityEnvironment(env);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.warnings.some((warning) => warning.includes('private Realtime is disabled')));
+});
+
 test('Activity preflight rejects placeholders, weak secrets, and mismatched signing keys', () => {
   const env = validEnvironment();
   env.DISCORD_BOT_TOKEN = 'Bot short';
@@ -418,6 +427,43 @@ test('online preflight matches Discord app, Supabase signing key, migration, and
   for (const call of calls.filter((entry) => entry.value.includes('supabase.co/rest/'))) {
     assert.equal(call.headers.has('authorization'), false);
   }
+});
+
+test('online preflight skips signing-key discovery when private Realtime is disabled', async () => {
+  const env = validEnvironment();
+  delete env.SUPABASE_JWT_PRIVATE_KEY;
+  delete env.SUPABASE_JWT_KEY_ID;
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const value = String(url);
+    const headers = new Headers(init.headers);
+    calls.push(value);
+    if (value.endsWith('/applications/@me')) {
+      return Response.json({
+        id: env.DISCORD_CLIENT_ID,
+        flags_new: String(1 << 17),
+        integration_types_config: { '0': {}, '1': {} },
+        redirect_uris: ['https://127.0.0.1'],
+        privacy_policy_url: 'https://game.test/privacy',
+        terms_of_service_url: 'https://game.test/terms',
+      });
+    }
+    if (value.endsWith(`/applications/${env.DISCORD_CLIENT_ID}/commands`)) {
+      return Response.json([{ id: 'entry', name: 'launch', type: 4, handler: 2 }]);
+    }
+    if (value.endsWith('/auth/v1/health')) return Response.json({ version: 'test' });
+    if (value.includes('/discord_activity_world_state')) {
+      return headers.get('apikey') === env.SUPABASE_PUBLISHABLE_KEY
+        ? Response.json({ message: 'permission denied' }, { status: 403 })
+        : Response.json([]);
+    }
+    throw new Error(`Unexpected online preflight request: ${value}`);
+  };
+
+  const result = await verifyActivityServices(env, { fetchImpl });
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.checks.some((check) => check.includes('private Realtime is intentionally disabled')));
+  assert.equal(calls.some((url) => url.endsWith('/auth/v1/.well-known/jwks.json')), false);
 });
 
 test('online preflight rejects mismatched service identities and browser-readable game state', async () => {

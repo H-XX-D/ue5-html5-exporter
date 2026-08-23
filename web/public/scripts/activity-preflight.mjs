@@ -9,7 +9,6 @@ export const REQUIRED_ENVIRONMENT = [
   'SUPABASE_URL',
   'SUPABASE_PUBLISHABLE_KEY',
   'SUPABASE_SECRET_KEY',
-  'SUPABASE_JWT_PRIVATE_KEY',
   'ACTIVITY_STATE_SECRET',
 ];
 
@@ -475,10 +474,6 @@ export function validateActivityEnvironment(env = process.env) {
   for (const name of REQUIRED_ENVIRONMENT) {
     if (placeholder(String(env[name] || ''))) errors.push(`${name} is missing or still a placeholder.`);
   }
-  if (errors.some((message) => message.startsWith('SUPABASE_JWT_PRIVATE_KEY'))) {
-    return { errors, warnings };
-  }
-
   if (!/^\d{17,20}$/.test(env.DISCORD_CLIENT_ID)) {
     errors.push('DISCORD_CLIENT_ID must be a Discord snowflake (17-20 digits).');
   }
@@ -514,7 +509,14 @@ export function validateActivityEnvironment(env = process.env) {
   } else if (!requireProxyAuth) {
     warnings.push('Discord proxy request authentication is not required; enable it before production if available for this app.');
   }
-  validateJwk(env, errors);
+  const realtimeKey = String(env.SUPABASE_JWT_PRIVATE_KEY || '');
+  if (!realtimeKey) {
+    warnings.push('Supabase private Realtime is disabled; Discord auth and server-mediated game persistence remain available.');
+  } else if (placeholder(realtimeKey)) {
+    errors.push('SUPABASE_JWT_PRIVATE_KEY is still a placeholder; remove it to disable Realtime or configure a private ES256 JWK.');
+  } else {
+    validateJwk(env, errors);
+  }
   return { errors, warnings };
 }
 
@@ -649,25 +651,29 @@ export async function verifyActivityServices(env = process.env, { fetchImpl = fe
     errors.push(error.message);
   }
 
-  let privateJwk;
-  try { privateJwk = JSON.parse(env.SUPABASE_JWT_PRIVATE_KEY); } catch {}
-  const keyId = env.SUPABASE_JWT_KEY_ID || privateJwk?.kid;
-  try {
-    const jwks = await onlineJson(
-      fetchImpl,
-      'Supabase signing-key check',
-      `${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`,
-    );
-    const publicJwk = Array.isArray(jwks.keys) ? jwks.keys.find((key) => key.kid === keyId) : null;
-    if (!publicJwk) {
-      errors.push('Configured Supabase signing-key ID is not published by this project.');
-    } else if (publicJwk.kty !== 'EC' || publicJwk.crv !== 'P-256' || publicJwk.x !== privateJwk.x || publicJwk.y !== privateJwk.y) {
-      errors.push('SUPABASE_JWT_PRIVATE_KEY does not match this project’s published ES256 key.');
-    } else {
-      checks.push('Supabase project publishes the matching ES256 public key');
+  if (env.SUPABASE_JWT_PRIVATE_KEY) {
+    let privateJwk;
+    try { privateJwk = JSON.parse(env.SUPABASE_JWT_PRIVATE_KEY); } catch {}
+    const keyId = env.SUPABASE_JWT_KEY_ID || privateJwk?.kid;
+    try {
+      const jwks = await onlineJson(
+        fetchImpl,
+        'Supabase signing-key check',
+        `${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`,
+      );
+      const publicJwk = Array.isArray(jwks.keys) ? jwks.keys.find((key) => key.kid === keyId) : null;
+      if (!publicJwk) {
+        errors.push('Configured Supabase signing-key ID is not published by this project.');
+      } else if (publicJwk.kty !== 'EC' || publicJwk.crv !== 'P-256' || publicJwk.x !== privateJwk.x || publicJwk.y !== privateJwk.y) {
+        errors.push('SUPABASE_JWT_PRIVATE_KEY does not match this project’s published ES256 key.');
+      } else {
+        checks.push('Supabase project publishes the matching ES256 public key');
+      }
+    } catch (error) {
+      errors.push(error.message);
     }
-  } catch (error) {
-    errors.push(error.message);
+  } else {
+    checks.push('Supabase private Realtime is intentionally disabled; server-mediated persistence remains enabled');
   }
 
   try {
