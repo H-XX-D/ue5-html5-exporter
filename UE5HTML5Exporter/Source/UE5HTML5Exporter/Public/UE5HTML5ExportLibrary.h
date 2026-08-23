@@ -14,6 +14,8 @@ struct FUE5HTML5ExportResult
     int32 ActorCount = 0;
     int32 BlueprintCount = 0;
     int32 BlueprintNodeCount = 0;
+    int32 BuiltInSupportedBlueprintNodeCount = 0;
+    int32 CustomAdapterBlueprintNodeCount = 0;
     int32 SupportedBlueprintNodeCount = 0;
     int32 UnsupportedBlueprintNodeCount = 0;
     int64 BrowserPayloadBytes = 0;
@@ -45,6 +47,8 @@ struct FUE5HTML5BlueprintCompatibilityReport
     int32 BlueprintCount = 0;
     int32 ActorInstanceCount = 0;
     int32 NodeCount = 0;
+    int32 BuiltInSupportedNodeCount = 0;
+    int32 CustomAdapterNodeCount = 0;
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
     TArray<FString> UnsupportedNodes;
@@ -53,6 +57,7 @@ struct FUE5HTML5BlueprintCompatibilityReport
 class FUE5HTML5ExportLibrary
 {
 public:
+    static bool EnsureProjectAdapterFiles(FString& OutDirectory, FString& OutError);
     static FUE5HTML5ReadinessReport CheckDiscordActivityReadiness(UWorld* World);
     static FUE5HTML5BlueprintCompatibilityReport AnalyzeBlueprintCompatibility(UWorld* World, const FString& OutputDirectory);
     static FUE5HTML5ExportResult ExportWorld(UWorld* World, const FString& OutputDirectory, const TSet<AActor*>& SelectedActors);

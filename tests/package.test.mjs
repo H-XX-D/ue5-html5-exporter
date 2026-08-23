@@ -127,11 +127,14 @@ test('exporter writes the scene, manifest, and local server helper', () => {
   assert.match(source, /discord-activity/);
   assert.match(source, /DISCORD_ACTIVITY_WORKFLOW\.md/);
   assert.match(source, /activity-handoff\.json/);
-  assert.match(source, /ue5-discord-activity-handoff\/v4/);
+  assert.match(source, /ue5-discord-activity-handoff\/v5/);
   assert.match(source, /projectTargets/);
   assert.match(source, /missingRequiredTargets/);
   assert.match(source, /blueprintCompatibility/);
-  assert.match(source, /ue5-html5-export\/v3/);
+  assert.match(source, /ue5-html5-export\/v4/);
+  assert.match(source, /custom-adapters\.json/);
+  assert.match(source, /custom-adapters\.js/);
+  assert.match(source, /customAdapterNodeCount/);
   assert.match(source, /assetDelivery/);
   assert.match(source, /browserPayloadBytes/);
   assert.match(source, /not a Discord platform limit or a performance certification/);
@@ -152,6 +155,8 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /CheckDiscordActivityReadinessInteractive/);
   assert.match(module, /Check Blueprint Web Compatibility/);
   assert.match(module, /CheckBlueprintCompatibilityInteractive/);
+  assert.match(module, /Open Custom Web Adapters Folder/);
+  assert.match(module, /OpenCustomWebAdapters/);
   assert.match(module, /AnalyzeBlueprintCompatibility/);
   assert.match(module, /BLUEPRINT WEB COMPATIBILITY/);
   assert.match(module, /ProjectSavedDir/);
@@ -221,6 +226,9 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /blueprints\.json/);
   assert.match(source, /unsupportedCount/);
   assert.match(source, /UnsupportedNodes/);
+  assert.match(source, /project-adapter/);
+  assert.match(source, /CustomAdapterNodeCount/);
+  assert.match(source, /runtimeValidationRequired/);
   assert.match(source, /BlueprintName/);
   assert.match(source, /UInputMappingContext::StaticClass/);
   assert.match(source, /UBehaviorTree::StaticClass/);

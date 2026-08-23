@@ -154,12 +154,14 @@ Add `-FailOnUnsupported` when CI should exit with code `6` if any node still nee
 | AI/Behavior Trees | Tree assets exported; Wait and Blueprint task events run in a lightweight scheduler |
 | UMG | Widget trees exported to DOM; common containers, text, buttons, viewport, visibility, and text calls supported |
 | Niagara/Cascade | Spawn/activate/deactivate calls use a portable Three.js particle fallback |
-| User C++ gameplay | Explicit JavaScript replacement registry through `UE5HTML5.registerFunction` |
+| User C++ gameplay | Project-owned `Config/UE5HTML5/custom-adapters.json` + `custom-adapters.js`, copied into every export and registered through `UE5HTML5.registerFunction` before Blueprint startup |
 | Discord Activity | Blueprint nodes/events backed by Embedded App SDK connection/auth lifecycle, privacy-safe diagnostics, inbound/outbound private Broadcast, opaque Presence, participant and verified-entitlement updates, layout/orientation/thermal updates, Rich Presence/share links, opaque HttpOnly Activity sessions, and atomic cross-device saves |
 | Other Blueprint nodes/functions | Preserved in IR and reported as unsupported |
 | UE post-processing/custom shaders | Not transferred or approximated by PBR conversion |
 
 The exported page has a **Logic** button showing converted programs, actor instances, node totals, and unsupported nodes. Browser code can trigger events and exported Blueprint functions with `window.UE5HTML5.call(eventName, actorName, args)`.
+
+For project C++ or a Blueprint function outside the built-in subset, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. Declare the Unreal function name in `custom-adapters.json`, implement the same name in `custom-adapters.js`, and keep both files in source control. The fast compatibility audit then reports built-in, project-adapter-covered, and uncovered nodes separately. The exported browser refuses to start Blueprint logic if any declared implementation failed to register. Registration is a wiring check, not a behavior certification, so project-adapter coverage still requires local Discord preview and gameplay testing.
 
 The footer also shows the measured primary browser payload from `export-manifest.json`. `delivery review` means the package exceeds its Unreal project advisory budget; it does not mean Discord rejected the package.
 
@@ -181,11 +183,11 @@ npm run package:plugin -- --help
 UE5 World / selected actors
         │
         ▼
-Epic GLTFExporter plugin       Blueprint graph serializer
+Epic GLTFExporter plugin       Blueprint graph serializer + adapter declarations
         │
         ├─────────────────────────────┐
         ▼                             ▼
-assets/scene.glb          logic/blueprints.json
+assets/scene.glb          logic/blueprints.json + custom-adapters.{json,js}
         └──────────────┬──────────────┘
                        ▼
        Three.js renderer + Blueprint VM

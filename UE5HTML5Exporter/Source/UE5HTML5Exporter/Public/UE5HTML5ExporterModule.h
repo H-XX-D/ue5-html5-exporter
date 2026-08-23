@@ -12,6 +12,7 @@ public:
 private:
     void RegisterMenus();
     void OpenDiscordActivitySettings();
+    void OpenCustomWebAdapters();
     void CheckDiscordActivityReadinessInteractive();
     void CheckBlueprintCompatibilityInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);

@@ -158,12 +158,31 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("BlueprintCompatibilityTooltip", "Scan the current map's exported Blueprint scope without exporting scene assets, then write a readable adapter report."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5CustomWebAdapters",
+        LOCTEXT("CustomWebAdapters", "Open Custom Web Adapters Folder"),
+        LOCTEXT("CustomWebAdaptersTooltip", "Create or open the source-controlled Config/UE5HTML5 adapter contract for project C++ and unsupported Blueprint functions."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::OpenCustomWebAdapters)));
 }
 
 void FUE5HTML5ExporterModule::OpenDiscordActivitySettings()
 {
     ISettingsModule& SettingsModule = FModuleManager::LoadModuleChecked<ISettingsModule>(TEXT("Settings"));
     SettingsModule.ShowViewer(TEXT("Project"), TEXT("Plugins"), TEXT("UE5HTML5DiscordActivity"));
+}
+
+void FUE5HTML5ExporterModule::OpenCustomWebAdapters()
+{
+    FString Directory;
+    FString Error;
+    if (!FUE5HTML5ExportLibrary::EnsureProjectAdapterFiles(Directory, Error))
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
+        return;
+    }
+    FPlatformProcess::ExploreFolder(*Directory);
 }
 
 void FUE5HTML5ExporterModule::CheckDiscordActivityReadinessInteractive()
@@ -236,11 +255,14 @@ void FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive()
 
     FString Message = FString::Printf(
         TEXT("BLUEPRINT WEB COMPATIBILITY\n\n")
-        TEXT("%d of %d nodes are supported across %d Blueprints and %d actor instances.\n"),
+        TEXT("%d of %d nodes are covered across %d Blueprints and %d actor instances.\n")
+        TEXT("%d use the built-in runtime; %d use project adapters and still require runtime validation.\n"),
         Report.SupportedNodeCount,
         Report.NodeCount,
         Report.BlueprintCount,
-        Report.ActorInstanceCount);
+        Report.ActorInstanceCount,
+        Report.BuiltInSupportedNodeCount,
+        Report.CustomAdapterNodeCount);
     if (Report.UnsupportedNodeCount == 0)
     {
         Message += TEXT("\nNo unsupported nodes were found in the current export scope.\n");
@@ -344,6 +366,14 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
             Result.SupportedBlueprintNodeCount,
             Result.BlueprintNodeCount,
             Result.UnsupportedBlueprintNodeCount);
+    }
+    else if (Result.CustomAdapterBlueprintNodeCount > 0)
+    {
+        Compatibility = FString::Printf(
+            TEXT("Blueprint compatibility: all %d nodes are covered; %d use project adapters.\n")
+            TEXT("The browser verifies adapter registration, but local Discord preview and gameplay testing are still required."),
+            Result.BlueprintNodeCount,
+            Result.CustomAdapterBlueprintNodeCount);
     }
     else
     {

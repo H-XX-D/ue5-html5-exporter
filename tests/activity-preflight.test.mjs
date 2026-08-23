@@ -208,6 +208,65 @@ test('Activity package preflight warns on honest partial Blueprint compatibility
   }
 });
 
+test('Activity package preflight preserves project-adapter coverage as runtime validation work', () => {
+  const root = exportFixture();
+  try {
+    const compatibility = {
+      status: 'project-adapters-require-runtime-validation',
+      blueprintCount: 1,
+      nodeCount: 2,
+      builtInSupportedNodeCount: 1,
+      customAdapterNodeCount: 1,
+      supportedNodeCount: 2,
+      unsupportedNodeCount: 0,
+    };
+    writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
+      schema: 'ue5-html5-export/v4', blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
+      schema: 'ue5-discord-activity-handoff/v5',
+      handoffStatus: 'unreal-export-needs-runtime-validation',
+      projectTargets: {
+        source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+        discordApplicationId: '', discordPublicKey: '', vercelProjectName: '', supabaseProjectRef: '', productionUrl: '',
+        missingRequiredTargets: [
+          'Discord Application ID', 'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+        ],
+      },
+      blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'logic/custom-adapters.json'), JSON.stringify({
+      schema: 'ue5-html5-custom-adapters/v1', functions: ['NativeApplyDamage'],
+    }));
+    writeFileSync(join(root, 'logic/custom-adapters.js'), "window.UE5HTML5.registerFunction('NativeApplyDamage', () => true); export {};");
+    writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
+      schema: 'ue-blueprint-ir/v1',
+      projectAdapters: {
+        schema: 'ue5-html5-custom-adapters/v1',
+        manifest: 'logic/custom-adapters.json',
+        module: 'logic/custom-adapters.js',
+        declaredFunctionCount: 1,
+        runtimeValidationRequired: true,
+      },
+      programs: [{
+        graphs: [{ nodes: [{ supportSource: 'built-in' }, { supportSource: 'project-adapter' }] }],
+        compatibility: {
+          unsupported: [], unsupportedCount: 0,
+          projectAdapters: [{ function: 'NativeApplyDamage', runtimeValidationRequired: true }],
+          projectAdapterCount: 1,
+          runtimeValidationRequired: true,
+        },
+      }],
+    }));
+    writeAssetDelivery(root);
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.warnings.some((warning) => warning.includes('behavior requires local Discord preview')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Activity package preflight rejects a falsely complete Blueprint handoff', () => {
   const root = exportFixture();
   try {

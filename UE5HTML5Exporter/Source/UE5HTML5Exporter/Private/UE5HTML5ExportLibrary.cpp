@@ -21,6 +21,125 @@
 namespace
 {
     constexpr int64 BytesPerMiB = 1024 * 1024;
+    constexpr const TCHAR* ProjectAdapterSchema = TEXT("ue5-html5-custom-adapters/v1");
+
+    FString ProjectAdapterDirectory()
+    {
+        return FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("UE5HTML5"));
+    }
+
+    FString EmptyProjectAdapterManifest()
+    {
+        return FString::Printf(
+            TEXT("{\n  \"schema\": \"%s\",\n  \"functions\": []\n}\n"),
+            ProjectAdapterSchema);
+    }
+
+    FString EmptyProjectAdapterModule()
+    {
+        return TEXT("// Register project C++ or unsupported Blueprint replacements here.\n")
+            TEXT("// window.UE5HTML5.registerFunction('NativeFunctionName', (args, instance, runtime) => ({ returnvalue: true }));\n")
+            TEXT("export {};\n");
+    }
+
+    FString NormalizeAdapterName(const FString& Value)
+    {
+        FString Result;
+        for (const TCHAR Character : Value)
+        {
+            if (FChar::IsAlnum(Character)) Result.AppendChar(FChar::ToLower(Character));
+        }
+        return Result;
+    }
+
+    bool PrepareProjectAdapters(
+        const FString& OutputDirectory,
+        TSet<FString>& OutFunctions,
+        FString& OutError)
+    {
+        const FString SourceDirectory = ProjectAdapterDirectory();
+        const FString SourceManifest = FPaths::Combine(SourceDirectory, TEXT("custom-adapters.json"));
+        const FString SourceModule = FPaths::Combine(SourceDirectory, TEXT("custom-adapters.js"));
+        const bool bHasManifest = FPaths::FileExists(SourceManifest);
+        const bool bHasModule = FPaths::FileExists(SourceModule);
+        const FString LogicDirectory = FPaths::Combine(OutputDirectory, TEXT("logic"));
+        IFileManager::Get().MakeDirectory(*LogicDirectory, true);
+        const FString DestinationManifest = FPaths::Combine(LogicDirectory, TEXT("custom-adapters.json"));
+        const FString DestinationModule = FPaths::Combine(LogicDirectory, TEXT("custom-adapters.js"));
+
+        if (!bHasManifest && !bHasModule)
+        {
+            if (!FFileHelper::SaveStringToFile(EmptyProjectAdapterManifest(), *DestinationManifest)
+                || !FFileHelper::SaveStringToFile(EmptyProjectAdapterModule(), *DestinationModule))
+            {
+                OutError = TEXT("Could not write the empty project adapter contract into logic/.");
+                return false;
+            }
+            return true;
+        }
+        if (!bHasManifest || !bHasModule)
+        {
+            OutError = TEXT("Config/UE5HTML5 must contain both custom-adapters.json and custom-adapters.js, or neither file.");
+            return false;
+        }
+
+        FString Json;
+        TSharedPtr<FJsonObject> Manifest;
+        if (!FFileHelper::LoadFileToString(Json, *SourceManifest))
+        {
+            OutError = TEXT("Could not read Config/UE5HTML5/custom-adapters.json.");
+            return false;
+        }
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
+        if (!FJsonSerializer::Deserialize(Reader, Manifest)
+            || !Manifest.IsValid())
+        {
+            OutError = TEXT("Config/UE5HTML5/custom-adapters.json is not valid JSON.");
+            return false;
+        }
+        FString Schema;
+        if (!Manifest->TryGetStringField(TEXT("schema"), Schema) || Schema != ProjectAdapterSchema)
+        {
+            OutError = FString::Printf(TEXT("Config/UE5HTML5/custom-adapters.json must use schema %s."), ProjectAdapterSchema);
+            return false;
+        }
+        const TArray<TSharedPtr<FJsonValue>>* Functions = nullptr;
+        if (!Manifest->TryGetArrayField(TEXT("functions"), Functions) || !Functions)
+        {
+            OutError = TEXT("Config/UE5HTML5/custom-adapters.json.functions must be an array.");
+            return false;
+        }
+        for (int32 Index = 0; Index < Functions->Num(); ++Index)
+        {
+            FString Name;
+            if (!(*Functions)[Index].IsValid() || !(*Functions)[Index]->TryGetString(Name))
+            {
+                OutError = FString::Printf(TEXT("Custom adapter function %d must be a string."), Index);
+                return false;
+            }
+            Name.TrimStartAndEndInline();
+            const FString Normalized = NormalizeAdapterName(Name);
+            if (Name.IsEmpty() || Name.Len() > 128 || Normalized.IsEmpty())
+            {
+                OutError = FString::Printf(TEXT("Custom adapter function %d must be a non-empty name of at most 128 characters."), Index);
+                return false;
+            }
+            if (OutFunctions.Contains(Normalized))
+            {
+                OutError = FString::Printf(TEXT("Custom adapter function '%s' duplicates another declaration after normalization."), *Name);
+                return false;
+            }
+            OutFunctions.Add(Normalized);
+        }
+
+        if (IFileManager::Get().Copy(*DestinationManifest, *SourceManifest, true, true) != COPY_OK
+            || IFileManager::Get().Copy(*DestinationModule, *SourceModule, true, true) != COPY_OK)
+        {
+            OutError = TEXT("Could not copy the project adapter contract into logic/.");
+            return false;
+        }
+        return true;
+    }
 
     const TArray<FString>& RequiredActivityTemplateFiles()
     {
@@ -150,12 +269,15 @@ namespace
     bool WriteActivityHandoff(const FString& OutputDirectory, UWorld* World, const FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v4"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-discord-activity-handoff/v5"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         const bool bNeedsBlueprintAdapters = Result.UnsupportedBlueprintNodeCount > 0;
+        const bool bNeedsRuntimeValidation = Result.CustomAdapterBlueprintNodeCount > 0;
         Root->SetStringField(
             TEXT("handoffStatus"),
-            bNeedsBlueprintAdapters ? TEXT("unreal-export-needs-blueprint-adapters") : TEXT("unreal-export-complete"));
+            bNeedsBlueprintAdapters
+                ? TEXT("unreal-export-needs-blueprint-adapters")
+                : (bNeedsRuntimeValidation ? TEXT("unreal-export-needs-runtime-validation") : TEXT("unreal-export-complete")));
         Root->SetBoolField(TEXT("standalonePlayable"), true);
 
         const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UE5HTML5Exporter"));
@@ -204,9 +326,15 @@ namespace
         Root->SetArrayField(TEXT("releaseEnvironment"), RequiredEnvironment);
 
         TSharedRef<FJsonObject> Compatibility = MakeShared<FJsonObject>();
-        Compatibility->SetStringField(TEXT("status"), bNeedsBlueprintAdapters ? TEXT("needs-adapters") : TEXT("compatible"));
+        Compatibility->SetStringField(
+            TEXT("status"),
+            bNeedsBlueprintAdapters
+                ? TEXT("needs-adapters")
+                : (bNeedsRuntimeValidation ? TEXT("project-adapters-require-runtime-validation") : TEXT("compatible")));
         Compatibility->SetNumberField(TEXT("blueprintCount"), Result.BlueprintCount);
         Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("builtInSupportedNodeCount"), Result.BuiltInSupportedBlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("customAdapterNodeCount"), Result.CustomAdapterBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
@@ -221,6 +349,10 @@ namespace
         if (bNeedsBlueprintAdapters)
         {
             ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Resolve or replace the unsupported Blueprint nodes listed in logic/blueprints.json, then export again.")));
+        }
+        if (bNeedsRuntimeValidation)
+        {
+            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run the local Discord preview and exercise every project-owned custom adapter before release; static declaration and registration checks do not certify behavior.")));
         }
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Run npm install, then review the dry-run from npm run release:activity.")));
         ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Review the non-secret project targets copied from Unreal Project Settings; the release tool refuses mismatched Discord, Vercel, or Supabase identities.")));
@@ -246,12 +378,14 @@ namespace
     bool WriteManifest(const FString& OutputDirectory, UWorld* World, const TSet<AActor*>& SelectedActors, FUE5HTML5ExportResult& Result)
     {
         TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v3"));
+        Root->SetStringField(TEXT("schema"), TEXT("ue5-html5-export/v4"));
         Root->SetStringField(TEXT("sourceMap"), World->GetPathName());
         Root->SetBoolField(TEXT("selectionOnly"), !SelectedActors.IsEmpty());
         Root->SetNumberField(TEXT("actorCount"), Result.ActorCount);
         Root->SetStringField(TEXT("scene"), TEXT("assets/scene.glb"));
         Root->SetStringField(TEXT("blueprintLogic"), TEXT("logic/blueprints.json"));
+        Root->SetStringField(TEXT("projectAdapterManifest"), TEXT("logic/custom-adapters.json"));
+        Root->SetStringField(TEXT("projectAdapterModule"), TEXT("logic/custom-adapters.js"));
 
         TArray<TSharedPtr<FJsonValue>> WarningValues;
         for (const FString& Warning : Result.Warnings)
@@ -276,9 +410,15 @@ namespace
         TSharedRef<FJsonObject> Compatibility = MakeShared<FJsonObject>();
         Compatibility->SetStringField(
             TEXT("status"),
-            Result.UnsupportedBlueprintNodeCount > 0 ? TEXT("needs-adapters") : TEXT("compatible"));
+            Result.UnsupportedBlueprintNodeCount > 0
+                ? TEXT("needs-adapters")
+                : (Result.CustomAdapterBlueprintNodeCount > 0
+                    ? TEXT("project-adapters-require-runtime-validation")
+                    : TEXT("compatible")));
         Compatibility->SetNumberField(TEXT("blueprintCount"), Result.BlueprintCount);
         Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("builtInSupportedNodeCount"), Result.BuiltInSupportedBlueprintNodeCount);
+        Compatibility->SetNumberField(TEXT("customAdapterNodeCount"), Result.CustomAdapterBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
         Compatibility->SetStringField(TEXT("details"), TEXT("logic/blueprints.json"));
@@ -315,6 +455,25 @@ namespace
             Result.Warnings.AddUnique(FString::Printf(TEXT("Blueprint actor '%s': graph will be converted with per-node compatibility reporting."), *Actor->GetActorLabel()));
         }
     }
+}
+
+bool FUE5HTML5ExportLibrary::EnsureProjectAdapterFiles(FString& OutDirectory, FString& OutError)
+{
+    OutDirectory = ProjectAdapterDirectory();
+    IFileManager::Get().MakeDirectory(*OutDirectory, true);
+    const FString Manifest = FPaths::Combine(OutDirectory, TEXT("custom-adapters.json"));
+    const FString Module = FPaths::Combine(OutDirectory, TEXT("custom-adapters.js"));
+    if (!FPaths::FileExists(Manifest) && !FFileHelper::SaveStringToFile(EmptyProjectAdapterManifest(), *Manifest))
+    {
+        OutError = FString::Printf(TEXT("Could not create %s."), *Manifest);
+        return false;
+    }
+    if (!FPaths::FileExists(Module) && !FFileHelper::SaveStringToFile(EmptyProjectAdapterModule(), *Module))
+    {
+        OutError = FString::Printf(TEXT("Could not create %s."), *Module);
+        return false;
+    }
+    return true;
 }
 
 FUE5HTML5ReadinessReport FUE5HTML5ExportLibrary::CheckDiscordActivityReadiness(UWorld* World)
@@ -439,7 +598,18 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         Actors.Add(*It);
     }
 
-    const FUE5BlueprintExportSummary Summary = FUE5BlueprintGraphExporter::Export(World, Actors, Report.OutputDirectory);
+    TSet<FString> CustomAdapterFunctions;
+    FString AdapterError;
+    if (!PrepareProjectAdapters(Report.OutputDirectory, CustomAdapterFunctions, AdapterError))
+    {
+        Report.Error = AdapterError;
+        return Report;
+    }
+    const FUE5BlueprintExportSummary Summary = FUE5BlueprintGraphExporter::Export(
+        World,
+        Actors,
+        Report.OutputDirectory,
+        CustomAdapterFunctions);
     if (!Summary.bSuccess)
     {
         Report.Error = Summary.Error;
@@ -449,6 +619,8 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
     Report.BlueprintCount = Summary.BlueprintCount;
     Report.ActorInstanceCount = Summary.ActorInstanceCount;
     Report.NodeCount = Summary.NodeCount;
+    Report.BuiltInSupportedNodeCount = Summary.BuiltInSupportedNodeCount;
+    Report.CustomAdapterNodeCount = Summary.CustomAdapterNodeCount;
     Report.SupportedNodeCount = Summary.SupportedNodeCount;
     Report.UnsupportedNodeCount = Summary.UnsupportedNodeCount;
     Report.UnsupportedNodes = Summary.UnsupportedNodes;
@@ -460,14 +632,23 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         TEXT("Map: %s\n")
         TEXT("Blueprints: %d\n")
         TEXT("Actor instances: %d\n")
-        TEXT("Supported nodes: %d / %d\n")
+        TEXT("Covered nodes: %d / %d\n")
+        TEXT("Built-in runtime nodes: %d\n")
+        TEXT("Project-adapter-covered nodes: %d\n")
         TEXT("Nodes requiring web adapters: %d\n\n"),
         *World->GetPathName(),
         Report.BlueprintCount,
         Report.ActorInstanceCount,
         Report.SupportedNodeCount,
         Report.NodeCount,
+        Report.BuiltInSupportedNodeCount,
+        Report.CustomAdapterNodeCount,
         Report.UnsupportedNodeCount);
+
+    if (Report.CustomAdapterNodeCount > 0)
+    {
+        Text += TEXT("Project-adapter coverage requires browser registration checks plus local Discord preview and gameplay validation.\n\n");
+    }
 
     if (Report.UnsupportedNodes.IsEmpty())
     {
@@ -482,6 +663,7 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         }
     }
     Text += TEXT("\nScope: placed Blueprint actors plus the map's runtime GameMode, Pawn, PlayerController, HUD, GameState, PlayerState, and Spectator classes.\n")
+        TEXT("Project adapter contract: Config/UE5HTML5/custom-adapters.json + custom-adapters.js. Declared coverage is checked again when the browser module loads, but only gameplay testing can validate behavior.\n")
         TEXT("This is a fast translator-coverage audit. It does not export scene assets and does not certify runtime behavior, networking, Discord authentication, device performance, or browser fidelity.\n")
         TEXT("Machine-readable IR: logic/blueprints.json\n");
 
@@ -551,7 +733,18 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         }
     }
 
-    const FUE5BlueprintExportSummary BlueprintSummary = FUE5BlueprintGraphExporter::Export(World, ExportActors, Result.OutputDirectory);
+    TSet<FString> CustomAdapterFunctions;
+    FString AdapterError;
+    if (!PrepareProjectAdapters(Result.OutputDirectory, CustomAdapterFunctions, AdapterError))
+    {
+        Result.Error = AdapterError;
+        return Result;
+    }
+    const FUE5BlueprintExportSummary BlueprintSummary = FUE5BlueprintGraphExporter::Export(
+        World,
+        ExportActors,
+        Result.OutputDirectory,
+        CustomAdapterFunctions);
     if (!BlueprintSummary.bSuccess)
     {
         Result.Error = FString::Printf(TEXT("Blueprint logic export failed: %s"), *BlueprintSummary.Error);
@@ -559,6 +752,8 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     }
     Result.BlueprintCount = BlueprintSummary.BlueprintCount;
     Result.BlueprintNodeCount = BlueprintSummary.NodeCount;
+    Result.BuiltInSupportedBlueprintNodeCount = BlueprintSummary.BuiltInSupportedNodeCount;
+    Result.CustomAdapterBlueprintNodeCount = BlueprintSummary.CustomAdapterNodeCount;
     Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
     Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;
     Result.Warnings.Append(BlueprintSummary.Warnings);
@@ -601,7 +796,8 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
         TEXT("Give the entire folder to the release operator; `activity-handoff.json` records whether Blueprint adapters remain and lists the release steps.\n")
         TEXT("See `export-manifest.json` and `logic/blueprints.json` for scope and per-node compatibility warnings.\n")
         TEXT("`export-manifest.json` also records exact primary browser payload bytes against the project advisory budget. This is not a Discord platform limit or a performance certification.\n")
-        TEXT("Replace native project functions with `window.UE5HTML5.registerFunction(name, implementation)`.\n");
+        TEXT("Create project-owned native replacements from Tools > HTML5 Export > Open Custom Web Adapters Folder, then declare them in custom-adapters.json and implement them with `window.UE5HTML5.registerFunction(name, implementation)`.\n")
+        TEXT("Project-adapter coverage still requires local Discord preview and real gameplay validation.\n");
     FFileHelper::SaveStringToFile(ExportReadme, *FPaths::Combine(Result.OutputDirectory, TEXT("README.md")));
 
     Result.bSuccess = true;

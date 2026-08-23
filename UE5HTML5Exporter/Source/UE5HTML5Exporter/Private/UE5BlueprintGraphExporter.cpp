@@ -324,8 +324,10 @@ namespace
         const FString& BlueprintName,
         const FString& GraphName,
         const TSet<FString>& BlueprintFunctions,
+        const TSet<FString>& CustomAdapterFunctions,
         FUE5BlueprintExportSummary& Summary,
-        TArray<TSharedPtr<FJsonValue>>& Unsupported)
+        TArray<TSharedPtr<FJsonValue>>& Unsupported,
+        TArray<TSharedPtr<FJsonValue>>& CustomAdapters)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         const FString Kind = NodeKind(Node);
@@ -339,17 +341,27 @@ namespace
             Function = ReflectedPropertyText(Node, { TEXT("FunctionReference"), TEXT("DelegateReference"), TEXT("EventReference") });
             if (Function.IsEmpty()) Function = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
         }
-        bool bSupported = Kind != TEXT("unsupported");
-        if (Kind == TEXT("callFunction")) bSupported = IsSupportedFunction(Function) || BlueprintFunctions.Contains(Normalize(Function));
-        if (Kind == TEXT("event")) bSupported = IsSupportedEvent(Node, Event);
+        bool bBuiltInSupported = Kind != TEXT("unsupported");
+        bool bCustomAdapter = false;
+        if (Kind == TEXT("callFunction"))
+        {
+            bBuiltInSupported = IsSupportedFunction(Function) || BlueprintFunctions.Contains(Normalize(Function));
+            bCustomAdapter = !bBuiltInSupported && CustomAdapterFunctions.Contains(Normalize(Function));
+        }
+        if (Kind == TEXT("event")) bBuiltInSupported = IsSupportedEvent(Node, Event);
         if (Kind == TEXT("delegate") || Kind == TEXT("interfaceCall") || Kind == TEXT("inputAction")
-            || Kind == TEXT("comment") || Kind == TEXT("functionResult") || Kind == TEXT("createWidget") || Kind == TEXT("getSubsystem")) bSupported = true;
+            || Kind == TEXT("comment") || Kind == TEXT("functionResult") || Kind == TEXT("createWidget") || Kind == TEXT("getSubsystem")) bBuiltInSupported = true;
+        const bool bSupported = bBuiltInSupported || bCustomAdapter;
 
         Json->SetStringField(TEXT("id"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
         Json->SetStringField(TEXT("class"), Node->GetClass()->GetName());
         Json->SetStringField(TEXT("kind"), Kind);
         Json->SetStringField(TEXT("title"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
         Json->SetBoolField(TEXT("supported"), bSupported);
+        Json->SetStringField(
+            TEXT("supportSource"),
+            bCustomAdapter ? TEXT("project-adapter") : (bBuiltInSupported ? TEXT("built-in") : TEXT("unsupported")));
+        if (bCustomAdapter) Json->SetBoolField(TEXT("runtimeValidationRequired"), true);
         Json->SetNumberField(TEXT("x"), Node->NodePosX);
         Json->SetNumberField(TEXT("y"), Node->NodePosY);
         if (!Event.IsEmpty()) Json->SetStringField(TEXT("event"), Event);
@@ -399,7 +411,23 @@ namespace
         Json->SetArrayField(TEXT("pins"), Pins);
 
         ++Summary.NodeCount;
-        if (bSupported) ++Summary.SupportedNodeCount;
+        if (bBuiltInSupported)
+        {
+            ++Summary.BuiltInSupportedNodeCount;
+            ++Summary.SupportedNodeCount;
+        }
+        else if (bCustomAdapter)
+        {
+            ++Summary.CustomAdapterNodeCount;
+            ++Summary.SupportedNodeCount;
+            TSharedRef<FJsonObject> Coverage = MakeShared<FJsonObject>();
+            Coverage->SetStringField(TEXT("graph"), GraphName);
+            Coverage->SetStringField(TEXT("node"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+            Coverage->SetStringField(TEXT("class"), Node->GetClass()->GetName());
+            Coverage->SetStringField(TEXT("function"), Function);
+            Coverage->SetBoolField(TEXT("runtimeValidationRequired"), true);
+            CustomAdapters.Add(MakeShared<FJsonValueObject>(Coverage));
+        }
         else
         {
             ++Summary.UnsupportedNodeCount;
@@ -648,7 +676,11 @@ namespace
     }
 }
 
-FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, const TArray<AActor*>& Actors, const FString& OutputDirectory)
+FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
+    UWorld* World,
+    const TArray<AActor*>& Actors,
+    const FString& OutputDirectory,
+    const TSet<FString>& CustomAdapterFunctions)
 {
     FUE5BlueprintExportSummary Summary;
     TMap<UBlueprint*, FBlueprintExportTarget> BlueprintTargets;
@@ -665,6 +697,13 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, con
     TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
     Root->SetStringField(TEXT("schema"), TEXT("ue-blueprint-ir/v1"));
     Root->SetStringField(TEXT("runtime"), TEXT("ue5-html5-blueprint-vm/1"));
+    TSharedRef<FJsonObject> AdapterContract = MakeShared<FJsonObject>();
+    AdapterContract->SetStringField(TEXT("schema"), TEXT("ue5-html5-custom-adapters/v1"));
+    AdapterContract->SetStringField(TEXT("manifest"), TEXT("logic/custom-adapters.json"));
+    AdapterContract->SetStringField(TEXT("module"), TEXT("logic/custom-adapters.js"));
+    AdapterContract->SetNumberField(TEXT("declaredFunctionCount"), CustomAdapterFunctions.Num());
+    AdapterContract->SetBoolField(TEXT("runtimeValidationRequired"), CustomAdapterFunctions.Num() > 0);
+    Root->SetObjectField(TEXT("projectAdapters"), AdapterContract);
     Root->SetObjectField(TEXT("gameplay"), SerializeGameplay(World, ResolveGameModeClass(World), BlueprintTargets));
     TArray<TSharedPtr<FJsonValue>> InputMappings;
     if (const UInputSettings* InputSettings = UInputSettings::GetInputSettings())
@@ -784,6 +823,7 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, con
 
         TArray<TSharedPtr<FJsonValue>> GraphValues;
         TArray<TSharedPtr<FJsonValue>> Unsupported;
+        TArray<TSharedPtr<FJsonValue>> CustomAdapters;
         TSet<FString> BlueprintFunctions;
         for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
         {
@@ -803,8 +843,10 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, con
                     Blueprint->GetName(),
                     Graph->GetName(),
                     BlueprintFunctions,
+                    CustomAdapterFunctions,
                     Summary,
-                    Unsupported)));
+                    Unsupported,
+                    CustomAdapters)));
             }
             GraphJson->SetArrayField(TEXT("nodes"), Nodes);
             GraphValues.Add(MakeShared<FJsonValueObject>(GraphJson));
@@ -814,6 +856,9 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(UWorld* World, con
         TSharedRef<FJsonObject> Compatibility = MakeShared<FJsonObject>();
         Compatibility->SetArrayField(TEXT("unsupported"), Unsupported);
         Compatibility->SetNumberField(TEXT("unsupportedCount"), Unsupported.Num());
+        Compatibility->SetArrayField(TEXT("projectAdapters"), CustomAdapters);
+        Compatibility->SetNumberField(TEXT("projectAdapterCount"), CustomAdapters.Num());
+        Compatibility->SetBoolField(TEXT("runtimeValidationRequired"), CustomAdapters.Num() > 0);
         Program->SetObjectField(TEXT("compatibility"), Compatibility);
         Programs.Add(MakeShared<FJsonValueObject>(Program));
         ++Summary.BlueprintCount;

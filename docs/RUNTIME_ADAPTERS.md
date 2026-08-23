@@ -104,7 +104,21 @@ Exact anchors, slots, DPI scaling, font/material rendering, animation timelines,
 
 ## User C++ replacements
 
-Native C++ cannot be translated safely from compiled Unreal modules. Register a JavaScript implementation before or after the scene loads:
+Native C++ cannot be translated safely from compiled Unreal modules. In Unreal, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. The plugin creates two source-controlled project files:
+
+- `Config/UE5HTML5/custom-adapters.json` declares the exact Unreal function names covered by project code.
+- `Config/UE5HTML5/custom-adapters.js` registers their browser implementations.
+
+For example, declare the functions:
+
+```json
+{
+  "schema": "ue5-html5-custom-adapters/v1",
+  "functions": ["NativeApplyDamage", "NativeLoadProfile"]
+}
+```
+
+Then implement the same names:
 
 ```js
 window.UE5HTML5.registerFunction('NativeApplyDamage', ({ target, amount }, instance, runtime) => {
@@ -122,6 +136,8 @@ window.UE5HTML5.registerFunction('NativeLoadProfile', async ({ url }) => {
 
 The function name is normalized, so spaces, underscores, and case do not affect lookup. A returned Promise is treated as a latent action.
 
+Every audit and full export copies both files to `logic/`. Declared calls are labeled `supportSource: "project-adapter"`; built-in calls and uncovered calls remain distinct. The browser imports the module before constructing the Blueprint VM and stops with a visible error if a declaration did not register. Static coverage and successful registration prove only that the bridge is connected—not that its gameplay semantics are correct—so the handoff records `unreal-export-needs-runtime-validation` for the release operator to resolve with preview and gameplay testing.
+
 ## Extension point
 
 The main browser API is:
@@ -131,6 +147,8 @@ window.UE5HTML5.call('OpenDoor', 'BP_Door_C_0', { speed: 2 });
 window.UE5HTML5.registerFunction('ProjectSpecificNode', implementation);
 window.UE5HTML5.runtime;
 window.UE5HTML5.adapters;
+window.UE5HTML5.projectAdapters;
+window.UE5HTML5.projectAdaptersReady;
 ```
 
 Unsupported nodes remain in the IR with their original class, title, GUID, graph coordinates, typed pins, defaults, and links. That makes project adapters additive: the Unreal project does not need to be exported through a lossy intermediate representation again.

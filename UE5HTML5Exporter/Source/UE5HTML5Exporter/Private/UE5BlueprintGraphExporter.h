@@ -11,6 +11,8 @@ struct FUE5BlueprintExportSummary
     int32 BlueprintCount = 0;
     int32 ActorInstanceCount = 0;
     int32 NodeCount = 0;
+    int32 BuiltInSupportedNodeCount = 0;
+    int32 CustomAdapterNodeCount = 0;
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
     TArray<FString> UnsupportedNodes;
@@ -21,5 +23,9 @@ struct FUE5BlueprintExportSummary
 class FUE5BlueprintGraphExporter
 {
 public:
-    static FUE5BlueprintExportSummary Export(UWorld* World, const TArray<AActor*>& Actors, const FString& OutputDirectory);
+    static FUE5BlueprintExportSummary Export(
+        UWorld* World,
+        const TArray<AActor*>& Actors,
+        const FString& OutputDirectory,
+        const TSet<FString>& CustomAdapterFunctions = {});
 };

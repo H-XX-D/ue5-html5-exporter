@@ -82,12 +82,18 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
         UE_LOG(
             LogTemp,
             Display,
-            TEXT("Blueprint compatibility: %d/%d nodes supported across %d Blueprints and %d actor instances; %d require adapters."),
+            TEXT("Blueprint compatibility: %d/%d nodes covered across %d Blueprints and %d actor instances; %d built-in, %d project-adapter-covered, %d uncovered."),
             Report.SupportedNodeCount,
             Report.NodeCount,
             Report.BlueprintCount,
             Report.ActorInstanceCount,
+            Report.BuiltInSupportedNodeCount,
+            Report.CustomAdapterNodeCount,
             Report.UnsupportedNodeCount);
+        if (Report.CustomAdapterNodeCount > 0)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Project-adapter coverage requires local Discord preview and gameplay validation; registration alone does not certify behavior."));
+        }
         for (const FString& Node : Report.UnsupportedNodes)
         {
             UE_LOG(LogTemp, Warning, TEXT("Unsupported Blueprint node: %s"), *Node);
@@ -112,9 +118,11 @@ int32 UUE5HTML5ExportCommandlet::Main(const FString& Params)
     UE_LOG(
         LogTemp,
         Display,
-        TEXT("Blueprint compatibility: %d/%d nodes supported; %d require adapters."),
+        TEXT("Blueprint compatibility: %d/%d nodes covered; %d built-in, %d project-adapter-covered, %d uncovered."),
         Result.SupportedBlueprintNodeCount,
         Result.BlueprintNodeCount,
+        Result.BuiltInSupportedBlueprintNodeCount,
+        Result.CustomAdapterBlueprintNodeCount,
         Result.UnsupportedBlueprintNodeCount);
     UE_LOG(
         LogTemp,

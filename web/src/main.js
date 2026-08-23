@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { BlueprintRuntime } from './blueprint-runtime.js';
 import { FirstPersonController } from './first-person-controller.js';
+import { loadProjectAdapters, normalizeAdapterName } from './project-adapters.js';
 import { BrowserRuntimeAdapters } from './runtime-adapters.js';
 import './style.css';
 
@@ -65,6 +66,8 @@ let exportManifest = null;
 let sceneStats = 'Preparing renderer…';
 let deliveryStats = '';
 const pendingCustomFunctions = new Map();
+let projectAdapters = null;
+let projectAdaptersPromise = null;
 
 const looksLikeDiscordActivity = window.location.hostname.toLowerCase().endsWith('.discordsays.com')
   || new URLSearchParams(window.location.search).has('frame_id');
@@ -81,7 +84,11 @@ const activityPromise = looksLikeDiscordActivity || discordPreviewMode
 
 window.UE5HTML5 = {
   registerFunction(name, implementation) {
-    pendingCustomFunctions.set(name, implementation);
+    const normalized = normalizeAdapterName(name);
+    if (!normalized || typeof implementation !== 'function') {
+      throw new TypeError('UE5HTML5.registerFunction requires a function name and JavaScript implementation.');
+    }
+    pendingCustomFunctions.set(normalized, implementation);
     runtimeAdapters?.registerFunction(name, implementation);
   },
   call(eventName, actorName, args) { return blueprintRuntime?.call(eventName, actorName, args); },
@@ -90,8 +97,22 @@ window.UE5HTML5 = {
   get gameplay() { return firstPersonController; },
   get activity() { return activityBridge; },
   get activityReady() { return activityPromise; },
+  get projectAdapters() { return projectAdapters; },
+  get projectAdaptersReady() { return ensureProjectAdapters(); },
   get exportManifest() { return exportManifest; },
 };
+
+function ensureProjectAdapters() {
+  projectAdaptersPromise ||= loadProjectAdapters({
+    manifestUrl: new URL('./logic/custom-adapters.json', window.location.href),
+    moduleUrl: new URL('./logic/custom-adapters.js', window.location.href),
+    isRegistered: (name) => pendingCustomFunctions.has(normalizeAdapterName(name)),
+  }).then((value) => {
+    projectAdapters = value;
+    return value;
+  });
+  return projectAdaptersPromise;
+}
 
 function formatBytes(bytes) {
   const units = ['B', 'KiB', 'MiB', 'GiB'];
@@ -216,6 +237,7 @@ async function configureBlueprintLogic() {
   blueprintRuntime?.stop();
   blueprintRuntime = null;
   try {
+    await ensureProjectAdapters();
     const response = await fetch('./logic/blueprints.json', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     blueprintDocument = await response.json();
@@ -257,8 +279,8 @@ async function configureBlueprintLogic() {
   } catch (error) {
     console.error('Blueprint runtime initialization failed', error);
     blueprintDocument = null;
-    logicButton.textContent = 'Logic: none';
-    logicSummary.textContent = 'No Blueprint IR was found in this export.';
+    logicButton.textContent = 'Logic: unavailable';
+    logicSummary.textContent = `Blueprint runtime did not start: ${error.message}`;
     logicDetails.replaceChildren();
   }
 }

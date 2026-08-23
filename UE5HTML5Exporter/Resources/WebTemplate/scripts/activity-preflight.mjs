@@ -17,6 +17,8 @@ export const REQUIRED_EXPORT_FILES = [
   'index.html',
   'assets/scene.glb',
   'logic/blueprints.json',
+  'logic/custom-adapters.json',
+  'logic/custom-adapters.js',
   'export-manifest.json',
   'activity-handoff.json',
   '.env.example',
@@ -55,9 +57,11 @@ const DISCORD_EMBEDDED_FLAG = 1n << 17n;
 const DISCORD_PRIMARY_ENTRY_POINT = 4;
 const DISCORD_LAUNCH_ACTIVITY_HANDLER = 2;
 const ONLINE_TIMEOUT_MS = 10_000;
-const HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v4';
-const MANIFEST_SCHEMAS = new Set(['ue5-html5-export/v2', 'ue5-html5-export/v3']);
+const CURRENT_HANDOFF_SCHEMA = 'ue5-discord-activity-handoff/v5';
+const HANDOFF_SCHEMAS = new Set(['ue5-discord-activity-handoff/v4', CURRENT_HANDOFF_SCHEMA]);
+const MANIFEST_SCHEMAS = new Set(['ue5-html5-export/v2', 'ue5-html5-export/v3', 'ue5-html5-export/v4']);
 const ASSET_DELIVERY_SCHEMA = 'ue5-html5-export/v3';
+const PROJECT_ADAPTER_SCHEMA = 'ue5-html5-custom-adapters/v1';
 const ASSET_DELIVERY_PATHS = ['index.html', 'runtime/**', 'assets/**', 'logic/**'];
 const REQUIRED_PROJECT_TARGETS = [
   ['discordApplicationId', 'Discord Application ID'],
@@ -160,7 +164,7 @@ function browserPayloadMetrics(root) {
 }
 
 function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
-  const required = manifest.schema === ASSET_DELIVERY_SCHEMA;
+  const required = manifest.schema === ASSET_DELIVERY_SCHEMA || manifest.schema === 'ue5-html5-export/v4';
   const manifestDelivery = manifest.assetDelivery;
   const handoffDelivery = handoff.assetDelivery;
   if (!manifestDelivery && !handoffDelivery && !required) {
@@ -212,7 +216,7 @@ function validateAssetDelivery(root, manifest, handoff, errors, warnings) {
   }
 }
 
-function compatibilityCounts(value, label, errors) {
+function compatibilityCounts(value, label, errors, requireAdapterCounts = false) {
   if (!value || typeof value !== 'object') {
     errors.push(`${label} is missing Blueprint compatibility counts.`);
     return null;
@@ -229,7 +233,64 @@ function compatibilityCounts(value, label, errors) {
   if (result.supportedNodeCount + result.unsupportedNodeCount !== result.nodeCount) {
     errors.push(`${label} supported and unsupported counts do not add up to nodeCount.`);
   }
+  if (requireAdapterCounts) {
+    for (const name of ['builtInSupportedNodeCount', 'customAdapterNodeCount']) {
+      const count = value[name];
+      if (!Number.isInteger(count) || count < 0) {
+        errors.push(`${label}.${name} must be a non-negative integer.`);
+        return null;
+      }
+      result[name] = count;
+    }
+    if (result.builtInSupportedNodeCount + result.customAdapterNodeCount !== result.supportedNodeCount) {
+      errors.push(`${label} built-in and project-adapter counts do not add up to supportedNodeCount.`);
+    }
+  }
   return result;
+}
+
+function normalizedAdapterName(value) {
+  return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function validateProjectAdapters(root, logic, errors, warnings) {
+  const manifest = readJsonArtifact(root, 'logic/custom-adapters.json', errors);
+  if (!manifest) return null;
+  if (manifest.schema !== PROJECT_ADAPTER_SCHEMA || !Array.isArray(manifest.functions)) {
+    errors.push(`logic/custom-adapters.json must use ${PROJECT_ADAPTER_SCHEMA} with a functions array.`);
+    return null;
+  }
+  const declared = new Set();
+  for (const [index, value] of manifest.functions.entries()) {
+    const name = typeof value === 'string' ? value.trim() : '';
+    const normalized = normalizedAdapterName(name);
+    if (!name || name.length > 128 || !normalized) {
+      errors.push(`logic/custom-adapters.json.functions[${index}] must be a non-empty string of at most 128 characters.`);
+      continue;
+    }
+    if (declared.has(normalized)) errors.push(`logic/custom-adapters.json declares duplicate function ${name}.`);
+    declared.add(normalized);
+  }
+  if (logic.projectAdapters?.schema !== PROJECT_ADAPTER_SCHEMA
+      || logic.projectAdapters?.manifest !== 'logic/custom-adapters.json'
+      || logic.projectAdapters?.module !== 'logic/custom-adapters.js'
+      || logic.projectAdapters?.declaredFunctionCount !== declared.size) {
+    errors.push('logic/blueprints.json projectAdapters contract does not match logic/custom-adapters.json.');
+  }
+
+  const covered = (logic.programs || []).flatMap((program) => program?.compatibility?.projectAdapters || []);
+  for (const coverage of covered) {
+    if (!declared.has(normalizedAdapterName(coverage?.function))) {
+      errors.push(`Blueprint node claims undeclared project adapter coverage: ${coverage?.function || '<missing function>'}.`);
+    }
+    if (coverage?.runtimeValidationRequired !== true) {
+      errors.push('Project-adapter-covered Blueprint nodes must retain runtimeValidationRequired=true.');
+    }
+  }
+  if (declared.size > 0 && covered.length === 0) {
+    warnings.push('Project adapters are declared but no exported Blueprint nodes use them.');
+  }
+  return { declaredCount: declared.size, coveredCount: covered.length };
 }
 
 function validateProjectTargets(value, errors) {
@@ -291,8 +352,8 @@ function validateUnrealHandoff(root, errors, warnings) {
   if (!MANIFEST_SCHEMAS.has(manifest.schema)) {
     errors.push('export-manifest.json has an unsupported schema.');
   }
-  if (handoff.schema !== HANDOFF_SCHEMA) {
-    errors.push(`activity-handoff.json must use ${HANDOFF_SCHEMA}. Export again with the current plugin.`);
+  if (!HANDOFF_SCHEMAS.has(handoff.schema)) {
+    errors.push(`activity-handoff.json must use ${CURRENT_HANDOFF_SCHEMA}. Export again with the current plugin.`);
   }
   validateProjectTargets(handoff.projectTargets, errors);
   validateAssetDelivery(root, manifest, handoff, errors, warnings);
@@ -300,9 +361,25 @@ function validateUnrealHandoff(root, errors, warnings) {
     errors.push('logic/blueprints.json has an unsupported schema.');
   }
 
-  const manifestCounts = compatibilityCounts(manifest.blueprintCompatibility, 'export-manifest.json.blueprintCompatibility', errors);
-  const handoffCounts = compatibilityCounts(handoff.blueprintCompatibility, 'activity-handoff.json.blueprintCompatibility', errors);
+  const requiresAdapterContract = manifest.schema === 'ue5-html5-export/v4'
+    || handoff.schema === CURRENT_HANDOFF_SCHEMA;
+  const manifestCounts = compatibilityCounts(
+    manifest.blueprintCompatibility,
+    'export-manifest.json.blueprintCompatibility',
+    errors,
+    requiresAdapterContract,
+  );
+  const handoffCounts = compatibilityCounts(
+    handoff.blueprintCompatibility,
+    'activity-handoff.json.blueprintCompatibility',
+    errors,
+    requiresAdapterContract,
+  );
   if (!manifestCounts || !handoffCounts || !Array.isArray(logic.programs)) return;
+
+  const adapterContract = requiresAdapterContract
+    ? validateProjectAdapters(root, logic, errors, warnings)
+    : null;
 
   for (const name of Object.keys(manifestCounts)) {
     if (manifestCounts[name] !== handoffCounts[name]) {
@@ -329,22 +406,44 @@ function validateUnrealHandoff(root, errors, warnings) {
   if (logicUnsupported !== manifestCounts.unsupportedNodeCount) {
     errors.push('Blueprint unsupported-node count does not match logic/blueprints.json.');
   }
+  if (requiresAdapterContract) {
+    const logicCustom = logic.programs.reduce(
+      (total, program) => total + Number(program?.compatibility?.projectAdapterCount || 0),
+      0,
+    );
+    if (logicCustom !== manifestCounts.customAdapterNodeCount
+        || adapterContract?.coveredCount !== manifestCounts.customAdapterNodeCount) {
+      errors.push('Blueprint project-adapter count does not match logic/blueprints.json.');
+    }
+    if (manifestCounts.customAdapterNodeCount > 0 && adapterContract?.declaredCount === 0) {
+      errors.push('Project-adapter-covered nodes require declared functions in logic/custom-adapters.json.');
+    }
+  }
 
   const needsAdapters = manifestCounts.unsupportedNodeCount > 0;
-  const expectedCompatibilityStatus = needsAdapters ? 'needs-adapters' : 'compatible';
+  const needsRuntimeValidation = requiresAdapterContract && manifestCounts.customAdapterNodeCount > 0;
+  const expectedCompatibilityStatus = needsAdapters
+    ? 'needs-adapters'
+    : (needsRuntimeValidation ? 'project-adapters-require-runtime-validation' : 'compatible');
   if (manifest.blueprintCompatibility.status !== expectedCompatibilityStatus
       || handoff.blueprintCompatibility.status !== expectedCompatibilityStatus) {
     errors.push(`Blueprint compatibility status must be ${expectedCompatibilityStatus}.`);
   }
   const expectedStatus = needsAdapters
     ? 'unreal-export-needs-blueprint-adapters'
-    : 'unreal-export-complete';
+    : (needsRuntimeValidation ? 'unreal-export-needs-runtime-validation' : 'unreal-export-complete');
   if (handoff.handoffStatus !== expectedStatus) {
     errors.push(`activity-handoff.json status must be ${expectedStatus}.`);
   }
   if (needsAdapters) {
     const subject = manifestCounts.unsupportedNodeCount === 1 ? '1 Blueprint node requires' : `${manifestCounts.unsupportedNodeCount} Blueprint nodes require`;
     warnings.push(`${subject} adapters; review logic/blueprints.json before release.`);
+  }
+  if (needsRuntimeValidation) {
+    const subject = manifestCounts.customAdapterNodeCount === 1
+      ? '1 Blueprint node uses a project adapter'
+      : `${manifestCounts.customAdapterNodeCount} Blueprint nodes use project adapters`;
+    warnings.push(`${subject}; registration is checked at startup, but behavior requires local Discord preview and gameplay testing.`);
   }
 }
 
