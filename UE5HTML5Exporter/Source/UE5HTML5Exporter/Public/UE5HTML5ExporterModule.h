@@ -19,6 +19,7 @@ private:
     void OpenCustomWebAdapters();
     void CheckDiscordActivityReadinessInteractive();
     void CheckBlueprintCompatibilityInteractive();
+    void CreateBlueprintFallbackDraftsInteractive();
     void SetupBrowserFPSTestLevelInteractive();
     void QuickStartDiscordFPSPreviewInteractive();
     void ExportInteractive(bool bSelectionOnly, bool bDiscordGuided = false);

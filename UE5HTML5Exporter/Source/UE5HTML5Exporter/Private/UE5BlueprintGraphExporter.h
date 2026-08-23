@@ -1,8 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UE5HTML5BlueprintRepair.h"
 
 class AActor;
+class UEdGraph;
 class USoundWave;
 class UWorld;
 
@@ -20,6 +22,7 @@ struct FUE5BlueprintExportSummary
     bool bUsesReplicatedProperties = false;
     bool bUsesRpcTransport = false;
     TArray<FString> UnsupportedNodes;
+    TArray<FUE5HTML5BlueprintRepairCandidate> BlueprintRepairCandidates;
     TSet<FString> UsedFunctions;
     TArray<USoundWave*> ReferencedSoundWaves;
     TArray<FString> UnsupportedSoundAssets;
@@ -30,6 +33,11 @@ struct FUE5BlueprintExportSummary
 class FUE5BlueprintGraphExporter
 {
 public:
+    static FString BlueprintFallbackFunctionName(const FString& FunctionName);
+    static FString BlueprintFallbackDraftMarker();
+    static bool IsBlueprintFallbackDraftGraph(const UEdGraph* Graph);
+    static bool IsBuiltInSupportedFunction(const FString& FunctionName);
+
     static FString FindBlueprintFallbackFunction(
         const FString& FunctionName,
         const TSet<FString>& BlueprintFunctions,

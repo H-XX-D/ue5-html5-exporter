@@ -602,6 +602,7 @@ function compatibilityCounts(value, label, errors, requireAdapterCounts = false)
   if (result.supportedNodeCount + result.unsupportedNodeCount !== result.nodeCount) {
     errors.push(`${label} supported and unsupported counts do not add up to nodeCount.`);
   }
+  result.blueprintRepairCandidateNodeCount = 0;
   if (requireAdapterCounts) {
     for (const name of ['builtInSupportedNodeCount', 'customAdapterNodeCount']) {
       const count = value[name];
@@ -617,6 +618,15 @@ function compatibilityCounts(value, label, errors, requireAdapterCounts = false)
       return null;
     }
     result.blueprintFallbackNodeCount = fallbackCount;
+    const repairCandidateCount = value.blueprintRepairCandidateNodeCount ?? 0;
+    if (!Number.isInteger(repairCandidateCount) || repairCandidateCount < 0) {
+      errors.push(`${label}.blueprintRepairCandidateNodeCount must be a non-negative integer when present.`);
+      return null;
+    }
+    result.blueprintRepairCandidateNodeCount = repairCandidateCount;
+    if (repairCandidateCount > result.unsupportedNodeCount) {
+      errors.push(`${label}.blueprintRepairCandidateNodeCount cannot exceed unsupportedNodeCount.`);
+    }
     if (result.builtInSupportedNodeCount + fallbackCount + result.customAdapterNodeCount !== result.supportedNodeCount) {
       errors.push(`${label} built-in, Blueprint-fallback, and project-adapter counts do not add up to supportedNodeCount.`);
     }
@@ -798,6 +808,15 @@ function validateUnrealHandoff(root, errors, warnings) {
   if (logicUnsupported !== manifestCounts.unsupportedNodeCount) {
     errors.push('Blueprint unsupported-node count does not match logic/blueprints.json.');
   }
+  const logicRepairCandidates = logic.programs.reduce(
+    (total, program) => total + (Array.isArray(program?.compatibility?.unsupported)
+      ? program.compatibility.unsupported.filter((issue) => issue?.repairKind === 'blueprint-fallback-draft').length
+      : 0),
+    0,
+  );
+  if (logicRepairCandidates !== manifestCounts.blueprintRepairCandidateNodeCount) {
+    errors.push('Blueprint fallback-draft candidate count does not match logic/blueprints.json.');
+  }
   if (requiresAdapterContract) {
     const logicCustom = logic.programs.reduce(
       (total, program) => total + Number(program?.compatibility?.projectAdapterCount || 0),
@@ -837,6 +856,12 @@ function validateUnrealHandoff(root, errors, warnings) {
   if (needsAdapters) {
     const subject = manifestCounts.unsupportedNodeCount === 1 ? '1 Blueprint node requires' : `${manifestCounts.unsupportedNodeCount} Blueprint nodes require`;
     warnings.push(`${subject} adapters; review logic/blueprints.json before release.`);
+    if (manifestCounts.blueprintRepairCandidateNodeCount > 0) {
+      const repairSubject = manifestCounts.blueprintRepairCandidateNodeCount === 1
+        ? '1 uncovered call can be scaffolded and completed entirely in Blueprint'
+        : `${manifestCounts.blueprintRepairCandidateNodeCount} uncovered calls can be scaffolded and completed entirely in Blueprint`;
+      warnings.push(`${repairSubject}; use Create Blueprint Web Fallback Drafts in Unreal.`);
+    }
   }
   if (needsRuntimeValidation) {
     const subject = manifestCounts.customAdapterNodeCount === 1

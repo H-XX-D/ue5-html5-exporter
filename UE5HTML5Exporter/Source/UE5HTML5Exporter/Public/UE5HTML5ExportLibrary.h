@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UE5HTML5BlueprintRepair.h"
 
 class AActor;
 class UWorld;
@@ -25,6 +26,7 @@ struct FUE5HTML5ExportResult
     int32 BlueprintNodeCount = 0;
     int32 BuiltInSupportedBlueprintNodeCount = 0;
     int32 BlueprintFallbackNodeCount = 0;
+    int32 BlueprintRepairCandidateNodeCount = 0;
     int32 CustomAdapterBlueprintNodeCount = 0;
     int32 SupportedBlueprintNodeCount = 0;
     int32 UnsupportedBlueprintNodeCount = 0;
@@ -68,12 +70,14 @@ struct FUE5HTML5BlueprintCompatibilityReport
     int32 NodeCount = 0;
     int32 BuiltInSupportedNodeCount = 0;
     int32 BlueprintFallbackNodeCount = 0;
+    int32 BlueprintRepairCandidateNodeCount = 0;
     int32 CustomAdapterNodeCount = 0;
     int32 SupportedNodeCount = 0;
     int32 UnsupportedNodeCount = 0;
     bool bUsesReplicatedProperties = false;
     bool bUsesRpcTransport = false;
     TArray<FString> UnsupportedNodes;
+    TArray<FUE5HTML5BlueprintRepairCandidate> BlueprintRepairCandidates;
     TArray<FString> DiscordFeatures;
     TArray<FString> RequiredDiscordOAuthScopes;
     TArray<FString> RequiredDiscordEnvironment;

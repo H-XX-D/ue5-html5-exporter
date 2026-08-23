@@ -14,6 +14,7 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "EdGraphNode_Comment.h"
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
 #include "Engine/SCS_Node.h"
@@ -378,10 +379,13 @@ namespace
         bool bBuiltInSupported = Kind != TEXT("unsupported");
         bool bBlueprintFallback = false;
         bool bCustomAdapter = false;
+        bool bBlueprintFallbackEligible = false;
+        bool bHasConnectedDataOutputs = false;
         FString BlueprintFallbackFunction;
         if (Kind == TEXT("callFunction"))
         {
-            bBuiltInSupported = IsSupportedFunction(Function) || BlueprintFunctions.Contains(Normalize(Function));
+            const bool bFunctionNameIsBuiltIn = IsSupportedFunction(Function);
+            bBuiltInSupported = bFunctionNameIsBuiltIn || BlueprintFunctions.Contains(Normalize(Function));
             if (bBuiltInSupported && IsPortableAudioFunction(Function))
             {
                 const UEdGraphPin* SoundPin = nullptr;
@@ -402,7 +406,6 @@ namespace
             if (!bBuiltInSupported && !bCustomAdapter)
             {
                 const UK2Node_CallFunction* Call = CastChecked<UK2Node_CallFunction>(Node);
-                bool bHasConnectedDataOutputs = false;
                 for (const UEdGraphPin* Pin : Node->Pins)
                 {
                     if (Pin
@@ -414,6 +417,7 @@ namespace
                         break;
                     }
                 }
+                bBlueprintFallbackEligible = !bFunctionNameIsBuiltIn && !Call->IsNodePure() && !bHasConnectedDataOutputs;
                 BlueprintFallbackFunction = FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
                     Function,
                     BlueprintFunctions,
@@ -548,6 +552,46 @@ namespace
             Issue->SetStringField(TEXT("node"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
             Issue->SetStringField(TEXT("class"), Node->GetClass()->GetName());
             if (!Function.IsEmpty()) Issue->SetStringField(TEXT("function"), Function);
+            const UBlueprint* OwningBlueprint = Node->GetTypedOuter<UBlueprint>();
+            if (Kind == TEXT("callFunction") && bBlueprintFallbackEligible && OwningBlueprint)
+            {
+                const FString SuggestedFunction = FUE5BlueprintGraphExporter::BlueprintFallbackFunctionName(Function);
+                Issue->SetStringField(TEXT("repairKind"), TEXT("blueprint-fallback-draft"));
+                Issue->SetStringField(TEXT("suggestedBlueprintFunction"), SuggestedFunction);
+                Issue->SetStringField(
+                    TEXT("repairInstructions"),
+                    TEXT("Use Create Blueprint Web Fallback Drafts, rebuild the behavior in this Blueprint, then delete the visible draft marker."));
+
+                FUE5HTML5BlueprintRepairCandidate Candidate;
+                Candidate.BlueprintPath = OwningBlueprint->GetPathName();
+                Candidate.BlueprintName = BlueprintName;
+                Candidate.GraphName = GraphName;
+                Candidate.NodeId = Node->NodeGuid;
+                Candidate.NodeTitle = NodeTitle;
+                Candidate.FunctionName = Function;
+                Candidate.SuggestedFunctionName = SuggestedFunction;
+                Summary.BlueprintRepairCandidates.Add(MoveTemp(Candidate));
+            }
+            else
+            {
+                Issue->SetStringField(TEXT("repairKind"), TEXT("project-adapter"));
+                if (Kind == TEXT("callFunction") && CastChecked<UK2Node_CallFunction>(Node)->IsNodePure())
+                {
+                    Issue->SetStringField(TEXT("repairReason"), TEXT("Pure calls require a browser implementation that returns a value."));
+                }
+                else if (Kind == TEXT("callFunction") && bHasConnectedDataOutputs)
+                {
+                    Issue->SetStringField(TEXT("repairReason"), TEXT("Connected data outputs cannot be discarded by a side-effect-only Blueprint fallback."));
+                }
+                else if (Kind == TEXT("callFunction") && bBlueprintFallbackEligible && !OwningBlueprint)
+                {
+                    Issue->SetStringField(TEXT("repairReason"), TEXT("The exporter could not resolve the owning Blueprint for this call."));
+                }
+                else
+                {
+                    Issue->SetStringField(TEXT("repairReason"), TEXT("This node is outside the Blueprint-only fallback contract."));
+                }
+            }
             Unsupported.Add(MakeShared<FJsonValueObject>(Issue));
         }
         return Json;
@@ -874,6 +918,38 @@ namespace
     }
 }
 
+FString FUE5BlueprintGraphExporter::BlueprintFallbackFunctionName(const FString& FunctionName)
+{
+    return FunctionName.IsEmpty() ? FString() : FString::Printf(TEXT("Web_%s"), *FunctionName);
+}
+
+FString FUE5BlueprintGraphExporter::BlueprintFallbackDraftMarker()
+{
+    return TEXT("UE5HTML5 DRAFT FALLBACK — rebuild the browser behavior below, test it in Unreal, then delete this comment to mark the fallback ready for export.");
+}
+
+bool FUE5BlueprintGraphExporter::IsBlueprintFallbackDraftGraph(const UEdGraph* Graph)
+{
+    if (!Graph)
+    {
+        return false;
+    }
+    for (const UEdGraphNode* Node : Graph->Nodes)
+    {
+        const UEdGraphNode_Comment* Comment = Cast<UEdGraphNode_Comment>(Node);
+        if (Comment && Comment->NodeComment.StartsWith(TEXT("UE5HTML5 DRAFT FALLBACK")))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool FUE5BlueprintGraphExporter::IsBuiltInSupportedFunction(const FString& FunctionName)
+{
+    return IsSupportedFunction(FunctionName);
+}
+
 FString FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
     const FString& FunctionName,
     const TSet<FString>& BlueprintFunctions,
@@ -884,7 +960,7 @@ FString FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
     {
         return FString();
     }
-    const FString Candidate = FString::Printf(TEXT("Web_%s"), *FunctionName);
+    const FString Candidate = BlueprintFallbackFunctionName(FunctionName);
     return BlueprintFunctions.Contains(Normalize(Candidate)) ? Candidate : FString();
 }
 
@@ -1041,7 +1117,10 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
         TSet<FString> BlueprintFunctions;
         for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
         {
-            if (FunctionGraph) BlueprintFunctions.Add(Normalize(FunctionGraph->GetName()));
+            if (FunctionGraph && !IsBlueprintFallbackDraftGraph(FunctionGraph))
+            {
+                BlueprintFunctions.Add(Normalize(FunctionGraph->GetName()));
+            }
         }
         for (UEdGraph* Graph : CollectGraphs(Blueprint))
         {

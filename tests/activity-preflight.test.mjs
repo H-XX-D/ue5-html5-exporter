@@ -518,6 +518,76 @@ test('Activity package preflight warns on honest partial Blueprint compatibility
   }
 });
 
+test('Activity package preflight verifies Blueprint-only fallback draft candidates', () => {
+  const root = exportFixture();
+  try {
+    const compatibility = {
+      status: 'needs-adapters',
+      blueprintCount: 1,
+      nodeCount: 2,
+      builtInSupportedNodeCount: 1,
+      blueprintFallbackNodeCount: 0,
+      blueprintRepairCandidateNodeCount: 1,
+      customAdapterNodeCount: 0,
+      supportedNodeCount: 1,
+      unsupportedNodeCount: 1,
+    };
+    writeFileSync(join(root, 'export-manifest.json'), JSON.stringify({
+      schema: 'ue5-html5-export/v4', blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify({
+      schema: 'ue5-discord-activity-handoff/v5',
+      handoffStatus: 'unreal-export-needs-blueprint-adapters',
+      projectTargets: {
+        source: 'Unreal Project Settings', containsSecrets: false, configured: false,
+        discordApplicationId: '', discordPublicKey: '', vercelProjectName: '', supabaseProjectRef: '', productionUrl: '',
+        missingRequiredTargets: [
+          'Discord Application ID', 'Discord Public Key', 'Vercel Project Name', 'Supabase Project Ref',
+        ],
+      },
+      blueprintCompatibility: compatibility,
+    }));
+    writeFileSync(join(root, 'logic/custom-adapters.json'), JSON.stringify({
+      schema: 'ue5-html5-custom-adapters/v1', functions: [],
+    }));
+    writeFileSync(join(root, 'logic/custom-adapters.js'), 'export {};');
+    writeFileSync(join(root, 'logic/blueprints.json'), JSON.stringify({
+      schema: 'ue-blueprint-ir/v1',
+      projectAdapters: {
+        schema: 'ue5-html5-custom-adapters/v1',
+        manifest: 'logic/custom-adapters.json',
+        module: 'logic/custom-adapters.js',
+        declaredFunctionCount: 0,
+      },
+      programs: [{
+        graphs: [{ nodes: [{ supportSource: 'built-in' }, { supportSource: 'unsupported' }] }],
+        compatibility: {
+          unsupported: [{
+            function: 'NativeApplyDamage',
+            repairKind: 'blueprint-fallback-draft',
+            suggestedBlueprintFunction: 'Web_NativeApplyDamage',
+          }],
+          unsupportedCount: 1,
+          projectAdapters: [], projectAdapterCount: 0,
+          blueprintFallbacks: [], blueprintFallbackCount: 0,
+        },
+      }],
+    }));
+    writeAssetDelivery(root);
+    const result = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.warnings.some((warning) => warning.includes('completed entirely in Blueprint')));
+
+    const handoff = JSON.parse(readFileSync(join(root, 'activity-handoff.json'), 'utf8'));
+    handoff.blueprintCompatibility.blueprintRepairCandidateNodeCount = 0;
+    writeFileSync(join(root, 'activity-handoff.json'), JSON.stringify(handoff));
+    const tampered = validateActivityExport({ directory: root, env: validEnvironment(), packageOnly: true });
+    assert.ok(tampered.errors.some((error) => error.includes('blueprintRepairCandidateNodeCount')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Activity package preflight preserves project-adapter coverage as runtime validation work', () => {
   const root = exportFixture();
   try {

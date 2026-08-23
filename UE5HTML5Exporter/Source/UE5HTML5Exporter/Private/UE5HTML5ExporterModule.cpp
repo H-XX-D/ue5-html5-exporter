@@ -11,7 +11,9 @@
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
 #include "Selection.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "ToolMenus.h"
+#include "UE5HTML5BlueprintFallbackScaffolder.h"
 #include "UE5HTML5BrowserFPSSetup.h"
 #include "UE5HTML5DiscordActivitySettings.h"
 #include "UE5HTML5ExportLibrary.h"
@@ -231,6 +233,13 @@ void FUE5HTML5ExporterModule::RegisterMenus()
         LOCTEXT("BlueprintCompatibilityTooltip", "Scan the current map's exported Blueprint scope without exporting scene assets, then write a readable adapter report."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive)));
+
+    Section.AddMenuEntry(
+        "UE5HTML5CreateBlueprintFallbackDrafts",
+        LOCTEXT("CreateBlueprintFallbackDrafts", "Create Blueprint Web Fallback Drafts…"),
+        LOCTEXT("CreateBlueprintFallbackDraftsTooltip", "Audit the current export scope and create undoable Web_ function drafts with matching input pins for eligible unsupported action calls. Drafts remain unsupported until their visible marker is deleted."),
+        FSlateIcon(),
+        FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CreateBlueprintFallbackDraftsInteractive)));
 
     Section.AddMenuEntry(
         "UE5HTML5CustomWebAdapters",
@@ -481,14 +490,16 @@ void FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive()
     FString Message = FString::Printf(
         TEXT("BLUEPRINT WEB COMPATIBILITY\n\n")
         TEXT("%d of %d nodes are covered across %d Blueprints and %d actor instances.\n")
-        TEXT("%d use the built-in runtime; %d use Blueprint fallbacks; %d use project adapters and still require runtime validation.\n"),
+        TEXT("%d use the built-in runtime; %d use Blueprint fallbacks; %d use project adapters and still require runtime validation.\n")
+        TEXT("%d uncovered call(s) can be scaffolded and completed entirely in Blueprint.\n"),
         Report.SupportedNodeCount,
         Report.NodeCount,
         Report.BlueprintCount,
         Report.ActorInstanceCount,
         Report.BuiltInSupportedNodeCount,
         Report.BlueprintFallbackNodeCount,
-        Report.CustomAdapterNodeCount);
+        Report.CustomAdapterNodeCount,
+        Report.BlueprintRepairCandidateNodeCount);
     if (Report.UnsupportedNodeCount == 0)
     {
         Message += TEXT("\nNo unsupported nodes were found in the current export scope.\n");
@@ -515,6 +526,102 @@ void FUE5HTML5ExporterModule::CheckBlueprintCompatibilityInteractive()
     {
         FPlatformProcess::ExploreFolder(*Report.OutputDirectory);
     }
+}
+
+void FUE5HTML5ExporterModule::CreateBlueprintFallbackDraftsInteractive()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("NoFallbackDraftWorld", "Open a level before creating Blueprint web fallback drafts."));
+        return;
+    }
+
+    const FString OutputDirectory = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UE5HTML5/BlueprintCompatibility")));
+    const FUE5HTML5BlueprintCompatibilityReport Report =
+        FUE5HTML5ExportLibrary::AnalyzeBlueprintCompatibility(World, OutputDirectory);
+    if (!Report.bSuccess)
+    {
+        FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(FString::Printf(
+            TEXT("Blueprint fallback audit failed:\n%s"),
+            *Report.Error)));
+        return;
+    }
+    if (Report.BlueprintRepairCandidates.IsEmpty())
+    {
+        const FString Message = Report.UnsupportedNodeCount == 0
+            ? TEXT("No uncovered Blueprint calls need fallback drafts in the current export scope.")
+            : FString::Printf(
+                TEXT("None of the %d uncovered nodes can use a side-effect-only Blueprint fallback. Pure calls, connected return values, and non-call nodes still need built-in runtime support or a project JavaScript adapter.\n\nComplete report:\n%s"),
+                Report.UnsupportedNodeCount,
+                *Report.ReportPath);
+        FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+        return;
+    }
+
+    TSet<FString> UniqueFunctions;
+    for (const FUE5HTML5BlueprintRepairCandidate& Candidate : Report.BlueprintRepairCandidates)
+    {
+        UniqueFunctions.Add(Candidate.BlueprintName + TEXT(".") + Candidate.SuggestedFunctionName);
+    }
+    TArray<FString> Functions = UniqueFunctions.Array();
+    Functions.Sort();
+    FString Message = FString::Printf(
+        TEXT("Create %d Blueprint web fallback draft(s) for %d uncovered call site(s)?\n\n"),
+        Functions.Num(),
+        Report.BlueprintRepairCandidates.Num());
+    const int32 VisibleCount = FMath::Min(Functions.Num(), 12);
+    for (int32 Index = 0; Index < VisibleCount; ++Index)
+    {
+        Message += FString::Printf(TEXT("  + %s\n"), *Functions[Index]);
+    }
+    if (Functions.Num() > VisibleCount)
+    {
+        Message += FString::Printf(TEXT("  ... and %d more\n"), Functions.Num() - VisibleCount);
+    }
+    Message += TEXT(
+        "\nEach new Web_ function receives the native call's input pins. A large orange DRAFT comment keeps it unsupported until you rebuild the portable behavior and delete that marker.\n\n"
+        "This changes Blueprint assets in memory, supports Undo, and does not save them automatically.");
+    if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) != EAppReturnType::Yes)
+    {
+        return;
+    }
+
+    const FUE5HTML5BlueprintFallbackScaffoldResult Result =
+        FUE5HTML5BlueprintFallbackScaffolder::CreateDrafts(Report.BlueprintRepairCandidates);
+    if (!Result.ModifiedBlueprints.IsEmpty())
+    {
+        if (UAssetEditorSubsystem* AssetEditors = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+        {
+            AssetEditors->OpenEditorForAsset(Result.ModifiedBlueprints[0].Get());
+        }
+    }
+
+    FString ResultMessage = FString::Printf(
+        TEXT("Created %d Blueprint fallback draft(s); %d matching draft(s) already existed; %d were skipped.\n\n"),
+        Result.CreatedDraftCount,
+        Result.ExistingDraftCount,
+        Result.SkippedDraftCount);
+    if (!Result.CreatedFunctions.IsEmpty())
+    {
+        ResultMessage += TEXT("Created:\n");
+        for (const FString& Function : Result.CreatedFunctions)
+        {
+            ResultMessage += FString::Printf(TEXT("  + %s\n"), *Function);
+        }
+    }
+    if (!Result.Warnings.IsEmpty())
+    {
+        ResultMessage += TEXT("\nReview:\n");
+        for (const FString& Warning : Result.Warnings)
+        {
+            ResultMessage += FString::Printf(TEXT("  - %s\n"), *Warning);
+        }
+    }
+    ResultMessage += TEXT(
+        "\nBuild each draft with supported Blueprint nodes. Delete its orange UE5HTML5 DRAFT FALLBACK comment only when the replacement is ready, then rerun Check Blueprint Web Compatibility.");
+    FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(ResultMessage));
 }
 
 void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const bool bDiscordGuided)
@@ -591,11 +698,13 @@ void FUE5HTML5ExporterModule::ExportInteractive(const bool bSelectionOnly, const
     if (Result.UnsupportedBlueprintNodeCount > 0)
     {
         Compatibility = FString::Printf(
-            TEXT("Blueprint compatibility: %d of %d nodes translated; %d require adapters.\n")
+            TEXT("Blueprint compatibility: %d of %d nodes translated; %d remain uncovered.\n")
+            TEXT("%d eligible call(s) can be scaffolded and rebuilt entirely in Blueprint.\n")
             TEXT("The export is playable, but its handoff is marked NEEDS BLUEPRINT ADAPTERS. Review logic/blueprints.json before release."),
             Result.SupportedBlueprintNodeCount,
             Result.BlueprintNodeCount,
-            Result.UnsupportedBlueprintNodeCount);
+            Result.UnsupportedBlueprintNodeCount,
+            Result.BlueprintRepairCandidateNodeCount);
     }
     else if (Result.CustomAdapterBlueprintNodeCount > 0)
     {

@@ -605,6 +605,7 @@ namespace
         Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("builtInSupportedNodeCount"), Result.BuiltInSupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("blueprintFallbackNodeCount"), Result.BlueprintFallbackNodeCount);
+        Compatibility->SetNumberField(TEXT("blueprintRepairCandidateNodeCount"), Result.BlueprintRepairCandidateNodeCount);
         Compatibility->SetNumberField(TEXT("customAdapterNodeCount"), Result.CustomAdapterBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
@@ -620,7 +621,13 @@ namespace
         }
         if (bNeedsBlueprintAdapters)
         {
-            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Resolve or replace the unsupported Blueprint nodes listed in logic/blueprints.json, then export again.")));
+            if (Result.BlueprintRepairCandidateNodeCount > 0)
+            {
+                ReleaseSteps.Add(MakeShared<FJsonValueString>(FString::Printf(
+                    TEXT("Use Tools > HTML5 Export > Create Blueprint Web Fallback Drafts for %d eligible uncovered call(s); rebuild each portable behavior and delete its visible draft marker before exporting again."),
+                    Result.BlueprintRepairCandidateNodeCount)));
+            }
+            ReleaseSteps.Add(MakeShared<FJsonValueString>(TEXT("Resolve the remaining unsupported Blueprint nodes listed in logic/blueprints.json, then export again.")));
         }
         if (bNeedsRuntimeValidation)
         {
@@ -702,6 +709,7 @@ namespace
         Compatibility->SetNumberField(TEXT("nodeCount"), Result.BlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("builtInSupportedNodeCount"), Result.BuiltInSupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("blueprintFallbackNodeCount"), Result.BlueprintFallbackNodeCount);
+        Compatibility->SetNumberField(TEXT("blueprintRepairCandidateNodeCount"), Result.BlueprintRepairCandidateNodeCount);
         Compatibility->SetNumberField(TEXT("customAdapterNodeCount"), Result.CustomAdapterBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("supportedNodeCount"), Result.SupportedBlueprintNodeCount);
         Compatibility->SetNumberField(TEXT("unsupportedNodeCount"), Result.UnsupportedBlueprintNodeCount);
@@ -1026,12 +1034,14 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
     Report.NodeCount = Summary.NodeCount;
     Report.BuiltInSupportedNodeCount = Summary.BuiltInSupportedNodeCount;
     Report.BlueprintFallbackNodeCount = Summary.BlueprintFallbackNodeCount;
+    Report.BlueprintRepairCandidateNodeCount = Summary.BlueprintRepairCandidates.Num();
     Report.CustomAdapterNodeCount = Summary.CustomAdapterNodeCount;
     Report.SupportedNodeCount = Summary.SupportedNodeCount;
     Report.UnsupportedNodeCount = Summary.UnsupportedNodeCount;
     Report.bUsesReplicatedProperties = Summary.bUsesReplicatedProperties;
     Report.bUsesRpcTransport = Summary.bUsesRpcTransport;
     Report.UnsupportedNodes = Summary.UnsupportedNodes;
+    Report.BlueprintRepairCandidates = Summary.BlueprintRepairCandidates;
     DeriveDiscordRequirements(
         Summary.UsedFunctions,
         Summary.bUsesReplicatedProperties,
@@ -1050,6 +1060,7 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         TEXT("Covered nodes: %d / %d\n")
         TEXT("Built-in runtime nodes: %d\n")
         TEXT("Blueprint-fallback-covered nodes: %d\n")
+        TEXT("Blueprint-only fallback draft candidates: %d\n")
         TEXT("Project-adapter-covered nodes: %d\n")
         TEXT("Nodes requiring web adapters: %d\n\n"),
         *World->GetPathName(),
@@ -1059,12 +1070,30 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         Report.NodeCount,
         Report.BuiltInSupportedNodeCount,
         Report.BlueprintFallbackNodeCount,
+        Report.BlueprintRepairCandidateNodeCount,
         Report.CustomAdapterNodeCount,
         Report.UnsupportedNodeCount);
 
     if (Report.CustomAdapterNodeCount > 0)
     {
         Text += TEXT("Project-adapter coverage requires browser registration checks plus local Discord preview and gameplay validation.\n\n");
+    }
+
+    if (Report.BlueprintRepairCandidateNodeCount > 0)
+    {
+        Text += TEXT("BLUEPRINT-ONLY REPAIR PLAN\n--------------------------\n");
+        TSet<FString> Drafts;
+        for (const FUE5HTML5BlueprintRepairCandidate& Candidate : Report.BlueprintRepairCandidates)
+        {
+            Drafts.Add(Candidate.BlueprintName + TEXT(".") + Candidate.SuggestedFunctionName);
+        }
+        TArray<FString> SortedDrafts = Drafts.Array();
+        SortedDrafts.Sort();
+        for (const FString& Draft : SortedDrafts)
+        {
+            Text += FString::Printf(TEXT("- %s\n"), *Draft);
+        }
+        Text += TEXT("Run Tools > HTML5 Export > Create Blueprint Web Fallback Drafts to create these functions with matching input pins. Each remains unsupported while its orange draft marker exists. Rebuild the behavior, delete the marker, and rerun this audit.\n\n");
     }
 
     Text += TEXT("DISCORD ACTIVITY ACCESS\n-----------------------\n");
@@ -1175,6 +1204,7 @@ FUE5HTML5ExportResult FUE5HTML5ExportLibrary::ExportWorld(UWorld* World, const F
     Result.BlueprintNodeCount = BlueprintSummary.NodeCount;
     Result.BuiltInSupportedBlueprintNodeCount = BlueprintSummary.BuiltInSupportedNodeCount;
     Result.BlueprintFallbackNodeCount = BlueprintSummary.BlueprintFallbackNodeCount;
+    Result.BlueprintRepairCandidateNodeCount = BlueprintSummary.BlueprintRepairCandidates.Num();
     Result.CustomAdapterBlueprintNodeCount = BlueprintSummary.CustomAdapterNodeCount;
     Result.SupportedBlueprintNodeCount = BlueprintSummary.SupportedNodeCount;
     Result.UnsupportedBlueprintNodeCount = BlueprintSummary.UnsupportedNodeCount;

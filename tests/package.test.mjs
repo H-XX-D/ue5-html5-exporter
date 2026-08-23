@@ -275,6 +275,7 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   const fpsSetupTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5BrowserFPSSetupTests.cpp');
   const installUrlTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5DiscordActivitySettingsTests.cpp');
   const receiptTest = read('Source/UE5HTML5Exporter/Private/Tests/UE5HTML5ReleaseReceiptTests.cpp');
+  const fallbackScaffolder = read('Source/UE5HTML5Exporter/Private/UE5HTML5BlueprintFallbackScaffolder.cpp');
   const library = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportLibrary.cpp');
   const commandlet = read('Source/UE5HTML5Exporter/Private/UE5HTML5ExportCommandlet.cpp');
   assert.match(module, /Check Discord Activity Readiness/);
@@ -290,6 +291,15 @@ test('Unreal Tools menu exposes a Discord Activity readiness check', () => {
   assert.match(module, /activity-release-verification\.json/);
   assert.match(module, /Check Blueprint Web Compatibility/);
   assert.match(module, /CheckBlueprintCompatibilityInteractive/);
+  assert.match(module, /Create Blueprint Web Fallback Drafts/);
+  assert.match(module, /CreateBlueprintFallbackDraftsInteractive/);
+  assert.match(moduleHeader, /void CreateBlueprintFallbackDraftsInteractive\(\);/);
+  assert.match(module, /does not save them automatically/);
+  assert.match(fallbackScaffolder, /FScopedTransaction/);
+  assert.match(fallbackScaffolder, /CreateUserDefinedPin/);
+  assert.match(fallbackScaffolder, /BlueprintFallbackDraftMarker/);
+  assert.match(fallbackScaffolder, /MarkBlueprintAsStructurallyModified/);
+  assert.doesNotMatch(fallbackScaffolder, /SavePackage/);
   assert.match(module, /Open Custom Web Adapters Folder/);
   assert.match(module, /OpenCustomWebAdapters/);
   assert.match(module, /AnalyzeBlueprintCompatibility/);
@@ -451,6 +461,9 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /CustomAdapterNodeCount/);
   assert.match(summary, /BlueprintFallbackNodeCount/);
   assert.match(fallbackTest, /UE5HTML5Exporter\.Editor\.BlueprintFallbackPolicy/);
+  assert.match(fallbackTest, /UE5HTML5Exporter\.Editor\.BlueprintFallbackScaffolding/);
+  assert.match(fallbackTest, /visible draft marker prevents premature compatibility coverage/);
+  assert.match(fallbackTest, /native Damage input is copied/);
   assert.match(fallbackTest, /Pure calls cannot use/);
   assert.match(fallbackTest, /connected data outputs cannot discard/);
   assert.match(source, /runtimeValidationRequired/);

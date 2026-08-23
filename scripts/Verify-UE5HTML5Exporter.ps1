@@ -141,6 +141,7 @@ if ($LASTEXITCODE -ne 0) { throw "Packaged plugin installation failed with statu
 $editorAutomationFilter = 'UE5HTML5Exporter.Editor'
 $editorAutomationTestPaths = @(
     'UE5HTML5Exporter.Editor.BlueprintFallbackPolicy',
+    'UE5HTML5Exporter.Editor.BlueprintFallbackScaffolding',
     'UE5HTML5Exporter.Editor.BrowserFPSSetup',
     'UE5HTML5Exporter.Editor.DiscordInstallUrl',
     'UE5HTML5Exporter.Editor.ReleaseReceiptWorkspace'

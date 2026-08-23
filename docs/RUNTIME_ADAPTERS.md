@@ -133,11 +133,11 @@ This first portable contract deliberately excludes Sound Cues, MetaSounds, proce
 Native C++ cannot be translated safely from compiled Unreal modules. For an impure C++ call that performs an action and has no connected data output pins, first use the Blueprint-only fallback convention:
 
 1. Keep the existing C++ call, for example `NativeApplyDamage`, in the graph.
-2. In that same Blueprint, create an impure function named `Web_NativeApplyDamage`.
-3. Give it matching input names and rebuild the portable behavior with ordinary supported Blueprint nodes.
-4. Run **Check Blueprint Web Compatibility…**. The call should be reported as Blueprint-fallback-covered rather than unsupported.
+2. Choose **Tools → HTML5 Export → Create Blueprint Web Fallback Drafts…**. The plugin creates `Web_NativeApplyDamage` in the same Blueprint and copies the native call's input pin names and types.
+3. Rebuild the portable behavior with ordinary supported Blueprint nodes. The large orange `UE5HTML5 DRAFT FALLBACK` comment deliberately keeps the original call uncovered during this work.
+4. Test the Blueprint, delete that comment, and run **Check Blueprint Web Compatibility…**. The call should now be reported as Blueprint-fallback-covered rather than unsupported.
 
-The exporter writes `webFallbackFunction: "Web_NativeApplyDamage"`, and the browser passes the original call arguments into that exported function before continuing the caller's execution wire. No generated web file or JavaScript is edited. This convention is deliberately rejected for pure calls or calls with connected data output pins because the current Blueprint VM cannot safely return a fallback value to the caller. Those cases, exact C++ semantics, native libraries, and operating-system APIs still need a JavaScript project adapter.
+Draft creation is explicit, transactional, undoable, and does not save Blueprint assets automatically. Repeated runs do not duplicate an existing draft. The compatibility IR labels eligible uncovered calls with `repairKind: "blueprint-fallback-draft"` and `suggestedBlueprintFunction`; package preflight independently checks the candidate count carried by the manifest and handoff. The exporter writes `webFallbackFunction: "Web_NativeApplyDamage"` only after the marker is removed, and the browser then passes the original call arguments into that exported function before continuing the caller's execution wire. No generated web file or JavaScript is edited. This convention is deliberately rejected for pure calls or calls with connected data output pins because the current Blueprint VM cannot safely return a fallback value to the caller. Those cases, exact C++ semantics, native libraries, and operating-system APIs still need a JavaScript project adapter.
 
 For those remaining cases, choose **Tools → HTML5 Export → Open Custom Web Adapters Folder**. The plugin creates two source-controlled project files:
 

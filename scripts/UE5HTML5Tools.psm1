@@ -631,6 +631,7 @@ function Get-UE5HTML5EditorAutomationEvidence {
         [Alias('ExpectedTestPath')]
         [string[]]$ExpectedTestPaths = @(
             'UE5HTML5Exporter.Editor.BlueprintFallbackPolicy',
+            'UE5HTML5Exporter.Editor.BlueprintFallbackScaffolding',
             'UE5HTML5Exporter.Editor.BrowserFPSSetup',
             'UE5HTML5Exporter.Editor.DiscordInstallUrl',
             'UE5HTML5Exporter.Editor.ReleaseReceiptWorkspace'
