@@ -641,6 +641,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(startCertification, /Verify-UE5HTML5Exporter\.ps1/);
   assert.match(startCertification, /Saved\\UE5HTML5Certification/);
   assert.match(startCertification, /workstation-certification\.json/);
+  assert.match(startCertification, /CertifyBrowser = \$true/);
+  assert.match(startCertification, /Keep the browser open until it reports PASS/);
   assert.match(setup, /Get-UE5HTML5WorkstationReport/);
   assert.match(setup, /CheckOnly/);
   assert.match(setup, /Install-UE5HTML5Exporter\.ps1/);
@@ -653,7 +655,14 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(verify, /activity-preflight\.mjs/);
   assert.match(verify, /workstation-certification\.json/);
   assert.match(verify, /workstation-certification\.sha256/);
-  assert.match(verify, /ue5-html5-workstation-certification\/v2/);
+  assert.match(verify, /ue5-html5-workstation-certification\/v3/);
+  assert.match(verify, /\[switch\]\$CertifyBrowser/);
+  assert.match(verify, /Get-UE5HTML5BrowserCertificationEvidence/);
+  assert.match(verify, /browserCertification = \$browserCertification/);
+  assert.match(verify, /ThirdParty\\Python3\\Win64\\python\.exe/);
+  assert.match(verify, /Get-Command py/);
+  assert.match(verify, /Get-Command python/);
+  assert.match(verify, /--certify --certification-timeout/);
   assert.match(tools, /Resolve-UE5HTML5CertificationSource/);
   assert.match(tools, /SourceCommit -notmatch '\^\[0-9a-fA-F\]\{40\}\$'/);
   assert.match(verify, /Get-UE5HTML5DirectoryInventory/);
@@ -671,6 +680,8 @@ test('Windows teammates have native PowerShell install and packaging helpers', (
   assert.match(sourcePackager, /source-revision\.json/);
   assert.match(windowsWorkflow, /Require commit-clean certification source/);
   assert.match(windowsWorkflow, /SourceCommit = \$env:GITHUB_SHA/);
+  assert.match(windowsWorkflow, /certify_browser:/);
+  assert.match(windowsWorkflow, /arguments\.CertifyBrowser = \$true/);
   assert.match(windowsWorkflow, /actions\/attest@v4/);
   assert.match(windowsWorkflow, /UE5HTML5Exporter-Win64-Certification-\$\{\{ github\.sha \}\}/);
 });

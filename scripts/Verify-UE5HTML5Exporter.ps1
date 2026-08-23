@@ -24,6 +24,11 @@ param(
 
     [string]$Repository,
 
+    [switch]$CertifyBrowser,
+
+    [ValidateRange(5, 600)]
+    [int]$BrowserCertificationTimeoutSeconds = 120,
+
     [string]$PluginPackageArtifact = 'UE5HTML5Exporter-Win64',
 
     [string]$ExportArtifact = 'UE5HTML5Exporter-Certified-Export'
@@ -110,6 +115,37 @@ if ($LASTEXITCODE -ne 0) { throw "Unreal readiness check failed with status $LAS
 & $editorCommand $projectPath -run=UE5HTML5Export "-Map=$Map" "-Output=$exportPath" -unattended -nop4 -NullRHI
 if ($LASTEXITCODE -ne 0) { throw "Unreal export failed with status $LASTEXITCODE." }
 
+$browserCertificationPath = Join-Path $exportPath 'browser-certification.json'
+if ($CertifyBrowser) {
+    $serveScript = Join-Path $exportPath 'serve.py'
+    if (-not (Test-Path -LiteralPath $serveScript -PathType Leaf)) {
+        throw "Exported browser certification server was not found: $serveScript"
+    }
+    $unrealPython = Join-Path $enginePath 'Engine\Binaries\ThirdParty\Python3\Win64\python.exe'
+    Write-Host 'Opening the exported FPS in the default browser for cold-cache, warm-cache, shooting, score, depletion, and respawn certification.'
+    if (Test-Path -LiteralPath $unrealPython -PathType Leaf) {
+        & $unrealPython $serveScript --certify --certification-timeout $BrowserCertificationTimeoutSeconds
+    }
+    else {
+        $pythonLauncher = Get-Command py -ErrorAction SilentlyContinue
+        $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+        if ($pythonLauncher) {
+            & $pythonLauncher.Source -3 $serveScript --certify --certification-timeout $BrowserCertificationTimeoutSeconds
+        }
+        elseif ($pythonCommand) {
+            & $pythonCommand.Source $serveScript --certify --certification-timeout $BrowserCertificationTimeoutSeconds
+        }
+        else {
+            throw "Browser certification requires Unreal's bundled Python or Python 3 on PATH; neither was found. Expected Unreal runtime: $unrealPython"
+        }
+    }
+    $browserCertificationStatus = $LASTEXITCODE
+    if ($browserCertificationStatus -ne 0) { throw "Browser FPS certification failed with status $browserCertificationStatus." }
+    if (-not (Test-Path -LiteralPath $browserCertificationPath -PathType Leaf)) {
+        throw "Browser FPS certification did not produce its report: $browserCertificationPath"
+    }
+}
+
 $packagePreflight = Join-Path $exportPath 'scripts\activity-preflight.mjs'
 if (-not (Test-Path -LiteralPath $packagePreflight -PathType Leaf)) {
     throw "Exported package preflight was not found: $packagePreflight"
@@ -123,6 +159,20 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Export manifest was not found after preflight: $manifestPath"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$browserCertification = if ($CertifyBrowser) {
+    Get-UE5HTML5BrowserCertificationEvidence `
+        -CertificationFile $browserCertificationPath `
+        -ExpectedExporterVersion ([string]$manifest.exporterVersion) `
+        -ExpectedManifestSchema ([string]$manifest.schema) `
+        -ExpectedAssetPackVersion ([string]$manifest.assetPack.version)
+}
+else {
+    [pscustomobject][ordered]@{
+        status = 'not-run'
+        details = $null
+        reason = 'Use -CertifyBrowser from an interactive Windows desktop to include the local browser FPS gate.'
+    }
+}
 $compatibility = $manifest.blueprintCompatibility
 if (-not $compatibility) {
     throw 'Export manifest does not contain Blueprint compatibility evidence.'
@@ -136,7 +186,7 @@ $exportInventory = Get-UE5HTML5DirectoryInventory -Root $exportPath -Exclude @(
 )
 $environmentKind = if (${env:GITHUB_ACTIONS} -eq 'true') { 'github-actions-self-hosted' } else { 'local-windows-workstation' }
 $report = [ordered]@{
-    schema = 'ue5-html5-workstation-certification/v2'
+    schema = 'ue5-html5-workstation-certification/v3'
     verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
     source = $source
     execution = [ordered]@{
@@ -173,10 +223,16 @@ $report = [ordered]@{
         details = 'logic/blueprints.json'
     }
     activityPackagePreflight = 'passed'
+    browserCertification = $browserCertification
     privacy = [ordered]@{
         credentialsAccessed = $false
         personalPlayerDataCollected = $false
-        scope = 'native plugin build, readiness, export, and package preflight only'
+        scope = if ($CertifyBrowser) {
+            'native plugin build, readiness, export, package preflight, and loopback browser FPS certification only'
+        }
+        else {
+            'native plugin build, readiness, export, and package preflight only'
+        }
     }
 }
 $reportPath = Join-Path $exportPath 'workstation-certification.json'
@@ -185,7 +241,12 @@ $reportHash = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToL
 $reportChecksumPath = Join-Path $exportPath 'workstation-certification.sha256'
 "$reportHash  workstation-certification.json" | Set-Content -LiteralPath $reportChecksumPath -Encoding ascii
 
-Write-Host "UE5HTML5Exporter Win64 workstation certification passed."
+if ($CertifyBrowser) {
+    Write-Host "UE5HTML5Exporter Win64 workstation and browser FPS certification passed."
+}
+else {
+    Write-Host "UE5HTML5Exporter Win64 workstation certification passed; browser FPS certification was not requested."
+}
 if ($unsupportedBlueprintNodes -gt 0) {
     Write-Warning "$unsupportedBlueprintNodes Blueprint node(s) require adapters; certification records the partial gameplay compatibility explicitly."
 }

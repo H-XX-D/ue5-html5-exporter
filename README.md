@@ -26,7 +26,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - A drag-and-drop **UE5 HTML5 Practice Target** actor and Blueprint-spawnable target component; health, damage per shot, score, hit reaction, depletion, and respawn are configured in Unreal and run in the browser without JavaScript
 - A readiness chain that rejects incomplete Unreal targets, missing Discord launch commands, Vercel authentication redirects, iframe-blocking headers, missing Unreal manifests, and disabled Activity APIs before printing the portal checklist and URL mappings
 - A double-click Windows installer that selects a `.uproject`, checks the exact Unreal/compiler toolchain, installs the plugin, and launches the project without requiring command-line or web-development knowledge
-- A commit-bound Win64 certification workflow with per-file SHA-256 inventories, a detached report checksum, and GitHub-signed SLSA provenance for downloadable Windows artifacts
+- A one-click Win64 plus browser-FPS certification workflow with per-file SHA-256 inventories, a detached report checksum, and optional GitHub-signed SLSA provenance for downloadable Windows artifacts
 - A double-click Win64 certification launcher that selects a real Unreal project and produces the same native build/export evidence without requiring PowerShell knowledge
 - A configurable browser payload budget that reports exact runtime, scene/asset, and Blueprint-logic bytes in Unreal and rechecks them before release
 - A versioned, origin-scoped browser asset pack: exported scene and Blueprint data are SHA-256 verified, cached after the first launch, reused on later launches, and safely fetched from the network when browser storage is unavailable

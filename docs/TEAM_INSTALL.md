@@ -120,7 +120,7 @@ The workflow and local scripts use the same workstation report. The workflow may
 
 ## Certify the complete Windows handoff
 
-On the Windows Unreal workstation, double-click `Certify-UE5HTML5Exporter.cmd`. Choose a `.uproject`, enter the map path when prompted, and confirm the operation. The launcher builds the Win64 plugin, backs up and installs it into the real project, runs the same readiness policy used by the Unreal menu, exports the map, runs the Discord Activity package preflight, and opens the evidence folder. No command line is required.
+On the Windows Unreal workstation, double-click `Certify-UE5HTML5Exporter.cmd`. Choose a `.uproject`, enter the map path when prompted, and confirm the operation. The launcher builds the Win64 plugin, backs up and installs it into the real project, runs the same readiness policy used by the Unreal menu, exports the map, and opens the default browser. Keep that browser window open: it automatically proves the cold download, warm reusable cache, center-ray shooting, score, target depletion, and respawn before the package preflight and evidence folder complete. No command line or separate browser-certificate step is required.
 
 For automation or an explicit command-line run, use:
 
@@ -128,20 +128,21 @@ For automation or an explicit command-line run, use:
 .\scripts\Verify-UE5HTML5Exporter.ps1 `
   -EngineRoot "C:\Program Files\Epic Games\UE_5.8" `
   -Project "C:\Games\MyGame\MyGame.uproject" `
-  -Map "/Game/Maps/Main"
+  -Map "/Game/Maps/Main" `
+  -CertifyBrowser
 ```
 
-The verified export receives `workstation-certification.json` using the `ue5-html5-workstation-certification/v2` contract. It binds the record to the exact 40-character source commit, engine/compiler/SDK versions, Blueprint compatibility counts, and canonical SHA-256 inventories for every file in both the native plugin package and browser export. `workstation-certification.sha256` independently protects the report itself. Certification refuses a dirty checkout or a source bundle without usable revision metadata. The report distinguishes a directly verified clean Git checkout (`releaseGradeSourceProof: true`) from unsigned source-bundle metadata (`false`); use the self-hosted GitHub workflow for release-grade proof and GitHub-signed provenance.
+The verified export receives `workstation-certification.json` using the `ue5-html5-workstation-certification/v3` contract. It binds the record to the exact 40-character source commit, engine/compiler/SDK versions, Blueprint compatibility counts, the matching `browser-certification.json` result, and canonical SHA-256 inventories for every file in both the native plugin package and browser export. The browser evidence is accepted only when its exporter version, manifest schema, asset-pack hash, cold/warm resource sets, FPS results, and privacy flags match the just-exported package. `workstation-certification.sha256` independently protects the combined report. Certification refuses a dirty checkout or a source bundle without usable revision metadata. The report distinguishes a directly verified clean Git checkout (`releaseGradeSourceProof: true`) from unsigned source-bundle metadata (`false`); use the self-hosted GitHub workflow for release-grade proof and GitHub-signed provenance.
 
-No Discord, Vercel, or Supabase credential is read or written by this script. It does not collect personal player data; its scope is only native compilation, plugin installation, readiness, map export, and package preflight.
+No Discord, Vercel, or Supabase credential is read or written by this script. It does not collect personal player data; its scope is native compilation, plugin installation, readiness, map export, loopback browser FPS certification, and package preflight.
 
-The manual GitHub workflow accepts the same optional project and map paths when a self-hosted runner labeled `Windows` and `ue5` has the matching Unreal installation and test project. It produces one commit-named certification bundle containing ZIP archives, checksums, and the report. GitHub's first-party `actions/attest` action signs SLSA provenance for each ZIP. After downloading one of those ZIPs, verify its builder and digest with:
+The manual GitHub workflow accepts the same optional project and map paths when a self-hosted runner labeled `Windows` and `ue5` has the matching Unreal installation and test project. Enable its **certify_browser** option only when the runner is attached to a logged-in interactive desktop with a default browser; Windows service sessions normally cannot complete browser UI. It produces one commit-named certification bundle containing ZIP archives, checksums, and the report. GitHub's first-party `actions/attest` action signs SLSA provenance for each ZIP. After downloading one of those ZIPs, verify its builder and digest with:
 
 ```powershell
 gh attestation verify .\UE5HTML5Exporter-Win64-<commit>.zip --repo H-XX-D/ue5-html5-exporter
 ```
 
-The package-only workflow path proves native compilation. Supply `project_path` for the stronger end-to-end certification that also installs into a real game, runs Unreal readiness, exports the map, and checks the Discord Activity package.
+The package-only workflow path proves native compilation. Supply `project_path` for an end-to-end native export; enable `certify_browser` for the strongest workflow path that also proves the exported FPS in a real browser. A report that says `browserCertification.status: not-run` is an explicit native-only result, not browser evidence.
 
 ## Who needs to understand the web stack?
 

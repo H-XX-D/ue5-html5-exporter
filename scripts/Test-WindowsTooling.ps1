@@ -94,6 +94,67 @@ try {
     $changedInventory = Get-UE5HTML5DirectoryInventory -Root $inventoryRoot -Exclude @('excluded.txt')
     Assert-True ($inventory.sha256 -ne $changedInventory.sha256) 'certification inventory must detect changed content'
 
+    $browserCertificationPath = Join-Path $testRoot 'browser-certification.json'
+    $assetPackVersion = "sha256:$('a' * 64)"
+    $browserCertification = [ordered]@{
+        schema = 'ue5-html5-browser-certification/v1'
+        status = 'passed'
+        verifiedAtUtc = '2026-08-23T12:00:00.000Z'
+        exporterVersion = '0.3.37'
+        manifestSchema = 'ue5-html5-export/v5'
+        assetPack = [ordered]@{
+            schema = 'ue5-html5-asset-pack/v1'
+            version = $assetPackVersion
+            resourceCount = 2
+            cold = @{ coverage = @(
+                @{ path = 'assets/scene.glb'; mode = 'network-cached'; passed = $true },
+                @{ path = 'logic/blueprints.json'; mode = 'network-cached'; passed = $true }
+            ) }
+            warm = @{ coverage = @(
+                @{ path = 'assets/scene.glb'; mode = 'cache-hit'; passed = $true },
+                @{ path = 'logic/blueprints.json'; mode = 'cache-hit'; passed = $true }
+            ) }
+        }
+        runtime = @{ blueprintReady = $true; firstPersonEnabled = $true }
+        targetPractice = @{
+            shots = 3
+            scoreDelta = 100
+            afterShots = @{ depletedTargets = 1 }
+            afterRespawn = @{ activeTargets = 1 }
+        }
+        privacy = @{ credentialsAccessed = $false; personalPlayerDataCollected = $false }
+    }
+    $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
+    $browserEvidence = Get-UE5HTML5BrowserCertificationEvidence `
+        -CertificationFile $browserCertificationPath `
+        -ExpectedExporterVersion '0.3.37' `
+        -ExpectedManifestSchema 'ue5-html5-export/v5' `
+        -ExpectedAssetPackVersion $assetPackVersion
+    Assert-True ($browserEvidence.status -eq 'passed') 'browser certification bridge must accept the complete matching report'
+    Assert-True ($browserEvidence.assetPack.resourceCount -eq 2) 'browser certification bridge must preserve resource coverage evidence'
+    Assert-True ($browserEvidence.targetPractice.scoreDelta -eq 100) 'browser certification bridge must preserve gameplay evidence'
+
+    $browserCertification.assetPack.warm.coverage[1].mode = 'network-cached'
+    $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5BrowserCertificationEvidence `
+            -CertificationFile $browserCertificationPath `
+            -ExpectedExporterVersion '0.3.37' `
+            -ExpectedManifestSchema 'ue5-html5-export/v5' `
+            -ExpectedAssetPackVersion $assetPackVersion
+    } 'matching cold network-cached and warm cache-hit coverage' 'browser certification bridge must reject the wrong warm delivery mode'
+
+    $browserCertification.assetPack.warm.coverage[1].mode = 'cache-hit'
+    $browserCertification.status = 'failed'
+    $browserCertification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $browserCertificationPath -Encoding utf8
+    Assert-Throws {
+        Get-UE5HTML5BrowserCertificationEvidence `
+            -CertificationFile $browserCertificationPath `
+            -ExpectedExporterVersion '0.3.37' `
+            -ExpectedManifestSchema 'ue5-html5-export/v5' `
+            -ExpectedAssetPackVersion $assetPackVersion
+    } 'does not contain a passing run' 'browser certification bridge must reject a failed report'
+
     $revisionPath = Join-Path $testRoot 'source-revision.json'
     $cleanCommit = '0123456789abcdef0123456789abcdef01234567'
     @{

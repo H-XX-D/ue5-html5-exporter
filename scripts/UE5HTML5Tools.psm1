@@ -350,6 +350,107 @@ function Get-UE5HTML5DirectoryInventory {
     }
 }
 
+function Get-UE5HTML5BrowserCertificationEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$CertificationFile,
+        [Parameter(Mandatory = $true)][string]$ExpectedExporterVersion,
+        [Parameter(Mandatory = $true)][string]$ExpectedManifestSchema,
+        [Parameter(Mandatory = $true)][string]$ExpectedAssetPackVersion
+    )
+
+    if (-not (Test-Path -LiteralPath $CertificationFile -PathType Leaf)) {
+        throw "Browser certification report was not found: $CertificationFile"
+    }
+    try {
+        $report = Get-Content -LiteralPath $CertificationFile -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Browser certification report is invalid JSON: $CertificationFile ($($_.Exception.Message))"
+    }
+
+    if ([string]$report.schema -ne 'ue5-html5-browser-certification/v1') {
+        throw 'Browser certification report uses an unsupported schema.'
+    }
+    if ([string]$report.status -ne 'passed') {
+        throw 'Browser certification report does not contain a passing run.'
+    }
+    if ([string]$report.exporterVersion -ne $ExpectedExporterVersion) {
+        throw "Browser certification exporter version does not match $ExpectedExporterVersion."
+    }
+    if ([string]$report.manifestSchema -ne $ExpectedManifestSchema) {
+        throw "Browser certification manifest schema does not match $ExpectedManifestSchema."
+    }
+    if ([string]$report.assetPack.version -ne $ExpectedAssetPackVersion) {
+        throw 'Browser certification asset-pack version does not match the exported manifest.'
+    }
+    if ([string]$report.assetPack.schema -ne 'ue5-html5-asset-pack/v1') {
+        throw 'Browser certification asset pack uses an unsupported schema.'
+    }
+    $verifiedAt = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse([string]$report.verifiedAtUtc, [ref]$verifiedAt)) {
+        throw 'Browser certification report does not contain a valid verification timestamp.'
+    }
+
+    $resourceCount = [int]$report.assetPack.resourceCount
+    $coldCoverage = @($report.assetPack.cold.coverage)
+    $warmCoverage = @($report.assetPack.warm.coverage)
+    $coldPaths = @($coldCoverage | ForEach-Object { [string]$_.path } | Sort-Object -Unique)
+    $warmPaths = @($warmCoverage | ForEach-Object { [string]$_.path } | Sort-Object -Unique)
+    $invalidCold = @($coldCoverage | Where-Object { $_.passed -ne $true -or [string]$_.mode -ne 'network-cached' })
+    $invalidWarm = @($warmCoverage | Where-Object { $_.passed -ne $true -or [string]$_.mode -ne 'cache-hit' })
+    $pathDifference = @('missing coverage')
+    if ($coldPaths.Count -gt 0 -and $warmPaths.Count -gt 0) {
+        $pathDifference = @(Compare-Object -ReferenceObject $coldPaths -DifferenceObject $warmPaths)
+    }
+    if ($resourceCount -lt 1 -or
+        $coldCoverage.Count -ne $resourceCount -or
+        $warmCoverage.Count -ne $resourceCount -or
+        $coldPaths.Count -ne $resourceCount -or
+        $warmPaths.Count -ne $resourceCount -or
+        $invalidCold.Count -gt 0 -or
+        $invalidWarm.Count -gt 0 -or
+        $pathDifference.Count -gt 0) {
+        throw 'Browser certification does not prove matching cold network-cached and warm cache-hit coverage for every asset-pack resource.'
+    }
+    if ($report.runtime.blueprintReady -ne $true -or $report.runtime.firstPersonEnabled -ne $true) {
+        throw 'Browser certification does not prove Blueprint and first-person runtime readiness.'
+    }
+    if ([int]$report.targetPractice.shots -lt 1 -or
+        [double]$report.targetPractice.scoreDelta -le 0 -or
+        [int]$report.targetPractice.afterShots.depletedTargets -lt 1 -or
+        [int]$report.targetPractice.afterRespawn.activeTargets -lt 1) {
+        throw 'Browser certification does not prove target shots, positive score, depletion, and respawn.'
+    }
+    if ($report.privacy.credentialsAccessed -ne $false -or $report.privacy.personalPlayerDataCollected -ne $false) {
+        throw 'Browser certification privacy boundary is invalid.'
+    }
+
+    return [pscustomobject][ordered]@{
+        status = 'passed'
+        schema = [string]$report.schema
+        verifiedAtUtc = [string]$report.verifiedAtUtc
+        details = 'browser-certification.json'
+        assetPack = [pscustomobject][ordered]@{
+            schema = [string]$report.assetPack.schema
+            version = [string]$report.assetPack.version
+            resourceCount = $resourceCount
+            coldMode = 'network-cached'
+            warmMode = 'cache-hit'
+        }
+        targetPractice = [pscustomobject][ordered]@{
+            shots = [int]$report.targetPractice.shots
+            scoreDelta = [double]$report.targetPractice.scoreDelta
+            depletedTargets = [int]$report.targetPractice.afterShots.depletedTargets
+            respawnedActiveTargets = [int]$report.targetPractice.afterRespawn.activeTargets
+        }
+        privacy = [pscustomobject][ordered]@{
+            credentialsAccessed = $false
+            personalPlayerDataCollected = $false
+        }
+    }
+}
+
 function Resolve-UE5HTML5CertificationSource {
     [CmdletBinding()]
     param(
@@ -447,5 +548,6 @@ Export-ModuleMember -Function @(
     'Get-UE5WindowsSdkVersion',
     'Get-UE5HTML5WorkstationReport',
     'Get-UE5HTML5DirectoryInventory',
+    'Get-UE5HTML5BrowserCertificationEvidence',
     'Resolve-UE5HTML5CertificationSource'
 )

@@ -15,6 +15,11 @@ on:
         description: Unreal /Game map path used when project_path is supplied
         required: false
         default: /Game/FirstPerson/Lvl_FirstPerson
+      certify_browser:
+        description: Open an interactive browser and include the FPS certificate; requires a logged-in desktop session
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,6 +79,7 @@ jobs:
           UE_ENGINE_ROOT: ${{ inputs.engine_root }}
           UE_PROJECT_PATH: ${{ inputs.project_path }}
           UE_MAP_PATH: ${{ inputs.map_path }}
+          UE_CERTIFY_BROWSER: ${{ inputs.certify_browser }}
         run: |
           $arguments = @{
             Project = $env:UE_PROJECT_PATH
@@ -87,6 +93,7 @@ jobs:
             ExportArtifact = "UE5HTML5Exporter-Certified-Export-$env:GITHUB_SHA.zip"
           }
           if ($env:UE_ENGINE_ROOT) { $arguments.EngineRoot = $env:UE_ENGINE_ROOT }
+          if ($env:UE_CERTIFY_BROWSER -eq 'true') { $arguments.CertifyBrowser = $true }
           .\scripts\Verify-UE5HTML5Exporter.ps1 @arguments
       - name: Create commit-bound certification bundle
         shell: pwsh

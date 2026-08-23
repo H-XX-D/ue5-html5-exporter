@@ -46,7 +46,7 @@ Options:
 The bundle contains the plugin, Windows workstation doctor/installer, and handoff documentation.
 On Windows, double-click Install-UE5HTML5Exporter.cmd and choose a .uproject file.
 Unreal compiles the plugin for the teammate's installed engine version.
-Double-click Certify-UE5HTML5Exporter.cmd to build, install, export, and record native Win64 evidence.`;
+Double-click Certify-UE5HTML5Exporter.cmd to build, install, export, certify the browser FPS, and record combined Win64 evidence.`;
 }
 
 function requireFile(path, label) {
