@@ -92,10 +92,10 @@ test('production template includes the Discord Activity API, Vercel adapter, and
 
   const migrationDirectory = new URL('Resources/WebTemplate/supabase/migrations/', plugin);
   assert.ok(existsSync(migrationDirectory));
-  const coreMigration = read('Resources/WebTemplate/supabase/migrations/20260822094350_discord_activity_core.sql');
-  const realtimeOptimization = read('Resources/WebTemplate/supabase/migrations/20260823011755_optimize_discord_activity_realtime_rls.sql');
-  const privilegeRestriction = read('Resources/WebTemplate/supabase/migrations/20260823011922_restrict_discord_activity_service_role_privileges.sql');
-  const liveCertification = read('Resources/WebTemplate/supabase/migrations/20260823103000_discord_activity_live_certification.sql');
+  const coreMigration = read('Resources/WebTemplate/supabase/migrations/20260823011658_discord_activity_core.sql');
+  const realtimeOptimization = read('Resources/WebTemplate/supabase/migrations/20260823011836_optimize_discord_activity_realtime_rls.sql');
+  const privilegeRestriction = read('Resources/WebTemplate/supabase/migrations/20260823011940_restrict_discord_activity_service_role_privileges.sql');
+  const liveCertification = read('Resources/WebTemplate/supabase/migrations/20260823104152_discord_activity_live_certification.sql');
   assert.match(coreMigration, /revoke all on public\.discord_activity_world_state from service_role/);
   assert.match(coreMigration, /grant select, insert, update on public\.discord_activity_world_state to service_role/);
   assert.doesNotMatch(coreMigration, /grant select, insert, update, delete/);
