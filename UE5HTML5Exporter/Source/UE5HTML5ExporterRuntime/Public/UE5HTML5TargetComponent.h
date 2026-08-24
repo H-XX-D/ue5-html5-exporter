@@ -70,6 +70,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Target Practice", meta = (DisplayName = "Apply Target Practice Damage"))
     bool ApplyTargetPracticeDamage(int32 Damage = 1);
 
+    UFUNCTION(BlueprintPure, Category = "UE5 HTML5|Target Practice", meta = (DisplayName = "Calculate Target Practice Score"))
+    int32 CalculateTargetPracticeScore(int32 Multiplier = 1) const;
+
     UFUNCTION(BlueprintCallable, Category = "UE5 HTML5|Target Practice")
     void ResetTarget();
 

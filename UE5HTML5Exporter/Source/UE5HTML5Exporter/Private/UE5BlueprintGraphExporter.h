@@ -41,6 +41,7 @@ public:
     static FString FindBlueprintFallbackFunction(
         const FString& FunctionName,
         const TSet<FString>& BlueprintFunctions,
+        const TSet<FString>& PureBlueprintFunctions,
         bool bIsPure,
         bool bHasConnectedDataOutputs);
 

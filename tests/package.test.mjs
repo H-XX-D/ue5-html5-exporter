@@ -455,6 +455,7 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /UnsupportedNodes/);
   assert.match(source, /project-adapter/);
   assert.match(source, /blueprint-fallback/);
+  assert.match(source, /blueprint-fallback-purity/);
   assert.match(source, /webFallbackFunction/);
   assert.match(source, /webFallbackReturnsValue/);
   assert.match(source, /Web_%s/);
@@ -465,7 +466,9 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(fallbackTest, /UE5HTML5Exporter\.Editor\.BlueprintFallbackScaffolding/);
   assert.match(fallbackTest, /visible draft marker prevents premature compatibility coverage/);
   assert.match(fallbackTest, /native Damage input is copied/);
-  assert.match(fallbackTest, /Pure calls cannot use/);
+  assert.match(fallbackTest, /pure call with a connected output can use/);
+  assert.match(fallbackTest, /not itself marked pure/);
+  assert.match(fallbackTest, /generated fallback preserves the original pure contract/);
   assert.match(fallbackTest, /connected data outputs can use a synchronous Blueprint fallback/);
   assert.match(fallbackTest, /Function Result/);
   assert.match(source, /runtimeValidationRequired/);

@@ -358,6 +358,7 @@ namespace
         const FString& BlueprintName,
         const FString& GraphName,
         const TSet<FString>& BlueprintFunctions,
+        const TSet<FString>& PureBlueprintFunctions,
         const TSet<FString>& CustomAdapterFunctions,
         FUE5BlueprintExportSummary& Summary,
         TArray<TSharedPtr<FJsonValue>>& Unsupported,
@@ -380,6 +381,7 @@ namespace
         bool bBlueprintFallback = false;
         bool bCustomAdapter = false;
         bool bBlueprintFallbackEligible = false;
+        bool bBlueprintFallbackPurityMismatch = false;
         bool bHasConnectedDataOutputs = false;
         FString BlueprintFallbackFunction;
         if (Kind == TEXT("callFunction"))
@@ -417,10 +419,19 @@ namespace
                         break;
                     }
                 }
-                bBlueprintFallbackEligible = !bFunctionNameIsBuiltIn && !Call->IsNodePure();
+                const FString NormalizedFallbackFunction = Normalize(
+                    FUE5BlueprintGraphExporter::BlueprintFallbackFunctionName(Function));
+                bBlueprintFallbackPurityMismatch = Call->IsNodePure()
+                    && bHasConnectedDataOutputs
+                    && BlueprintFunctions.Contains(NormalizedFallbackFunction)
+                    && !PureBlueprintFunctions.Contains(NormalizedFallbackFunction);
+                bBlueprintFallbackEligible = !bFunctionNameIsBuiltIn
+                    && (!Call->IsNodePure() || bHasConnectedDataOutputs)
+                    && !bBlueprintFallbackPurityMismatch;
                 BlueprintFallbackFunction = FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
                     Function,
                     BlueprintFunctions,
+                    PureBlueprintFunctions,
                     Call->IsNodePure(),
                     bHasConnectedDataOutputs);
                 bBlueprintFallback = !BlueprintFallbackFunction.IsEmpty();
@@ -557,7 +568,17 @@ namespace
             Issue->SetStringField(TEXT("class"), Node->GetClass()->GetName());
             if (!Function.IsEmpty()) Issue->SetStringField(TEXT("function"), Function);
             const UBlueprint* OwningBlueprint = Node->GetTypedOuter<UBlueprint>();
-            if (Kind == TEXT("callFunction") && bBlueprintFallbackEligible && OwningBlueprint)
+            if (Kind == TEXT("callFunction") && bBlueprintFallbackPurityMismatch)
+            {
+                Issue->SetStringField(TEXT("repairKind"), TEXT("blueprint-fallback-purity"));
+                Issue->SetStringField(
+                    TEXT("repairReason"),
+                    TEXT("The matching Web_ function exists but must be marked Pure before it can cover a pure original call."));
+                Issue->SetStringField(
+                    TEXT("repairInstructions"),
+                    TEXT("Open the matching Web_ Blueprint function, enable Pure in its Details, and keep the graph deterministic and side-effect-free."));
+            }
+            else if (Kind == TEXT("callFunction") && bBlueprintFallbackEligible && OwningBlueprint)
             {
                 const FString SuggestedFunction = FUE5BlueprintGraphExporter::BlueprintFallbackFunctionName(Function);
                 Issue->SetStringField(TEXT("repairKind"), TEXT("blueprint-fallback-draft"));
@@ -579,9 +600,11 @@ namespace
             else
             {
                 Issue->SetStringField(TEXT("repairKind"), TEXT("project-adapter"));
-                if (Kind == TEXT("callFunction") && CastChecked<UK2Node_CallFunction>(Node)->IsNodePure())
+                if (Kind == TEXT("callFunction")
+                    && CastChecked<UK2Node_CallFunction>(Node)->IsNodePure()
+                    && !bHasConnectedDataOutputs)
                 {
-                    Issue->SetStringField(TEXT("repairReason"), TEXT("Pure calls require a browser implementation that returns a value."));
+                    Issue->SetStringField(TEXT("repairReason"), TEXT("A pure call without a connected result has no portable value consumer to rebuild."));
                 }
                 else if (Kind == TEXT("callFunction") && bBlueprintFallbackEligible && !OwningBlueprint)
                 {
@@ -953,15 +976,22 @@ bool FUE5BlueprintGraphExporter::IsBuiltInSupportedFunction(const FString& Funct
 FString FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
     const FString& FunctionName,
     const TSet<FString>& BlueprintFunctions,
+    const TSet<FString>& PureBlueprintFunctions,
     bool bIsPure,
-    bool /*bHasConnectedDataOutputs*/)
+    bool bHasConnectedDataOutputs)
 {
-    if (FunctionName.IsEmpty() || bIsPure)
+    if (FunctionName.IsEmpty() || (bIsPure && !bHasConnectedDataOutputs))
     {
         return FString();
     }
     const FString Candidate = BlueprintFallbackFunctionName(FunctionName);
-    return BlueprintFunctions.Contains(Normalize(Candidate)) ? Candidate : FString();
+    const FString NormalizedCandidate = Normalize(Candidate);
+    if (!BlueprintFunctions.Contains(NormalizedCandidate)
+        || (bIsPure && !PureBlueprintFunctions.Contains(NormalizedCandidate)))
+    {
+        return FString();
+    }
+    return Candidate;
 }
 
 FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
@@ -1115,11 +1145,19 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
         TArray<TSharedPtr<FJsonValue>> CustomAdapters;
         TArray<TSharedPtr<FJsonValue>> BlueprintFallbacks;
         TSet<FString> BlueprintFunctions;
+        TSet<FString> PureBlueprintFunctions;
         for (const UEdGraph* FunctionGraph : Blueprint->FunctionGraphs)
         {
             if (FunctionGraph && !IsBlueprintFallbackDraftGraph(FunctionGraph))
             {
-                BlueprintFunctions.Add(Normalize(FunctionGraph->GetName()));
+                const FString NormalizedFunction = Normalize(FunctionGraph->GetName());
+                BlueprintFunctions.Add(NormalizedFunction);
+                TArray<UK2Node_FunctionEntry*> Entries;
+                FunctionGraph->GetNodesOfClass(Entries);
+                if (Entries.Num() == 1 && (Entries[0]->GetFunctionFlags() & FUNC_BlueprintPure) != 0)
+                {
+                    PureBlueprintFunctions.Add(NormalizedFunction);
+                }
             }
         }
         for (UEdGraph* Graph : CollectGraphs(Blueprint))
@@ -1136,6 +1174,7 @@ FUE5BlueprintExportSummary FUE5BlueprintGraphExporter::Export(
                     Blueprint->GetName(),
                     Graph->GetName(),
                     BlueprintFunctions,
+                    PureBlueprintFunctions,
                     CustomAdapterFunctions,
                     Summary,
                     Unsupported,

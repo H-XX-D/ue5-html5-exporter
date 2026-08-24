@@ -66,6 +66,11 @@ bool UUE5HTML5TargetComponent::ApplyTargetPracticeDamage(const int32 Damage)
     return true;
 }
 
+int32 UUE5HTML5TargetComponent::CalculateTargetPracticeScore(const int32 Multiplier) const
+{
+    return FMath::Max(0, ScoreValue) * FMath::Max(0, Multiplier);
+}
+
 void UUE5HTML5TargetComponent::ResetTarget()
 {
     RestoreTarget(true);

@@ -25,31 +25,44 @@ bool FUE5HTML5BlueprintFallbackPolicyTest::RunTest(const FString& Parameters)
 {
     const TSet<FString> BlueprintFunctions = {
         TEXT("webnativeapplydamage"),
-        TEXT("webnativeplayeffect")
+        TEXT("webnativeplayeffect"),
+        TEXT("webnativecalculatescore")
+    };
+    const TSet<FString> PureBlueprintFunctions = {
+        TEXT("webnativecalculatescore")
     };
 
     TestEqual(
         TEXT("An impure action call without connected data outputs finds its Web_ Blueprint function"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("NativeApplyDamage"), BlueprintFunctions, false, false),
+            TEXT("NativeApplyDamage"), BlueprintFunctions, PureBlueprintFunctions, false, false),
         FString(TEXT("Web_NativeApplyDamage")));
-    TestTrue(
-        TEXT("Pure calls cannot use an execution-flow Blueprint fallback"),
+    TestEqual(
+        TEXT("A pure call with a connected output can use a synchronous Blueprint fallback"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("NativeApplyDamage"), BlueprintFunctions, true, false).IsEmpty());
+            TEXT("NativeCalculateScore"), BlueprintFunctions, PureBlueprintFunctions, true, true),
+        FString(TEXT("Web_NativeCalculateScore")));
+    TestTrue(
+        TEXT("A pure call cannot use a Web_ function that is not itself marked pure"),
+        FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
+            TEXT("NativePlayEffect"), BlueprintFunctions, PureBlueprintFunctions, true, true).IsEmpty());
+    TestTrue(
+        TEXT("A pure call without a connected output cannot claim fallback coverage"),
+        FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
+            TEXT("NativeCalculateScore"), BlueprintFunctions, PureBlueprintFunctions, true, false).IsEmpty());
     TestEqual(
         TEXT("An impure call with connected data outputs can use a synchronous Blueprint fallback"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("NativeApplyDamage"), BlueprintFunctions, false, true),
+            TEXT("NativeApplyDamage"), BlueprintFunctions, PureBlueprintFunctions, false, true),
         FString(TEXT("Web_NativeApplyDamage")));
     TestTrue(
         TEXT("A missing Web_ Blueprint function leaves the call unsupported"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("NativeMissing"), BlueprintFunctions, false, false).IsEmpty());
+            TEXT("NativeMissing"), BlueprintFunctions, PureBlueprintFunctions, false, false).IsEmpty());
     TestTrue(
         TEXT("An empty function name cannot create a fallback"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            FString(), BlueprintFunctions, false, false).IsEmpty());
+            FString(), BlueprintFunctions, PureBlueprintFunctions, false, false).IsEmpty());
     return true;
 }
 
@@ -132,7 +145,7 @@ bool FUE5HTML5BlueprintFallbackScaffoldingTest::RunTest(const FString& Parameter
     TestTrue(
         TEXT("A marked draft cannot cover the original call"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("ApplyTargetPracticeDamage"), ExportableFunctions, false, false).IsEmpty());
+            TEXT("ApplyTargetPracticeDamage"), ExportableFunctions, {}, false, false).IsEmpty());
 
     TArray<UK2Node_FunctionEntry*> Entries;
     DraftGraph->GetNodesOfClass(Entries);
@@ -189,8 +202,76 @@ bool FUE5HTML5BlueprintFallbackScaffoldingTest::RunTest(const FString& Parameter
     TestEqual(
         TEXT("The finalized graph can cover the original native action"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("ApplyTargetPracticeDamage"), ExportableFunctions, false, false),
+            TEXT("ApplyTargetPracticeDamage"), ExportableFunctions, {}, false, false),
         FString(TEXT("Web_ApplyTargetPracticeDamage")));
+
+    UFunction* PureNativeFunction = UUE5HTML5TargetComponent::StaticClass()->FindFunctionByName(
+        GET_FUNCTION_NAME_CHECKED(UUE5HTML5TargetComponent, CalculateTargetPracticeScore));
+    TestNotNull(TEXT("The pure native fixture is reflected"), PureNativeFunction);
+    if (!PureNativeFunction)
+    {
+        return false;
+    }
+    UK2Node_CallFunction* PureCall = NewObject<UK2Node_CallFunction>(SourceGraph);
+    PureCall->SetFlags(RF_Transactional);
+    PureCall->CreateNewGuid();
+    PureCall->SetFromFunction(PureNativeFunction);
+    PureCall->AllocateDefaultPins();
+    SourceGraph->AddNode(PureCall, false, false);
+    TestTrue(TEXT("The pure fixture call has no execution pins"), PureCall->IsNodePure());
+    UEdGraphPin* PureReturnPin = PureCall->FindPin(UEdGraphSchema_K2::PN_ReturnValue, EGPD_Output);
+    UEdGraphPin* ExistingDamagePin = Call->FindPin(TEXT("Damage"), EGPD_Input);
+    TestNotNull(TEXT("The pure fixture exposes a return value"), PureReturnPin);
+    TestNotNull(TEXT("The fixture supplies a compatible connected value consumer"), ExistingDamagePin);
+    if (!PureReturnPin || !ExistingDamagePin)
+    {
+        return false;
+    }
+    PureReturnPin->MakeLinkTo(ExistingDamagePin);
+
+    FUE5HTML5BlueprintRepairCandidate PureCandidate;
+    PureCandidate.BlueprintPath = Blueprint->GetPathName();
+    PureCandidate.BlueprintName = Blueprint->GetName();
+    PureCandidate.GraphName = SourceGraph->GetName();
+    PureCandidate.NodeId = PureCall->NodeGuid;
+    PureCandidate.NodeTitle = TEXT("Calculate Target Practice Score");
+    PureCandidate.FunctionName = TEXT("CalculateTargetPracticeScore");
+    PureCandidate.SuggestedFunctionName = TEXT("Web_CalculateTargetPracticeScore");
+    const TArray<FUE5HTML5BlueprintRepairCandidate> PureCandidates = { PureCandidate };
+    const FUE5HTML5BlueprintFallbackScaffoldResult PureResult =
+        FUE5HTML5BlueprintFallbackScaffolder::CreateDrafts(PureCandidates);
+    TestTrue(TEXT("A pure native value call can be scaffolded"), PureResult.bSuccess);
+    TestEqual(TEXT("Exactly one pure fallback draft is created"), PureResult.CreatedDraftCount, 1);
+
+    UEdGraph* PureDraftGraph = nullptr;
+    for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+    {
+        if (Graph && Graph->GetName() == PureCandidate.SuggestedFunctionName)
+        {
+            PureDraftGraph = Graph;
+            break;
+        }
+    }
+    TestNotNull(TEXT("The matching pure fallback graph is created"), PureDraftGraph);
+    if (!PureDraftGraph)
+    {
+        return false;
+    }
+    TArray<UK2Node_FunctionEntry*> PureEntries;
+    TArray<UK2Node_FunctionResult*> PureResults;
+    PureDraftGraph->GetNodesOfClass(PureEntries);
+    PureDraftGraph->GetNodesOfClass(PureResults);
+    TestEqual(TEXT("The pure fallback has one function entry"), PureEntries.Num(), 1);
+    TestEqual(TEXT("The pure fallback has one function result"), PureResults.Num(), 1);
+    TestTrue(
+        TEXT("The generated fallback preserves the original pure contract"),
+        PureEntries.Num() == 1 && (PureEntries[0]->GetFunctionFlags() & FUNC_BlueprintPure) != 0);
+    TestNotNull(
+        TEXT("The pure fallback copies the Multiplier input"),
+        PureEntries.Num() == 1 ? PureEntries[0]->FindPin(TEXT("Multiplier"), EGPD_Output) : nullptr);
+    TestNotNull(
+        TEXT("The pure fallback copies the ReturnValue output"),
+        PureResults.Num() == 1 ? PureResults[0]->FindPin(UEdGraphSchema_K2::PN_ReturnValue, EGPD_Input) : nullptr);
     return true;
 }
 

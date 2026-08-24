@@ -63,6 +63,25 @@ namespace
         return nullptr;
     }
 
+    bool HasConnectedDataOutput(const UK2Node_CallFunction* Call)
+    {
+        if (!Call)
+        {
+            return false;
+        }
+        for (const UEdGraphPin* Pin : Call->Pins)
+        {
+            if (Pin
+                && Pin->Direction == EGPD_Output
+                && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+                && Pin->LinkedTo.Num() > 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     FString CandidateKey(const FUE5HTML5BlueprintRepairCandidate& Candidate)
     {
         return Candidate.BlueprintPath.ToLower() + TEXT("|") + Candidate.SuggestedFunctionName.ToLower();
@@ -82,9 +101,10 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
         OutError = TEXT("The audited Blueprint call is no longer available.");
         return false;
     }
-    if (Call->IsNodePure())
+    const bool bOriginalCallIsPure = Call->IsNodePure();
+    if (bOriginalCallIsPure && !HasConnectedDataOutput(Call))
     {
-        OutError = TEXT("Pure calls need a browser adapter that returns a value and cannot use this draft workflow.");
+        OutError = TEXT("The pure call no longer has a connected output to rebuild.");
         return false;
     }
     if (FUE5BlueprintGraphExporter::IsBuiltInSupportedFunction(FunctionName))
@@ -135,7 +155,6 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
     for (const UEdGraphPin* Pin : Call->Pins)
     {
         if (!Pin
-            || Pin->ParentPin
             || Pin->Direction != EGPD_Input
             || Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec
             || Pin->PinName == UEdGraphSchema_K2::PN_Self
@@ -159,7 +178,6 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
     for (const UEdGraphPin* Pin : Call->Pins)
     {
         if (Pin
-            && !Pin->ParentPin
             && Pin->Direction == EGPD_Output
             && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
             && !Pin->bHidden)
@@ -192,6 +210,11 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
         }
     }
 
+    if (bOriginalCallIsPure)
+    {
+        Entry->AddExtraFlags(FUNC_BlueprintPure);
+    }
+
     UEdGraphNode_Comment* Marker = NewObject<UEdGraphNode_Comment>(DraftGraph);
     Marker->SetFlags(RF_Transactional);
     Marker->NodePosX = -260;
@@ -203,9 +226,13 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
     Marker->PostPlacedNewNode();
     Marker->AllocateDefaultPins();
     Marker->NodeComment = FUE5BlueprintGraphExporter::BlueprintFallbackDraftMarker();
+    const FString PureGuidance = bOriginalCallIsPure
+        ? TEXT(" Keep this fallback deterministic and side-effect-free because the original call is pure.")
+        : FString();
     Marker->NodeDetails = FText::FromString(FString::Printf(
-        TEXT("This function receives the same input and output pins as %s. Rebuild only the portable behavior needed in the browser. The exporter deliberately keeps the original call unsupported while this marker exists."),
-        *FunctionName));
+        TEXT("This function receives the same visible input and output pins as %s. Rebuild only the portable behavior needed in the browser.%s The exporter deliberately keeps the original call unsupported while this marker exists."),
+        *FunctionName,
+        *PureGuidance));
     DraftGraph->Modify();
     DraftGraph->AddNode(Marker, true, false);
 

@@ -330,6 +330,33 @@ test('reports a return-valued web fallback that cannot produce a synchronous Fun
   assert.match(runtime.diagnostics[0].message, /did not reach a Function Result node synchronously/);
 });
 
+test('evaluates a pure project C++ call through its synchronous Blueprint web fallback', () => {
+  const nodes = [
+    { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('set-score', 'execute')] })] },
+    { id: 'native-score', kind: 'callFunction', function: 'NativeCalculateScore', pure: true, webFallbackFunction: 'Web_NativeCalculateScore', webFallbackReturnsValue: true, pins: [
+      pin('Multiplier', 'input', 'int', { default: '3' }),
+      pin('ReturnValue', 'output', 'int', { links: [link('set-score', 'Score')] }),
+    ] },
+    { id: 'fallback-entry', kind: 'functionEntry', function: 'Web_NativeCalculateScore', pins: [
+      pin('Multiplier', 'output', 'int', { links: [link('fallback-result', 'ReturnValue')] }),
+      pin('then', 'output', 'exec', { links: [link('fallback-result', 'execute')] }),
+    ] },
+    { id: 'fallback-result', kind: 'functionResult', pins: [
+      pin('execute', 'input', 'exec'),
+      pin('ReturnValue', 'input', 'int', { links: [link('fallback-entry', 'Multiplier')] }),
+    ] },
+    { id: 'set-score', kind: 'variableSet', variable: 'Score', pins: [
+      pin('execute', 'input', 'exec'),
+      pin('Score', 'input', 'int', { links: [link('native-score', 'ReturnValue')] }),
+      pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, { Score: { value: '0', category: 'int' } }));
+  runtime.start();
+  assert.equal(runtime.instances[0].state.Score, 3);
+  assert.deepEqual(runtime.diagnostics, []);
+});
+
 test('passes Blueprint function arguments through reroute nodes', () => {
   const nodes = [
     { id: 'entry', kind: 'functionEntry', function: 'Aim', pins: [
