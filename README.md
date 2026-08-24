@@ -10,7 +10,7 @@ A UE5 Editor plugin that turns a level—or selected actors—into a ready-to-ho
 - **Tools → Export Selection to HTML5…** for a smaller scene
 - A self-contained `scene.glb`
 - `logic/blueprints.json` containing event graphs, typed pins, links, variables, and actor bindings
-- A browser Blueprint VM for gameplay flow plus adapters for Enhanced Input, replicated state/RPC transport—including automatic private Activity Broadcast when configured—delegates/interfaces, latent tasks, physics events, GAS-style state, Behavior Trees, UMG, and particles
+- A browser Blueprint VM for gameplay flow—including Branch, Sequence, Do Once, FlipFlop, Select, and String/Integer/Name/Enum switches—plus adapters for Enhanced Input, replicated state/RPC transport (with automatic private Activity Broadcast when configured), delegates/interfaces, latent tasks, physics events, GAS-style state, Behavior Trees, UMG, and particles
 - Responsive WebGL viewer with orbit controls, animation playback, drag-and-drop GLB loading, progress, and errors
 - `export-manifest.json` plus per-Blueprint/node compatibility warnings and exact browser payload measurements
 - Commandlet support for CI or batch export

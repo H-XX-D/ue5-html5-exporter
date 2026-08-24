@@ -10,6 +10,10 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_FunctionEntry.h"
 #include "K2Node_FunctionResult.h"
+#include "K2Node_Select.h"
+#include "K2Node_SwitchEnum.h"
+#include "K2Node_SwitchInteger.h"
+#include "K2Node_SwitchName.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
 #include "UE5HTML5TargetComponent.h"
@@ -23,6 +27,23 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FUE5HTML5BlueprintFallbackPolicyTest::RunTest(const FString& Parameters)
 {
+    TestEqual(
+        TEXT("Select is a built-in portable choice node"),
+        FUE5BlueprintGraphExporter::ClassifyNodeKind(NewObject<UK2Node_Select>()),
+        FString(TEXT("select")));
+    TestEqual(
+        TEXT("Switch on Integer is a built-in portable flow node"),
+        FUE5BlueprintGraphExporter::ClassifyNodeKind(NewObject<UK2Node_SwitchInteger>()),
+        FString(TEXT("switchInteger")));
+    TestEqual(
+        TEXT("Switch on Name is a built-in portable flow node"),
+        FUE5BlueprintGraphExporter::ClassifyNodeKind(NewObject<UK2Node_SwitchName>()),
+        FString(TEXT("switchName")));
+    TestEqual(
+        TEXT("Switch on Enum is a built-in portable flow node"),
+        FUE5BlueprintGraphExporter::ClassifyNodeKind(NewObject<UK2Node_SwitchEnum>()),
+        FString(TEXT("switchEnum")));
+
     const TSet<FString> BlueprintFunctions = {
         TEXT("webnativeapplydamage"),
         TEXT("webnativeplayeffect"),

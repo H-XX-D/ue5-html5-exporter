@@ -110,6 +110,102 @@ test('routes Switch on String cases with Unreal case-sensitivity semantics', () 
   assert.equal(runtime.instances[0].state.Touch, true);
 });
 
+test('routes Unreal integer, Name, and enum switch nodes', () => {
+  const nodes = [
+    { id: 'intEvent', kind: 'event', event: 'ChooseInteger', pins: [pin('then', 'output', 'exec', { links: [link('intSwitch', 'execute')] })] },
+    { id: 'intSwitch', kind: 'switchInteger', pins: [
+      pin('execute', 'input', 'exec'), pin('Selection', 'input', 'int', { default: '7' }),
+      pin('7', 'output', 'exec', { links: [link('setInteger', 'execute')] }), pin('Default', 'output', 'exec'),
+    ] },
+    { id: 'setInteger', kind: 'variableSet', variable: 'IntegerMatch', pins: [
+      pin('execute', 'input', 'exec'), pin('IntegerMatch', 'input', 'bool', { default: 'true' }), pin('then', 'output', 'exec'),
+    ] },
+    { id: 'nameEvent', kind: 'event', event: 'ChooseName', pins: [pin('then', 'output', 'exec', { links: [link('nameSwitch', 'execute')] })] },
+    { id: 'nameSwitch', kind: 'switchName', pins: [
+      pin('execute', 'input', 'exec'), pin('Selection', 'input', 'name', { default: 'boss.target' }),
+      pin('Boss.Target', 'output', 'exec', { links: [link('setName', 'execute')] }), pin('Default', 'output', 'exec'),
+    ] },
+    { id: 'setName', kind: 'variableSet', variable: 'NameMatch', pins: [
+      pin('execute', 'input', 'exec'), pin('NameMatch', 'input', 'bool', { default: 'true' }), pin('then', 'output', 'exec'),
+    ] },
+    { id: 'enumEvent', kind: 'event', event: 'ChooseEnum', pins: [pin('then', 'output', 'exec', { links: [link('enumSwitch', 'execute')] })] },
+    { id: 'enumSwitch', kind: 'switchEnum', pins: [
+      pin('execute', 'input', 'exec'), pin('Selection', 'input', 'byte', { default: 'ECombatMode::Burst', typeObject: '/Game/ECombatMode' }),
+      pin('Single', 'output', 'exec'), pin('Burst', 'output', 'exec', { links: [link('setEnum', 'execute')] }),
+    ] },
+    { id: 'setEnum', kind: 'variableSet', variable: 'EnumMatch', pins: [
+      pin('execute', 'input', 'exec'), pin('EnumMatch', 'input', 'bool', { default: 'true' }), pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, {
+    IntegerMatch: { value: 'false', category: 'bool' },
+    NameMatch: { value: 'false', category: 'bool' },
+    EnumMatch: { value: 'false', category: 'bool' },
+  }));
+  runtime.start();
+  runtime.call('ChooseInteger', 'Test Actor');
+  runtime.call('ChooseName', 'Test Actor');
+  runtime.call('ChooseEnum', 'Test Actor');
+  assert.deepEqual(runtime.instances[0].state, {
+    IntegerMatch: true,
+    NameMatch: true,
+    EnumMatch: true,
+  });
+});
+
+test('evaluates Boolean, integer, and enum Select nodes with Unreal fallback semantics', () => {
+  const nodes = [
+    { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('sequence', 'execute')] })] },
+    { id: 'sequence', kind: 'sequence', pins: [
+      pin('execute', 'input', 'exec'),
+      pin('then_0', 'output', 'exec', { links: [link('setBool', 'execute')] }),
+      pin('then_1', 'output', 'exec', { links: [link('setInt', 'execute')] }),
+      pin('then_2', 'output', 'exec', { links: [link('setEnum', 'execute')] }),
+      pin('then_3', 'output', 'exec', { links: [link('setFallback', 'execute')] }),
+    ] },
+    { id: 'boolSelect', kind: 'select', pins: [
+      pin('Option 0', 'input', 'string', { default: 'false-value' }),
+      pin('Option 1', 'input', 'string', { default: 'true-value' }),
+      pin('Index', 'input', 'bool', { default: 'true' }), pin('ReturnValue', 'output', 'string'),
+    ] },
+    { id: 'intSelect', kind: 'select', pins: [
+      pin('Option 0', 'input', 'string', { default: 'zero' }),
+      pin('Option 1', 'input', 'string', { default: 'one' }),
+      pin('Option 2', 'input', 'string', { default: 'two' }),
+      pin('Index', 'input', 'int', { default: '2' }), pin('ReturnValue', 'output', 'string'),
+    ] },
+    { id: 'enumSelect', kind: 'select', pins: [
+      pin('Single', 'input', 'string', { default: 'single-value' }),
+      pin('Burst', 'input', 'string', { default: 'burst-value' }),
+      pin('Index', 'input', 'byte', { default: 'ECombatMode::Burst', typeObject: '/Game/ECombatMode' }),
+      pin('ReturnValue', 'output', 'string'),
+    ] },
+    { id: 'fallbackSelect', kind: 'select', pins: [
+      pin('Option 0', 'input', 'string', { default: 'fallback-value' }),
+      pin('Option 1', 'input', 'string', { default: 'one' }),
+      pin('Index', 'input', 'int', { default: '99' }), pin('ReturnValue', 'output', 'string'),
+    ] },
+    ...[
+      ['setBool', 'BoolChoice', 'boolSelect'],
+      ['setInt', 'IntChoice', 'intSelect'],
+      ['setEnum', 'EnumChoice', 'enumSelect'],
+      ['setFallback', 'FallbackChoice', 'fallbackSelect'],
+    ].map(([id, variable, select]) => ({ id, kind: 'variableSet', variable, pins: [
+      pin('execute', 'input', 'exec'), pin(variable, 'input', 'string', { links: [link(select, 'ReturnValue')] }), pin('then', 'output', 'exec'),
+    ] })),
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, {
+    BoolChoice: '', IntChoice: '', EnumChoice: '', FallbackChoice: '',
+  }));
+  runtime.start();
+  assert.deepEqual(runtime.instances[0].state, {
+    BoolChoice: 'true-value',
+    IntChoice: 'two',
+    EnumChoice: 'burst-value',
+    FallbackChoice: 'fallback-value',
+  });
+});
+
 test('maps UE transform calls onto a Three-style actor object', () => {
   const object = {
     name: 'TestActor_C_0',

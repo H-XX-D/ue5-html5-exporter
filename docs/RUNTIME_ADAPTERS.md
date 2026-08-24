@@ -4,6 +4,14 @@ The exporter serializes Blueprint graphs and supporting assets into `logic/bluep
 
 This is a compatibility runtime, not Unreal Engine running in WebAssembly. A reported adapter-supported node means the browser has a defined implementation; it does not promise bit-for-bit engine parity.
 
+## Core Blueprint flow and choice
+
+The browser VM directly executes events, function entry/results, Branch, Sequence, reroute nodes, Do Once, FlipFlop, and Switch on String, Integer, Name, or Enum. Name and enum matching follow Unreal's case-insensitive Name behavior; String keeps the node's case-sensitive setting. An enum switch with no matching output stops that branch, matching Unreal's default no-default-pin layout.
+
+Pure Select nodes work with Boolean, integer, and enum indices and preserve the selected value's exported pin type. Boolean maps false/true to option 0/1, integer indices address options by order, and enum values match their entry names. Unreal compiles option 0 as the fallback when an index is out of range, so the browser does the same.
+
+Macros such as For Loop and For Each Loop are not implied by this support: they expand to additional graph structures and remain subject to the compatibility report until explicitly covered.
+
 ## Enhanced Input
 
 Legacy project mappings and every `UInputMappingContext` asset are exported. Enhanced mappings retain context, action, key, value type, mapping-level modifiers/triggers, and the modifiers/triggers inherited from the `UInputAction` asset. Trigger metadata includes actuation, Hold, Tap, and Pulse thresholds plus one-shot/start/limit settings.

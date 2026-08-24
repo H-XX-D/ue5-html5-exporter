@@ -484,6 +484,11 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /SimpleConstructionScript/);
   assert.match(source, /BlueprintFunctions/);
   assert.match(source, /switchString/);
+  for (const nodeKind of ['switchInteger', 'switchName', 'switchEnum', 'select']) {
+    assert.match(source, new RegExp(nodeKind));
+  }
+  assert.match(fallbackTest, /Select is a built-in portable choice node/);
+  assert.match(fallbackTest, /Switch on Enum is a built-in portable flow node/);
   assert.match(source, /Function = GraphName/);
   assert.match(source, /discordactivity/);
   for (const eventName of ['primarythumbstick', 'secondarythumbstick', 'touchjumpstart', 'touchjumpend']) {

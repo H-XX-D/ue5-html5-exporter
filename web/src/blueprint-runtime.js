@@ -26,6 +26,18 @@ function normalized(value) {
   return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
+function foldedName(value) {
+  return String(value ?? '').toLocaleLowerCase();
+}
+
+function enumEntry(value) {
+  return String(value ?? '').split('::').at(-1);
+}
+
+function sameEnumEntry(left, right) {
+  return foldedName(enumEntry(left)) === foldedName(enumEntry(right));
+}
+
 function pinNamed(node, ...names) {
   const wanted = names.map(normalized);
   return node.pins.find((pin) => wanted.includes(normalized(pin.name)));
@@ -205,6 +217,27 @@ export class BlueprintRuntime {
         this.runOutputWithContext(instance, node, [match?.name || 'Default'], context);
         break;
       }
+      case 'switchInteger': {
+        const selection = Number(this.readInput(instance, node, ['selection'], 0));
+        const match = outputExecPins(node).find((pin) => foldedName(pin.name) !== 'default'
+          && Number(pin.name) === selection);
+        this.runOutputWithContext(instance, node, [match?.name || 'Default'], context);
+        break;
+      }
+      case 'switchName': {
+        const selection = this.readInput(instance, node, ['selection'], '');
+        const match = outputExecPins(node).find((pin) => foldedName(pin.name) !== 'default'
+          && foldedName(pin.name) === foldedName(selection));
+        this.runOutputWithContext(instance, node, [match?.name || 'Default'], context);
+        break;
+      }
+      case 'switchEnum': {
+        const selection = this.readInput(instance, node, ['selection'], '');
+        const match = outputExecPins(node).find((pin) => foldedName(pin.name) !== 'default'
+          && sameEnumEntry(pin.name, selection));
+        this.runOutputWithContext(instance, node, [match?.name || 'Default'], context);
+        break;
+      }
       case 'sequence': {
         for (const pin of outputExecPins(node).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
           for (const link of pin.links || []) this.execute(instance, link.node, link.pin, context);
@@ -312,6 +345,22 @@ export class BlueprintRuntime {
     } else if (node.kind === 'breakStruct') {
       const source = this.readInput(instance, node, ['struct', 'input'], {});
       value = source?.[normalized(outputPin)] ?? source?.[String(outputPin).toLowerCase()] ?? null;
+    } else if (node.kind === 'select') {
+      const indexPin = pinNamed(node, 'Index');
+      const options = inputPins(node).filter((pin) => normalized(pin.name) !== 'index');
+      const index = indexPin ? this.readSpecificPin(instance, indexPin, stack) : 0;
+      const indexCategory = normalized(indexPin?.category);
+      const isEnum = indexCategory === 'enum'
+        || (indexCategory === 'byte' && Boolean(indexPin?.typeObject));
+      let selected = options[0];
+      if (indexCategory === 'bool' || indexCategory === 'boolean') {
+        selected = options[Boolean(index) ? 1 : 0] || selected;
+      } else if (isEnum) {
+        selected = options.find((pin) => sameEnumEntry(pin.name, index)) || selected;
+      } else if (Number.isInteger(Number(index))) {
+        selected = options[Number(index)] || selected;
+      }
+      value = selected ? this.readSpecificPin(instance, selected, stack) : null;
     } else if (node.kind === 'callFunction' || node.kind === 'createWidget' || node.kind === 'getSubsystem') {
       const result = instance.internal.has(`result:${node.id}`)
         ? instance.internal.get(`result:${node.id}`)

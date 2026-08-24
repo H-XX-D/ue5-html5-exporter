@@ -128,12 +128,16 @@ namespace
         if (Node->IsA<UK2Node_CallFunction>()) return TEXT("callFunction");
         if (ClassName == TEXT("K2Node_IfThenElse")) return TEXT("branch");
         if (ClassName == TEXT("K2Node_SwitchString")) return TEXT("switchString");
+        if (ClassName == TEXT("K2Node_SwitchInteger")) return TEXT("switchInteger");
+        if (ClassName == TEXT("K2Node_SwitchName")) return TEXT("switchName");
+        if (ClassName == TEXT("K2Node_SwitchEnum")) return TEXT("switchEnum");
         if (ClassName == TEXT("K2Node_ExecutionSequence")) return TEXT("sequence");
         if (ClassName == TEXT("K2Node_Knot")) return TEXT("knot");
         if (ClassName == TEXT("K2Node_Self")) return TEXT("self");
         if (ClassName == TEXT("K2Node_Literal") || ClassName.Contains(TEXT("EnumLiteral"))) return TEXT("literal");
         if (ClassName == TEXT("K2Node_MakeStruct")) return TEXT("makeStruct");
         if (ClassName == TEXT("K2Node_BreakStruct")) return TEXT("breakStruct");
+        if (ClassName == TEXT("K2Node_Select")) return TEXT("select");
         if (ClassName.Contains(TEXT("DoOnce"))) return TEXT("doOnce");
         if (ClassName.Contains(TEXT("FlipFlop"))) return TEXT("flipFlop");
         return TEXT("unsupported");
@@ -366,7 +370,7 @@ namespace
         TArray<TSharedPtr<FJsonValue>>& BlueprintFallbacks)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
-        const FString Kind = NodeKind(Node);
+        const FString Kind = FUE5BlueprintGraphExporter::ClassifyNodeKind(Node);
         const FString Event = EventName(Node);
         FString Function = FunctionName(Node);
         if (Kind == TEXT("functionEntry") && (Function.IsEmpty() || Function == TEXT("None"))) Function = GraphName;
@@ -939,6 +943,11 @@ namespace
         Root->SetObjectField(TEXT("audioAssets"), AudioAssets);
         return true;
     }
+}
+
+FString FUE5BlueprintGraphExporter::ClassifyNodeKind(const UEdGraphNode* Node)
+{
+    return Node ? NodeKind(Node) : TEXT("unsupported");
 }
 
 FString FUE5BlueprintGraphExporter::BlueprintFallbackFunctionName(const FString& FunctionName)

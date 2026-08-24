@@ -5,6 +5,7 @@
 
 class AActor;
 class UEdGraph;
+class UEdGraphNode;
 class USoundWave;
 class UWorld;
 
@@ -33,6 +34,7 @@ struct FUE5BlueprintExportSummary
 class FUE5BlueprintGraphExporter
 {
 public:
+    static FString ClassifyNodeKind(const UEdGraphNode* Node);
     static FString BlueprintFallbackFunctionName(const FString& FunctionName);
     static FString BlueprintFallbackDraftMarker();
     static bool IsBlueprintFallbackDraftGraph(const UEdGraph* Graph);
