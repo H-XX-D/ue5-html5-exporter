@@ -220,7 +220,10 @@ export class BlueprintRuntime {
       }
       case 'callFunction': {
         const result = this.invoke(instance, node, context);
-        if (!result?.latent) this.runOutputWithContext(instance, node, ['then', 'completed'], context);
+        if (!result?.latent) {
+          instance.internal.set(`result:${node.id}`, result?.value ?? null);
+          this.runOutputWithContext(instance, node, ['then', 'completed'], context);
+        }
         break;
       }
       case 'createWidget':
@@ -256,8 +259,14 @@ export class BlueprintRuntime {
       case 'functionEntry':
         this.runOutputWithContext(instance, node, ['then'], context);
         break;
+      case 'functionResult': {
+        context.returnValue = Object.fromEntries(inputPins(node)
+          .filter((pin) => normalized(pin.name) !== 'self' && normalized(pin.category) !== 'exec')
+          .map((pin) => [normalized(pin.name), this.readSpecificPin(instance, pin)]));
+        context.didReturn = true;
+        break;
+      }
       case 'comment':
-      case 'functionResult':
         break;
       default:
         this.report('warning', instance, node, `Unsupported execution node ${node.class || node.kind}; branch skipped.`);
@@ -393,8 +402,13 @@ export class BlueprintRuntime {
     const entry = instance.functionEntries.get(fallbackName);
     if (entry) {
       instance.eventArgs.set(entry.id, args);
-      this.runOutputWithContext(instance, entry, ['then'], context);
-      return { value: null };
+      const functionContext = { steps: context?.steps || 0, didReturn: false, returnValue: null };
+      this.runOutputWithContext(instance, entry, ['then'], functionContext);
+      if (context) context.steps = functionContext.steps;
+      if (node.webFallbackReturnsValue && !functionContext.didReturn) {
+        this.report('error', instance, node, `Blueprint web fallback ${node.webFallbackFunction} did not reach a Function Result node synchronously.`);
+      }
+      return { handled: true, value: functionContext.didReturn ? functionContext.returnValue : null };
     }
     this.report('warning', instance, node, `Unsupported Blueprint function ${node.function}; execution continues.`);
     return { value: null };

@@ -6,6 +6,7 @@
 #include "Engine/Blueprint.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_FunctionEntry.h"
+#include "K2Node_FunctionResult.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
 #include "UE5BlueprintGraphExporter.h"
@@ -62,25 +63,6 @@ namespace
         return nullptr;
     }
 
-    bool HasConnectedDataOutput(const UK2Node_CallFunction* Call)
-    {
-        if (!Call)
-        {
-            return false;
-        }
-        for (const UEdGraphPin* Pin : Call->Pins)
-        {
-            if (Pin
-                && Pin->Direction == EGPD_Output
-                && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
-                && Pin->LinkedTo.Num() > 0)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     FString CandidateKey(const FUE5HTML5BlueprintRepairCandidate& Candidate)
     {
         return Candidate.BlueprintPath.ToLower() + TEXT("|") + Candidate.SuggestedFunctionName.ToLower();
@@ -103,11 +85,6 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
     if (Call->IsNodePure())
     {
         OutError = TEXT("Pure calls need a browser adapter that returns a value and cannot use this draft workflow.");
-        return false;
-    }
-    if (HasConnectedDataOutput(Call))
-    {
-        OutError = TEXT("The call now has a connected data output, so a side-effect-only Blueprint fallback would discard required data.");
         return false;
     }
     if (FUE5BlueprintGraphExporter::IsBuiltInSupportedFunction(FunctionName))
@@ -178,6 +155,43 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
         }
     }
 
+    TArray<const UEdGraphPin*> DataOutputs;
+    for (const UEdGraphPin* Pin : Call->Pins)
+    {
+        if (Pin
+            && !Pin->ParentPin
+            && Pin->Direction == EGPD_Output
+            && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec
+            && !Pin->bHidden)
+        {
+            DataOutputs.Add(Pin);
+        }
+    }
+    if (!DataOutputs.IsEmpty())
+    {
+        UK2Node_FunctionResult* FunctionResult = FBlueprintEditorUtils::FindOrCreateFunctionResultNode(Entry);
+        if (!FunctionResult)
+        {
+            FBlueprintEditorUtils::RemoveGraph(Blueprint, DraftGraph, EGraphRemoveFlags::MarkTransient);
+            OutError = FString::Printf(TEXT("Unreal could not create the return node for %s."), *OutDraftFunction);
+            return false;
+        }
+        FunctionResult->Modify();
+        for (const UEdGraphPin* Pin : DataOutputs)
+        {
+            if (!FunctionResult->CreateUserDefinedPin(Pin->PinName, Pin->PinType, EGPD_Input, false))
+            {
+                const FString FailedPin = Pin->PinName.ToString();
+                FBlueprintEditorUtils::RemoveGraph(Blueprint, DraftGraph, EGraphRemoveFlags::MarkTransient);
+                OutError = FString::Printf(
+                    TEXT("Unreal cannot copy output '%s' into %s. Use a JavaScript project adapter for this signature."),
+                    *FailedPin,
+                    *OutDraftFunction);
+                return false;
+            }
+        }
+    }
+
     UEdGraphNode_Comment* Marker = NewObject<UEdGraphNode_Comment>(DraftGraph);
     Marker->SetFlags(RF_Transactional);
     Marker->NodePosX = -260;
@@ -190,7 +204,7 @@ bool FUE5HTML5BlueprintFallbackScaffolder::CreateDraft(
     Marker->AllocateDefaultPins();
     Marker->NodeComment = FUE5BlueprintGraphExporter::BlueprintFallbackDraftMarker();
     Marker->NodeDetails = FText::FromString(FString::Printf(
-        TEXT("This function receives the same input pins as %s. Rebuild only the portable behavior needed in the browser. The exporter deliberately keeps the original call unsupported while this marker exists."),
+        TEXT("This function receives the same input and output pins as %s. Rebuild only the portable behavior needed in the browser. The exporter deliberately keeps the original call unsupported while this marker exists."),
         *FunctionName));
     DraftGraph->Modify();
     DraftGraph->AddNode(Marker, true, false);

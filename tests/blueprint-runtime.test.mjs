@@ -283,6 +283,53 @@ test('redirects an unsupported action call to its exported Blueprint web fallbac
   assert.deepEqual(runtime.diagnostics, []);
 });
 
+test('returns synchronous output pins from an impure Blueprint web fallback before caller continuation', () => {
+  const nodes = [
+    { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('native', 'execute')] })] },
+    { id: 'native', kind: 'callFunction', function: 'NativeApplyDamage', webFallbackFunction: 'Web_NativeApplyDamage', webFallbackReturnsValue: true, pins: [
+      pin('execute', 'input', 'exec'), pin('Amount', 'input', 'int', { default: '25' }),
+      pin('ReturnValue', 'output', 'bool', { links: [link('set-result', 'Succeeded')] }),
+      pin('then', 'output', 'exec', { links: [link('set-result', 'execute')] }),
+    ] },
+    { id: 'entry', kind: 'functionEntry', function: 'Web_NativeApplyDamage', pins: [
+      pin('Amount', 'output', 'int'), pin('then', 'output', 'exec', { links: [link('return', 'execute')] }),
+    ] },
+    { id: 'return', kind: 'functionResult', pins: [
+      pin('execute', 'input', 'exec'), pin('ReturnValue', 'input', 'bool', { default: 'true' }),
+    ] },
+    { id: 'set-result', kind: 'variableSet', variable: 'Succeeded', pins: [
+      pin('execute', 'input', 'exec'), pin('Succeeded', 'input', 'bool', { links: [link('native', 'ReturnValue')] }),
+      pin('then', 'output', 'exec', { links: [link('set-continued', 'execute')] }),
+    ] },
+    { id: 'set-continued', kind: 'variableSet', variable: 'Continued', pins: [
+      pin('execute', 'input', 'exec'), pin('Continued', 'input', 'bool', { default: 'true' }), pin('then', 'output', 'exec'),
+    ] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes, {
+    Succeeded: { value: 'false', category: 'bool' },
+    Continued: { value: 'false', category: 'bool' },
+  }));
+  runtime.start();
+  assert.equal(runtime.instances[0].state.Succeeded, true);
+  assert.equal(runtime.instances[0].state.Continued, true);
+  assert.deepEqual(runtime.diagnostics, []);
+});
+
+test('reports a return-valued web fallback that cannot produce a synchronous Function Result', () => {
+  const nodes = [
+    { id: 'begin', kind: 'event', event: 'ReceiveBeginPlay', pins: [pin('then', 'output', 'exec', { links: [link('native', 'execute')] })] },
+    { id: 'native', kind: 'callFunction', function: 'NativeQuery', webFallbackFunction: 'Web_NativeQuery', webFallbackReturnsValue: true, pins: [
+      pin('execute', 'input', 'exec'), pin('ReturnValue', 'output', 'bool'), pin('then', 'output', 'exec'),
+    ] },
+    { id: 'entry', kind: 'functionEntry', function: 'Web_NativeQuery', pins: [pin('then', 'output', 'exec')] },
+  ];
+  const runtime = new BlueprintRuntime(program(nodes));
+  runtime.start();
+  assert.equal(runtime.diagnostics.length, 1);
+  assert.equal(runtime.diagnostics[0].level, 'error');
+  assert.match(runtime.diagnostics[0].message, /did not reach a Function Result node synchronously/);
+});
+
 test('passes Blueprint function arguments through reroute nodes', () => {
   const nodes = [
     { id: 'entry', kind: 'functionEntry', function: 'Aim', pins: [

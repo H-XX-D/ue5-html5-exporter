@@ -2,6 +2,7 @@
 
 #include "DesktopPlatformModule.h"
 #include "Editor.h"
+#include "Engine/Blueprint.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
@@ -237,7 +238,7 @@ void FUE5HTML5ExporterModule::RegisterMenus()
     Section.AddMenuEntry(
         "UE5HTML5CreateBlueprintFallbackDrafts",
         LOCTEXT("CreateBlueprintFallbackDrafts", "Create Blueprint Web Fallback Drafts…"),
-        LOCTEXT("CreateBlueprintFallbackDraftsTooltip", "Audit the current export scope and create undoable Web_ function drafts with matching input pins for eligible unsupported action calls. Drafts remain unsupported until their visible marker is deleted."),
+        LOCTEXT("CreateBlueprintFallbackDraftsTooltip", "Audit the current export scope and create undoable Web_ function drafts with matching input and output pins for eligible unsupported synchronous action calls. Drafts remain unsupported until their visible marker is deleted."),
         FSlateIcon(),
         FUIAction(FExecuteAction::CreateRaw(this, &FUE5HTML5ExporterModule::CreateBlueprintFallbackDraftsInteractive)));
 
@@ -553,7 +554,7 @@ void FUE5HTML5ExporterModule::CreateBlueprintFallbackDraftsInteractive()
         const FString Message = Report.UnsupportedNodeCount == 0
             ? TEXT("No uncovered Blueprint calls need fallback drafts in the current export scope.")
             : FString::Printf(
-                TEXT("None of the %d uncovered nodes can use a side-effect-only Blueprint fallback. Pure calls, connected return values, and non-call nodes still need built-in runtime support or a project JavaScript adapter.\n\nComplete report:\n%s"),
+                TEXT("None of the %d uncovered nodes can use a synchronous Blueprint fallback. Pure calls and non-call nodes still need built-in runtime support or a project JavaScript adapter.\n\nComplete report:\n%s"),
                 Report.UnsupportedNodeCount,
                 *Report.ReportPath);
         FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
@@ -581,7 +582,7 @@ void FUE5HTML5ExporterModule::CreateBlueprintFallbackDraftsInteractive()
         Message += FString::Printf(TEXT("  ... and %d more\n"), Functions.Num() - VisibleCount);
     }
     Message += TEXT(
-        "\nEach new Web_ function receives the native call's input pins. A large orange DRAFT comment keeps it unsupported until you rebuild the portable behavior and delete that marker.\n\n"
+        "\nEach new Web_ function receives the native call's input and output pins. A large orange DRAFT comment keeps it unsupported until you rebuild the portable behavior, set every required output, and delete that marker.\n\n"
         "This changes Blueprint assets in memory, supports Undo, and does not save them automatically.");
     if (FMessageDialog::Open(EAppMsgType::YesNo, FText::FromString(Message)) != EAppReturnType::Yes)
     {

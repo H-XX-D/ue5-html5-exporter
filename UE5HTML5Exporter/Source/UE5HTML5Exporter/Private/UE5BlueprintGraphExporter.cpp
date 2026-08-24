@@ -417,7 +417,7 @@ namespace
                         break;
                     }
                 }
-                bBlueprintFallbackEligible = !bFunctionNameIsBuiltIn && !Call->IsNodePure() && !bHasConnectedDataOutputs;
+                bBlueprintFallbackEligible = !bFunctionNameIsBuiltIn && !Call->IsNodePure();
                 BlueprintFallbackFunction = FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
                     Function,
                     BlueprintFunctions,
@@ -443,7 +443,11 @@ namespace
                 : (bBlueprintFallback
                     ? TEXT("blueprint-fallback")
                     : (bBuiltInSupported ? TEXT("built-in") : TEXT("unsupported"))));
-        if (bBlueprintFallback) Json->SetStringField(TEXT("webFallbackFunction"), BlueprintFallbackFunction);
+        if (bBlueprintFallback)
+        {
+            Json->SetStringField(TEXT("webFallbackFunction"), BlueprintFallbackFunction);
+            Json->SetBoolField(TEXT("webFallbackReturnsValue"), bHasConnectedDataOutputs);
+        }
         if (bCustomAdapter) Json->SetBoolField(TEXT("runtimeValidationRequired"), true);
         Json->SetNumberField(TEXT("x"), Node->NodePosX);
         Json->SetNumberField(TEXT("y"), Node->NodePosY);
@@ -578,10 +582,6 @@ namespace
                 if (Kind == TEXT("callFunction") && CastChecked<UK2Node_CallFunction>(Node)->IsNodePure())
                 {
                     Issue->SetStringField(TEXT("repairReason"), TEXT("Pure calls require a browser implementation that returns a value."));
-                }
-                else if (Kind == TEXT("callFunction") && bHasConnectedDataOutputs)
-                {
-                    Issue->SetStringField(TEXT("repairReason"), TEXT("Connected data outputs cannot be discarded by a side-effect-only Blueprint fallback."));
                 }
                 else if (Kind == TEXT("callFunction") && bBlueprintFallbackEligible && !OwningBlueprint)
                 {
@@ -954,9 +954,9 @@ FString FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
     const FString& FunctionName,
     const TSet<FString>& BlueprintFunctions,
     bool bIsPure,
-    bool bHasConnectedDataOutputs)
+    bool /*bHasConnectedDataOutputs*/)
 {
-    if (FunctionName.IsEmpty() || bIsPure || bHasConnectedDataOutputs)
+    if (FunctionName.IsEmpty() || bIsPure)
     {
         return FString();
     }

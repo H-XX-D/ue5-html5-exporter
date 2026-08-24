@@ -725,7 +725,7 @@ namespace
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Chaos rigid-body solver, constraints, and deterministic physics")));
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Authoritative Unreal networking, relevancy, prediction, and rollback")));
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Exact Slate layout/animation and custom widgets")));
-        Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Compiled user C++ cannot transfer directly; eligible action calls may use Web_<Function> Blueprint fallbacks, while pure or return-valued calls need JavaScript replacements")));
+        Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Compiled user C++ cannot transfer directly; eligible impure synchronous calls, including calls with returned values, may use Web_<Function> Blueprint fallbacks, while pure calls need JavaScript replacements")));
         Unsupported.Add(MakeShared<FJsonValueString>(TEXT("Custom Unreal material shader code")));
         Root->SetArrayField(TEXT("notTransferredExactly"), Unsupported);
 
@@ -1093,7 +1093,7 @@ FUE5HTML5BlueprintCompatibilityReport FUE5HTML5ExportLibrary::AnalyzeBlueprintCo
         {
             Text += FString::Printf(TEXT("- %s\n"), *Draft);
         }
-        Text += TEXT("Run Tools > HTML5 Export > Create Blueprint Web Fallback Drafts to create these functions with matching input pins. Each remains unsupported while its orange draft marker exists. Rebuild the behavior, delete the marker, and rerun this audit.\n\n");
+        Text += TEXT("Run Tools > HTML5 Export > Create Blueprint Web Fallback Drafts to create these functions with matching input and output pins. Each remains unsupported while its orange draft marker exists. Rebuild the behavior, set every required output, delete the marker, and rerun this audit.\n\n");
     }
 
     Text += TEXT("DISCORD ACTIVITY ACCESS\n-----------------------\n");

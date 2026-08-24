@@ -1,4 +1,6 @@
-#if WITH_AUTOMATION_TESTS
+#include "CoreMinimal.h"
+
+#if WITH_DEV_AUTOMATION_TESTS
 
 #include "UE5HTML5BrowserFPSSetup.h"
 

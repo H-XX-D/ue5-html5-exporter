@@ -456,6 +456,7 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(source, /project-adapter/);
   assert.match(source, /blueprint-fallback/);
   assert.match(source, /webFallbackFunction/);
+  assert.match(source, /webFallbackReturnsValue/);
   assert.match(source, /Web_%s/);
   assert.match(source, /bHasConnectedDataOutputs/);
   assert.match(source, /CustomAdapterNodeCount/);
@@ -465,7 +466,8 @@ test('Blueprint exporter preserves graph pins and writes browser IR', () => {
   assert.match(fallbackTest, /visible draft marker prevents premature compatibility coverage/);
   assert.match(fallbackTest, /native Damage input is copied/);
   assert.match(fallbackTest, /Pure calls cannot use/);
-  assert.match(fallbackTest, /connected data outputs cannot discard/);
+  assert.match(fallbackTest, /connected data outputs can use a synchronous Blueprint fallback/);
+  assert.match(fallbackTest, /Function Result/);
   assert.match(source, /runtimeValidationRequired/);
   assert.match(source, /BlueprintName/);
   assert.match(source, /UInputMappingContext::StaticClass/);

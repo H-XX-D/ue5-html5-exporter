@@ -4,10 +4,12 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphPin.h"
 #include "Editor.h"
+#include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
 #include "GameFramework/Actor.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_FunctionEntry.h"
+#include "K2Node_FunctionResult.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
 #include "UE5HTML5TargetComponent.h"
@@ -32,13 +34,14 @@ bool FUE5HTML5BlueprintFallbackPolicyTest::RunTest(const FString& Parameters)
             TEXT("NativeApplyDamage"), BlueprintFunctions, false, false),
         FString(TEXT("Web_NativeApplyDamage")));
     TestTrue(
-        TEXT("Pure calls cannot use a side-effect-only Blueprint fallback"),
+        TEXT("Pure calls cannot use an execution-flow Blueprint fallback"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
             TEXT("NativeApplyDamage"), BlueprintFunctions, true, false).IsEmpty());
-    TestTrue(
-        TEXT("Calls with connected data outputs cannot discard their result"),
+    TestEqual(
+        TEXT("An impure call with connected data outputs can use a synchronous Blueprint fallback"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
-            TEXT("NativeApplyDamage"), BlueprintFunctions, false, true).IsEmpty());
+            TEXT("NativeApplyDamage"), BlueprintFunctions, false, true),
+        FString(TEXT("Web_NativeApplyDamage")));
     TestTrue(
         TEXT("A missing Web_ Blueprint function leaves the call unsupported"),
         FUE5BlueprintGraphExporter::FindBlueprintFallbackFunction(
@@ -140,6 +143,20 @@ bool FUE5HTML5BlueprintFallbackScaffoldingTest::RunTest(const FString& Parameter
     {
         TestEqual(TEXT("The copied input keeps its integer type"), DamagePin->PinType.PinCategory, UEdGraphSchema_K2::PC_Int);
     }
+    TArray<UK2Node_FunctionResult*> Results;
+    DraftGraph->GetNodesOfClass(Results);
+    TestEqual(TEXT("A return-valued native action creates one function result"), Results.Num(), 1);
+    const UEdGraphPin* ReturnPin = Results.Num() == 1 ? Results[0]->FindPin(TEXT("ReturnValue"), EGPD_Input) : nullptr;
+    TestNotNull(TEXT("The native return value is copied into the Blueprint function"), ReturnPin);
+    if (ReturnPin)
+    {
+        TestEqual(TEXT("The copied return value keeps its bool type"), ReturnPin->PinType.PinCategory, UEdGraphSchema_K2::PC_Boolean);
+    }
+    const UEdGraphPin* EntryThen = Entries.Num() == 1 ? Entries[0]->FindPin(UEdGraphSchema_K2::PN_Then, EGPD_Output) : nullptr;
+    const UEdGraphPin* ResultExecute = Results.Num() == 1 ? Results[0]->FindPin(UEdGraphSchema_K2::PN_Execute, EGPD_Input) : nullptr;
+    TestTrue(
+        TEXT("The generated synchronous fallback reaches its Function Result by default"),
+        EntryThen && ResultExecute && EntryThen->LinkedTo.Contains(ResultExecute));
 
     TestTrue(TEXT("Undo removes the generated draft transaction"), GEditor->UndoTransaction());
     TestNull(TEXT("The draft graph is absent after Undo"), FindDraftGraph());
